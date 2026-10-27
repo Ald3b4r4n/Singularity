@@ -203,7 +203,7 @@ class FocusNewSessionWorkspacePickerAction extends Action2 {
 	override run(accessor: ServicesAccessor): void {
 		const sessionsService = accessor.get(ISessionsService);
 		const sessionsPartService = accessor.get(ISessionsPartService);
-		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()?.sessionId))?.focusWorkspacePicker();
+		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()))?.focusWorkspacePicker();
 	}
 }
 
@@ -228,7 +228,7 @@ class FocusNewSessionEnvironmentPickerAction extends Action2 {
 	override run(accessor: ServicesAccessor): void {
 		const sessionsService = accessor.get(ISessionsService);
 		const sessionsPartService = accessor.get(ISessionsPartService);
-		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()?.sessionId))?.focusEnvironmentPicker();
+		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()))?.focusEnvironmentPicker();
 	}
 }
 
@@ -253,7 +253,7 @@ class FocusNewSessionHarnessPickerAction extends Action2 {
 	override run(accessor: ServicesAccessor): void {
 		const sessionsService = accessor.get(ISessionsService);
 		const sessionsPartService = accessor.get(ISessionsPartService);
-		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()?.sessionId))?.focusHarnessPicker();
+		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()))?.focusHarnessPicker();
 	}
 }
 
@@ -278,7 +278,7 @@ class FocusNewSessionBranchPickerAction extends Action2 {
 	override run(accessor: ServicesAccessor): void {
 		const sessionsService = accessor.get(ISessionsService);
 		const sessionsPartService = accessor.get(ISessionsPartService);
-		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()?.sessionId))?.focusBranchPicker();
+		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()))?.focusBranchPicker();
 	}
 }
 
@@ -303,7 +303,7 @@ class FocusNewSessionWorktreePickerAction extends Action2 {
 	override run(accessor: ServicesAccessor): void {
 		const sessionsService = accessor.get(ISessionsService);
 		const sessionsPartService = accessor.get(ISessionsPartService);
-		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()?.sessionId))?.focusWorktreePicker();
+		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()))?.focusWorktreePicker();
 	}
 }
 
@@ -328,7 +328,7 @@ class FocusSessionSyncActionAction extends Action2 {
 	override run(accessor: ServicesAccessor): void {
 		const sessionsService = accessor.get(ISessionsService);
 		const sessionsPartService = accessor.get(ISessionsPartService);
-		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()?.sessionId))?.focusSyncAction();
+		(sessionsPartService.getFocusedSessionView() ?? sessionsPartService.getSessionView(sessionsService.activeSession.get()))?.focusSyncAction();
 	}
 }
 
