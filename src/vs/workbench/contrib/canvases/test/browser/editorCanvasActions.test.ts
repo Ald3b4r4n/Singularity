@@ -213,16 +213,17 @@ suite('EditorCanvasActions', () => {
 		}, {
 			submenuTitles: ['Canvas'],
 			submenuGroups: ['z_canvas'],
-			initialTitles: ['Counter (Project Counter)', 'Counter (User Counter)', 'Preview'],
-			groups: ['1_available', '1_available', '2_open'],
-			requiresChat: [true, true, true],
+			initialTitles: ['Browser', 'Counter (Project Counter)', 'Counter (User Counter)', 'Counter', 'Preview'],
+			groups: ['1_available', '1_available', '1_available', '2_open', '2_open'],
+			requiresChat: [true, true, true, true, true],
 			listCalls: 4,
-			opened: [{
-				canvas: 'project:counter',
-				instanceId: getCanvasDefinitionInstanceId(projectDefinition),
-			}],
-			revealed: ['agent-host-canvas:/project-counter', 'agent-host-canvas:/user-counter'],
-			reopened: ['agent-host-canvas:/preview'],
+			opened: [
+				{ canvas: 'github-app', instanceId: getCanvasDefinitionInstanceId(builtInDefinition) },
+				{ canvas: 'project:counter', instanceId: getCanvasDefinitionInstanceId(projectDefinition) },
+				{ canvas: 'user:counter', instanceId: getCanvasDefinitionInstanceId(userDefinition) },
+			],
+			revealed: [],
+			reopened: ['agent-host-canvas:/project-counter', 'agent-host-canvas:/preview'],
 			unchangedSubmenuRetained: true,
 			refreshedTitles: ['Chart', 'Counter', 'Preview'],
 			uninitializedItems: 0,
@@ -231,7 +232,7 @@ suite('EditorCanvasActions', () => {
 			disabledSubmenus: 0,
 			itemsAfterDispose: 0,
 			submenusAfterDispose: 0,
-			commandsAfterDispose: [false, false, false, false, false, false, false, false],
+			commandsAfterDispose: [false, false, false, false, false, false, false, false, false],
 		});
 	});
 
