@@ -56,7 +56,7 @@ import { resolveTitleGenerationStrategy } from '../../common/titleGenerationConf
 import { buildAnnotationsUri } from '../../common/annotationsUri.js';
 import { buildCanvasUri } from '../../common/canvasUri.js';
 import { buildMcpResourceUri, buildToolResultResourceUri } from '../../common/mcpResourceUri.js';
-import type { CanvasState } from '../../common/state/protocol/channels-canvas/state.js';
+import { CanvasExtensionSource, type CanvasState } from '../../common/state/protocol/channels-canvas/state.js';
 import type { TerminalState } from '../../common/state/protocol/channels-terminal/state.js';
 import { resolveAgentHostSession } from '../../common/agentHostSubscriptionService.js';
 import { ClaudeSessionConfigKey } from '../../common/claudeSessionConfigKeys.js';
@@ -1878,7 +1878,10 @@ suite('AgentService (node dispatcher)', () => {
 				let canvasCredential: string | undefined;
 				class ScopedAgent extends MockAgent {
 					readonly supportsScopedCredentials = true;
-					listSessionCanvases = async () => [];
+					override listSessionCanvases = async () => [];
+					override openSessionCanvas: NonNullable<IAgent['openSessionCanvas']> = async (_session, _request, chat, context) => {
+						canvasCredential = resolveAgentChatContext(context, chat).credentials?.getCredential({ resource: GITHUB_COPILOT_PROTECTED_RESOURCE.resource })?.token;
+					};
 					override readonly chats: IAgentChats = withChatOverrides(getChatSurface(this), base => ({
 						getMessages: async (chat, context) => {
 							assert.ok(resolveAgentChatContext(context, chat).credentials);
@@ -1891,10 +1894,8 @@ suite('AgentService (node dispatcher)', () => {
 				}
 				const data = createPerSessionDataService();
 				const scopedService = disposables.add(createTestAgentService(new NullLogService(), fileService, data.service, { _serviceBrand: undefined } as IProductService, createNoopGitService()));
-				const provider: IAgent = disposables.add(new ScopedAgent('copilot'));
-				provider.openSessionCanvas = async (_session, _request, chat, context) => {
-					canvasCredential = resolveAgentChatContext(context, chat).credentials?.getCredential({ resource: GITHUB_COPILOT_PROTECTED_RESOURCE.resource })?.token;
-				};
+				const provider = disposables.add(new ScopedAgent('copilot'));
+				provider.setCapabilities({ multipleChats: { fork: true }, canvases: {} });
 				registerTestAgentProvider(scopedService, provider);
 				const composition = getTestAgentServiceComposition(scopedService);
 				composition.configurationService.updateRootConfig({ [AgentHostCanvasesEnabledConfigKey]: true });
@@ -4336,12 +4337,16 @@ suite('AgentService (node dispatcher)', () => {
 			};
 			provider.openSessionCanvas = async (session, request, chat, context) => {
 				const resolved = resolveAgentChatContext(context, chat);
-				calls.push(['open', session.toString(), chat.toString(), resolved.resource.toString(), resolved.owner.get().toString(), request]);
+				calls.push(['open', session.toString(), chat.toString(), resolved.resource.toString(), resolved.owner.get().toString(), {
+					...request,
+					...(request.resource ? { resource: request.resource.toString() } : {}),
+				}]);
 			};
 			provider.closeSessionCanvas = async (session, request, chat, context) => {
 				const resolved = resolveAgentChatContext(context, chat);
 				calls.push(['close', session.toString(), chat.toString(), resolved.resource.toString(), resolved.owner.get().toString(), request.resource.toString()]);
 			};
+			copilotAgent.setCapabilities({ multipleChats: { fork: true }, canvases: {} });
 			registerTestAgentProvider(service, provider);
 			getConfigurationService(service).updateRootConfig({ [AgentHostCanvasesEnabledConfigKey]: true });
 			const stateManager = getStateManager(service);
@@ -4371,9 +4376,26 @@ suite('AgentService (node dispatcher)', () => {
 				instanceId: 'project-preview-preview',
 			}, chat);
 			await managementService.closeSessionCanvas(session, { resource: URI.parse('ahp-canvas:/preview') }, chat);
+			await service.dispatchAction(chat.toString(), { type: ActionType.ChatCanvasRegistryRequested }, 'canvas-client', 1);
+			await timeout(0);
+			const resource = URI.parse('ahp-canvas:/client.example/preview');
+			await service.openCanvas({
+				channel: resource.toString(),
+				chat: chat.toString(),
+				extensionId: 'project:preview',
+				canvasId: 'preview',
+			});
+			stateManager.setCanvasState(chat.toString(), resource.toString(), {
+				instanceId: 'provider-preview',
+				extensionId: 'project:preview',
+				canvasId: 'preview',
+			});
+			await service.disposeCanvas(resource);
 
 			assert.deepStrictEqual({
 				canvases,
+				registry: stateManager.getChatState(chat.toString())?.canvasRegistry,
+				standardCalls: calls.slice(-5),
 				calls,
 			}, {
 				canvases: [{
@@ -4385,6 +4407,30 @@ suite('AgentService (node dispatcher)', () => {
 					requiresInput: false,
 					actionCount: 0,
 				}],
+				registry: {
+					extensions: [{
+						extensionId: 'project:preview',
+						extensionSource: CanvasExtensionSource.Project,
+						canvases: [{
+							canvasId: 'preview',
+							displayName: 'Preview',
+							description: 'Preview generated content.',
+							requiresInput: false,
+						}],
+					}],
+				},
+				standardCalls: [
+					['close', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session', 'ahp-canvas:/preview'],
+					['list', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session'],
+					['restore', 'copilot:/canvas-session'],
+					['open', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session', {
+						resource: resource.toString(),
+						resourceId: resource.toString(),
+						canvasId: 'preview',
+						extensionId: 'project:preview',
+					}],
+					['close', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session', resource.toString()],
+				],
 				calls: [
 					['restore', 'copilot:/canvas-session'],
 					['list', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session'],
@@ -4395,6 +4441,15 @@ suite('AgentService (node dispatcher)', () => {
 						instanceId: 'project-preview-preview',
 					}],
 					['close', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session', 'ahp-canvas:/preview'],
+					['list', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session'],
+					['restore', 'copilot:/canvas-session'],
+					['open', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session', {
+						resource: resource.toString(),
+						resourceId: resource.toString(),
+						canvasId: 'preview',
+						extensionId: 'project:preview',
+					}],
+					['close', 'copilot:/canvas-session', chat.toString(), 'copilot:/canvas-session', 'copilot:/canvas-session', resource.toString()],
 				],
 			});
 		});
@@ -4405,6 +4460,7 @@ suite('AgentService (node dispatcher)', () => {
 			provider.closeSessionCanvas = async (_session, _request, chat) => {
 				closed.push(chat.toString());
 			};
+			copilotAgent.setCapabilities({ multipleChats: { fork: true }, canvases: {} });
 			registerTestAgentProvider(service, provider);
 			getConfigurationService(service).updateRootConfig({ [AgentHostCanvasesEnabledConfigKey]: true });
 			const stateManager = getStateManager(service);
@@ -4440,6 +4496,34 @@ suite('AgentService (node dispatcher)', () => {
 			assert.deepStrictEqual({ restoreCalls, resolverCalls, closed }, { restoreCalls: 0, resolverCalls: 0, closed: [coldPeer.toString()] });
 		});
 
+		test('reserves a canvas channel atomically and retains its declaration binding', async () => {
+			const gate = new DeferredPromise<void>();
+			let openCalls = 0;
+			copilotAgent.setCapabilities({ multipleChats: { fork: true }, canvases: {} });
+			copilotAgent.openSessionCanvas = async () => {
+				openCalls++;
+				await gate.p;
+			};
+			registerTestAgentProvider(service, copilotAgent);
+			getConfigurationService(service).updateRootConfig({ [AgentHostCanvasesEnabledConfigKey]: true });
+			const session = await service.createSession({ legacyChatUris: true, provider: copilotAgent.id });
+			const params = {
+				channel: 'ahp-canvas:/atomic-preview',
+				chat: buildDefaultChatUri(session.toString()),
+				extensionId: 'project:preview',
+				canvasId: 'preview',
+			};
+
+			const first = service.openCanvas(params);
+			const joined = service.openCanvas(params);
+			await timeout(0);
+			await assert.rejects(service.openCanvas({ ...params, canvasId: 'other' }), /already bound to another chat or declaration/);
+			assert.strictEqual(openCalls, 1);
+			gate.complete();
+			await Promise.all([first, joined]);
+			await assert.rejects(service.openCanvas({ ...params, extensionId: 'project:other' }), /already bound to another chat or declaration/);
+		});
+
 		test('rejects a foreign canvas chat before resolving it', async () => {
 			let providerCalls = 0;
 			const provider: IAgent = copilotAgent;
@@ -4447,6 +4531,7 @@ suite('AgentService (node dispatcher)', () => {
 				providerCalls++;
 				return [];
 			};
+			copilotAgent.setCapabilities({ multipleChats: { fork: true }, canvases: {} });
 			registerTestAgentProvider(service, provider);
 			getConfigurationService(service).updateRootConfig({ [AgentHostCanvasesEnabledConfigKey]: true });
 			const stateManager = getStateManager(service);

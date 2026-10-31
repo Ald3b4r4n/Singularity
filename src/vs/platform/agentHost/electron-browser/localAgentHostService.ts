@@ -50,9 +50,6 @@ import {
 	AgentHostRestartIpcChannel,
 	AgentHostWillRestartIpcChannel,
 	AgentSession,
-	type AgentCanvasDefinitionSnapshot,
-	type IAgentCanvasCloseRequest,
-	type IAgentCanvasOpenRequest,
 	IAgentCreateChatRequestOptions,
 	IAgentCreateChatWorkspace,
 	IAgentCreateSessionConfig,
@@ -87,6 +84,7 @@ import {
 	readAgentHostOTelPolicySettings,
 	type IAgentHostDebugLogsChunk,
 } from '../common/agentService.js';
+import type { OpenCanvasParams } from '../common/state/protocol/channels-canvas/commands.js';
 import type { AgentChatMoveDestination } from '../common/agentHostChatMove.js';
 import type { IRemoteWatchHandle } from '../common/agentHostFileSystemProvider.js';
 import type { IActiveSubscriptionInfo, IAgentSubscription } from '../common/state/agentSubscription.js';
@@ -587,6 +585,14 @@ export class LocalAgentHostServiceClient extends Disposable implements IAgentHos
 		return this._requireClient().moveChat(chat, destination);
 	}
 
+	openCanvas(params: OpenCanvasParams): Promise<void> {
+		return this._requireClient().openCanvas(params);
+	}
+
+	disposeCanvas(canvas: URI): Promise<void> {
+		return this._requireClient().disposeCanvas(canvas);
+	}
+
 	readSavedChat(session: URI, chat?: URI): Promise<IAgentHostSavedChat> {
 		return this._requireClient().readSavedChat(session, chat);
 	}
@@ -633,18 +639,6 @@ export class LocalAgentHostServiceClient extends Disposable implements IAgentHos
 
 	setAgentExtensionEnabled(extensionId: string, enabled: boolean, session?: URI, chat?: URI): Promise<void> {
 		return this._getManagementService().setAgentExtensionEnabled(extensionId, enabled, session, chat);
-	}
-
-	listSessionCanvases(session: URI, chat: URI): Promise<AgentCanvasDefinitionSnapshot> {
-		return this._getManagementService().listSessionCanvases(session, chat);
-	}
-
-	openSessionCanvas(session: URI, request: IAgentCanvasOpenRequest, chat: URI): Promise<void> {
-		return this._getManagementService().openSessionCanvas(session, request, chat);
-	}
-
-	closeSessionCanvas(session: URI, request: IAgentCanvasCloseRequest, chat: URI): Promise<void> {
-		return this._getManagementService().closeSessionCanvas(session, request, chat);
 	}
 
 	installPlugin(provider: string, request: IAgentPluginInstallRequest, session?: URI, chat?: URI): Promise<void> {
