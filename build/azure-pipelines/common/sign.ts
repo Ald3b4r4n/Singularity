@@ -408,7 +408,9 @@ export async function runWithEsrpDownloadResubmission(command: string, createArg
 		removeEsrpDownloadTempFiles(folderPath, pattern);
 		// The last session isn't stopped, so the files get signed even if every download stalls.
 		const guard = attempt <= MAX_ESRP_DOWNLOAD_STALL_RESUBMISSIONS;
-		const { exitCode, stalled } = await runWithEsrpDownloadStallGuard(command, createArgs(), () => guard ? getEsrpDownloadTempFiles(folderPath, pattern) : new Map(), options, pollIntervalMs);
+		// VALIDATION ONLY: treat the first client download (codesign and notarize) as stalled as soon as it starts.
+		const force = attempt === 1 && /^VSCode-darwin-.*\.zip$/.test(pattern);
+		const { exitCode, stalled } = await runWithEsrpDownloadStallGuard(command, createArgs(), () => guard ? getEsrpDownloadTempFiles(folderPath, pattern) : new Map(), force ? { windowMs: 1, minBytesPerSecond: Infinity } : options, force ? 1000 : pollIntervalMs);
 		if (!stalled) {
 			return exitCode;
 		}
