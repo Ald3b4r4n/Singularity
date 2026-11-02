@@ -21,15 +21,16 @@ function readRepositoryFile(relativePath: string): Buffer {
 }
 
 /**
- * Computes the node_modules cache key from the native module build configuration (`.npmrc` and
- * pnpmfiles), the dependency sections of every `package.json`, the `pnpm-lock.yaml` and
- * `pnpm-workspace.yaml` of every install root, and the given arguments.
+ * Computes the node_modules cache key from the native module build configuration (the pnpmfiles
+ * and the `nativeBuild` field of the install roots' `package.json`), the dependency sections of
+ * every `package.json`, the `pnpm-lock.yaml` and `pnpm-workspace.yaml` of every install root, and
+ * the given arguments.
  */
 export function computeNodeModulesCacheKey(args: readonly string[], readFile: ReadRepositoryFile = readRepositoryFile): string {
 	const shasum = crypto.createHash('sha256');
 
 	shasum.update(readFile('build/.cachesalt'));
-	for (const file of ['.npmrc', 'build/.npmrc', 'remote/.npmrc', '.pnpmfile.mjs', 'build/.pnpmfile.mjs', 'remote/.pnpmfile.mjs', 'build/npm/pnpm/nativeBuildEnv.ts']) {
+	for (const file of ['.pnpmfile.mjs', 'build/.pnpmfile.mjs', 'remote/.pnpmfile.mjs', 'build/npm/pnpm/nativeBuildEnv.ts']) {
 		shasum.update(readFile(file));
 	}
 
@@ -42,7 +43,8 @@ export function computeNodeModulesCacheKey(args: readonly string[], readFile: Re
 			optionalDependencies: packageJson.optionalDependencies,
 			resolutions: packageJson.resolutions,
 			distro: packageJson.distro,
-			packageManager: packageJson.packageManager
+			packageManager: packageJson.packageManager,
+			nativeBuild: packageJson.nativeBuild
 		};
 		shasum.update(JSON.stringify(relevantPackageJsonSections));
 	}
