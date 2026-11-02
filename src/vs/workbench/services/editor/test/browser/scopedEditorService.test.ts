@@ -169,4 +169,21 @@ suite('Scoped Editor Service', () => {
 
 		assert.deepStrictEqual({ main: parts.mainPart.groups.some(group => group.contains(input)), modalOpen: !!parts.activeModalEditorPart }, { main: true, modalOpen: false });
 	});
+
+	test('the global service, and a scoped one while its part has focus, put a typed editor into its group synchronously, as before', async () => {
+		const { parts, editorService, b } = await createServices();
+		focusIn(b);
+
+		const viaGlobal = createInput('/sync-global.txt');
+		const globalPromise = editorService.openEditor(viaGlobal, { pinned: true });
+		const globalSync = b.groups.some(group => group.contains(viaGlobal));
+
+		const viaScoped = createInput('/sync-scoped.txt');
+		const scopedPromise = scopedEditorServiceOf(parts, b).openEditor(viaScoped, { pinned: true });
+		const scopedSync = b.groups.some(group => group.contains(viaScoped));
+
+		await Promise.all([globalPromise, scopedPromise]);
+
+		assert.deepStrictEqual({ globalSync, scopedSync }, { globalSync: true, scopedSync: true });
+	});
 });
