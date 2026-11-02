@@ -642,6 +642,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		(container ?? this.contextUsageWidgetHome).append(this.contextUsageWidgetContainer);
 	}
 
+	/** Reserves horizontal space at the trailing edge of the input editor. */
 	/**
 	 * Lays the input editor out exactly one line tall, whatever its content or minimum lines: longer
 	 * content scrolls inside it.
@@ -656,7 +657,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		}
 	}
 
-	/** Reserves horizontal space at the trailing edge of the input editor. */
 	setInputEditorTrailingSpace(width: number): void {
 		const trailingSpace = Math.max(0, width);
 		if (this.inputEditorTrailingSpace === trailingSpace) {
