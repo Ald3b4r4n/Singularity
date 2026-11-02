@@ -16,6 +16,7 @@ import { distinct } from '../../../../base/common/arrays.js';
 import { AuxiliaryEditorPart, IAuxiliaryEditorPartOpenOptions } from './auxiliaryEditorPart.js';
 import { ModalEditorPart } from './modalEditorPart.js';
 import { ContentPart } from './contentPart.js';
+import { PART_GRID_CLASS } from '../partGrid/partGrid.js';
 import { MultiWindowParts } from '../../part.js';
 import { DeferredPromise } from '../../../../base/common/async.js';
 import { IStorageService, IStorageValueChangeEvent, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -31,6 +32,10 @@ import { IStatusbarService } from '../../../services/statusbar/browser/statusbar
 import { mainWindow } from '../../../../base/browser/window.js';
 import { IModalEditorPartOptions } from '../../../../platform/editor/common/editor.js';
 import { EditorPartModalVisibleContext } from '../../../common/contextkeys.js';
+
+function isInPartGrid(element: Element | null): boolean {
+	return !!element?.closest(`.${PART_GRID_CLASS}`);
+}
 
 interface IEditorPartsUIState {
 	readonly auxiliary: IAuxiliaryEditorPartState[];
@@ -348,10 +353,10 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 		disposables.add(toDisposable(() => {
 			this.doUpdateMostRecentActive(part);
 
-			if (part.windowId !== mainWindow.vscodeWindowId) {
-				// An auxiliary editor part is closing which we have
-				// to treat as group change event for the next editor
-				// part that becomes active.
+			if (part.windowId !== mainWindow.vscodeWindowId || part.isTransient) {
+				// An auxiliary editor part or a part owned by someone else is
+				// closing which we have to treat as group change event for the
+				// next editor part that becomes active.
 				// Refs: https://github.com/microsoft/vscode/issues/257058
 				this._onDidActiveGroupChange.fire(this.activeGroup);
 			}
@@ -359,8 +364,8 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 
 		disposables.add(part.onDidChangeActiveGroup(group => this._onDidActiveGroupChange.fire(group)));
 
-		// Focus moving out of a part to elsewhere in a window with several
-		// parts, such as its title row, changes the active group of the
+		// Focus moving out of a part to elsewhere in the grid of the parts of
+		// a window, such as its title row, changes the active group of the
 		// window to its main part: announce it as for focus moving into a part
 		const targetWindow = getWindowById(part.windowId)?.window;
 		if (targetWindow) {
@@ -400,6 +405,10 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 		const target = e.target;
 		if (documentParts.some(part => { const container = part.getContainer(); return !!container && isAncestor(target, container); })) {
 			return; // focus moving into a part is announced by the part
+		}
+
+		if (!isInPartGrid(target)) {
+			return; // focus in an overlay, such as a quick input, keeps the active part
 		}
 
 		const activeGroup = this.activeGroup;
@@ -461,14 +470,15 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 				return focusedPart;
 			}
 
-			// A modal part stays active while it was the last active part of the document
-			const mruDocumentPart = this.mostRecentActiveParts.find(part => documentParts.includes(part));
-			if (mruDocumentPart && this.modalEditorPart && (mruDocumentPart as IEditorPart) === this.modalEditorPart) {
-				return mruDocumentPart;
+			// Focus elsewhere in the grid of the parts, such as in its title row:
+			// the main part of the window, which is the first part created in it
+			if (isInPartGrid(activeElement)) {
+				return documentParts[0];
 			}
 
-			// Otherwise the main part of the window, which is the first part created in it
-			return documentParts[0];
+			// Otherwise, such as with focus in a quick input or a dialog,
+			// the part that was active last
+			return this.mostRecentActiveParts.find(part => documentParts.includes(part)) ?? documentParts[0];
 		}
 
 		return super.getPartByDocument(document);
