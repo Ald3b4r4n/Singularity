@@ -5,7 +5,7 @@
 
 import './media/editordroptarget.css';
 import { DataTransfers } from '../../../../base/browser/dnd.js';
-import { $, addDisposableListener, DragAndDropObserver, EventHelper, EventType, getWindow, isAncestor } from '../../../../base/browser/dom.js';
+import { $, addDisposableListener, DragAndDropObserver, EventHelper, EventType, getWindow, isAncestor, isHTMLElement } from '../../../../base/browser/dom.js';
 import { renderFormattedText } from '../../../../base/browser/formattedTextRenderer.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
@@ -19,7 +19,7 @@ import { activeContrastBorder } from '../../../../platform/theme/common/colorReg
 import { IThemeService, Themable } from '../../../../platform/theme/common/themeService.js';
 import { isTemporaryWorkspace, IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { CodeDataTransfers, containsDragType, Extensions as DragAndDropExtensions, IDragAndDropContributionRegistry, LocalSelectionTransfer } from '../../../../platform/dnd/browser/dnd.js';
-import { DraggedEditorGroupIdentifier, DraggedEditorIdentifier, extractTreeDropData, ResourcesDropHandler } from '../../dnd.js';
+import { DraggedEditorGroupIdentifier, DraggedEditorIdentifier, extractTreeDropData, isInputDropTarget, ResourcesDropHandler } from '../../dnd.js';
 import { IEditorGroupsView, IEditorGroupView, prepareMoveCopyEditors } from './editor.js';
 import { EditorInputCapabilities, IEditorIdentifier, IUntypedEditorInput } from '../../../common/editor.js';
 import { EDITOR_DRAG_AND_DROP_BACKGROUND, EDITOR_DROP_INTO_PROMPT_BACKGROUND, EDITOR_DROP_INTO_PROMPT_BORDER, EDITOR_DROP_INTO_PROMPT_FOREGROUND } from '../../../common/theme.js';
@@ -38,6 +38,14 @@ function isDropIntoEditorEnabledGlobally(configurationService: IConfigurationSer
 
 function isDragIntoEditorEvent(e: DragEvent): boolean {
 	return e.shiftKey;
+}
+
+/**
+ * Whether the drag is over a registered input drop target (or an element inside one).
+ * Such inputs handle the drop themselves, so the editor drop overlay must not claim it.
+ */
+function isInputDropTargetEvent(e: DragEvent): boolean {
+	return isHTMLElement(e.target) && isInputDropTarget(e.target, e);
 }
 
 class DropOverlay extends Themable {
@@ -144,7 +152,7 @@ class DropOverlay extends Themable {
 	private registerListeners(container: HTMLElement): void {
 		this._register(new DragAndDropObserver(container, {
 			onDragOver: e => {
-				if (this.enableDropIntoEditor && isDragIntoEditorEvent(e)) {
+				if ((this.enableDropIntoEditor && isDragIntoEditorEvent(e)) || isInputDropTargetEvent(e)) {
 					this.dispose();
 					return;
 				}
@@ -198,6 +206,11 @@ class DropOverlay extends Themable {
 			onDragEnd: e => this.dispose(),
 
 			onDrop: e => {
+				if (isInputDropTargetEvent(e)) {
+					this.dispose();
+					return;
+				}
+
 				EventHelper.stop(e, true);
 
 				// Dispose overlay
@@ -617,6 +630,12 @@ export class EditorDropTarget extends Themable {
 		}
 
 		this.counter++;
+
+		// Inputs registered as drop targets handle the drop themselves
+		if (isInputDropTargetEvent(event)) {
+			this.disposeOverlay();
+			return;
+		}
 
 		// Validate transfer
 		if (
