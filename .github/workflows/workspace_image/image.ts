@@ -10,7 +10,8 @@
 //   node image.ts restore --name NAME [--branch main] [--connections 32]
 //     Mounts the newest image NAME of a branch at the parent folder of the empty workspace, where
 //     actions/checkout then reuses its .git. Sets the output `used` to 'true' when it did, and warns
-//     instead of failing otherwise, as the job can still install everything.
+//     instead of failing otherwise, as the job can still install everything. Skips an image whose
+//     commit has other native build inputs (NATIVE_BUILD_INPUTS) than the commit of the job.
 //   node image.ts deps
 //     After the checkout, compares the install state that the image saved with the checkout, and
 //     sets the output `current` to 'true' when no dependency changed.
@@ -42,6 +43,13 @@ const METADATA_FILE = '.workspace-image.json';
 const SEED_TAG = 'workspace-image';
 /** _O_SHORT_LIVED of the C runtime of Windows, which Node.js doesn't name */
 const O_SHORT_LIVED = 0x1000;
+/**
+ * The files besides the dependencies that decide how they are built: nativeBuildInputFiles of
+ * build/azure-pipelines/common/cacheKeys.ts, which build/lib/test/workspaceImage.test.ts compares
+ * with. Installing on top of an image doesn't build its native modules again, so a job only uses an
+ * image whose commit has the same files as its own.
+ */
+export const NATIVE_BUILD_INPUTS: readonly string[] = ['build/.cachesalt', '.npmrc', 'build/.npmrc', 'remote/.npmrc', '.pnpmfile.mjs', 'build/.pnpmfile.mjs', 'remote/.pnpmfile.mjs', 'build/npm/pnpm/nativeBuildEnv.ts'];
 
 const started = performance.now();
 
@@ -173,6 +181,43 @@ async function locate(name: string, branch: string): Promise<Artifact> {
 		log(`Skipped artifact ${artifact.id} of a ${workflowRun.event} run`);
 	}
 	throw new Error(`No ${name} of ${branch}`);
+}
+
+/** The IDs of the git objects of files in commits, in one request: '' for a missing file */
+async function objectIds(commits: readonly string[], files: readonly string[]): Promise<string[][]> {
+	const [owner, name] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+	const fields = commits.flatMap((commit, i) => files.map((file, j) => `f${i}_${j}: object(expression: ${JSON.stringify(`${commit}:${file}`)}) { oid }`));
+	const response = await fetch(process.env.GITHUB_GRAPHQL_URL ?? 'https://api.github.com/graphql', {
+		method: 'POST',
+		headers: { ...githubHeaders(), 'Content-Type': 'application/json' },
+		body: JSON.stringify({ query: `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`, variables: { owner, name } }),
+	});
+	if (!response.ok) {
+		throw new Error(`POST graphql: HTTP ${response.status}`);
+	}
+	const { data, errors } = await response.json() as { data?: { repository: Record<string, { oid: string } | null> }; errors?: { message: string }[] };
+	if (!data?.repository || errors?.length) {
+		throw new Error(`POST graphql: ${errors?.map(error => error.message).join('; ') ?? 'no repository'}`);
+	}
+	return commits.map((_, i) => files.map((_, j) => data.repository[`f${i}_${j}`]?.oid ?? ''));
+}
+
+/**
+ * Throws when the commit of the job has other native build inputs than the commit of the image, so
+ * that the job installs without the image, as installing on top of it wouldn't build its native
+ * modules again. For example, it would keep modules and the libc++ of Linux built for an older Electron.
+ */
+async function checkNativeBuildInputs(imageCommit: string): Promise<void> {
+	const jobCommit = process.env.GITHUB_SHA;
+	if (!jobCommit) {
+		throw new Error('No GITHUB_SHA');
+	}
+	const [image, job] = await objectIds([imageCommit, jobCommit], NATIVE_BUILD_INPUTS);
+	const changed = NATIVE_BUILD_INPUTS.filter((_, i) => image[i] !== job[i]);
+	if (changed.length) {
+		throw new Error(`The native modules of the image are built from other files than those of ${jobCommit}: ${changed.join(', ')}`);
+	}
+	log(`checked the ${NATIVE_BUILD_INPUTS.length} native build inputs`);
 }
 
 /** The signed URL of an artifact, which expires after a minute */
@@ -686,14 +731,19 @@ async function restoreImage(args: Args): Promise<void> {
 		throw new Error(`${root} holds more than the workspace: ${others.join(', ')}`);
 	}
 	const artifact = await locate(name, branch);
-	log(`found artifact ${artifact.id} of ${Math.round(artifact.size_in_bytes / 1e6)} MB, built at ${artifact.workflow_run!.head_sha} on ${artifact.created_at}`);
-	const source = await openArtifact(artifact.id);
+	const imageCommit = artifact.workflow_run!.head_sha;
+	log(`found artifact ${artifact.id} of ${Math.round(artifact.size_in_bytes / 1e6)} MB, built at ${imageCommit} on ${artifact.created_at}`);
+	const [source] = await Promise.all([openArtifact(artifact.id), checkNativeBuildInputs(imageCommit)]);
 	log('opened the artifact');
 	const unmount = await mount(source, root, connections);
 	log(`mounted the image at ${root}`);
 	let metadata: Metadata;
 	try {
 		metadata = JSON.parse(fs.readFileSync(path.join(root, METADATA_FILE), 'utf8'));
+		// The native build inputs were compared at the commit of the run that built the image
+		if (metadata.commit !== imageCommit) {
+			throw new Error(`The image holds the commit ${metadata.commit}, not ${imageCommit}`);
+		}
 		// pnpm links the packages of different folders with absolute paths on Windows
 		if (!samePath(metadata.workspace, ws)) {
 			throw new Error(`The image holds the workspace ${metadata.workspace}, not ${ws}`);
@@ -804,15 +854,17 @@ async function seed(): Promise<void> {
 
 //#endregion
 
-const [command, ...rest] = process.argv.slice(2);
-const args = parseArgs(rest);
-switch (command) {
-	case 'restore': await restore(args); break;
-	case 'deps': await deps(); break;
-	case 'env': env(); break;
-	case 'seed': await seed(); break;
-	case 'pack': await pack(args); break;
-	default:
-		console.error(`Unknown command: ${command}`);
-		process.exit(1);
+if (import.meta.main) {
+	const [command, ...rest] = process.argv.slice(2);
+	const args = parseArgs(rest);
+	switch (command) {
+		case 'restore': await restore(args); break;
+		case 'deps': await deps(); break;
+		case 'env': env(); break;
+		case 'seed': await seed(); break;
+		case 'pack': await pack(args); break;
+		default:
+			console.error(`Unknown command: ${command}`);
+			process.exit(1);
+	}
 }

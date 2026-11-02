@@ -21,6 +21,14 @@ function readRepositoryFile(relativePath: string): Buffer {
 }
 
 /**
+ * The files besides the dependencies that decide how the dependencies are built: the salt of the
+ * caches, and the native module build configuration (`.npmrc` and pnpmfiles). Installing on top of
+ * a `node_modules` folder doesn't build its native modules again, so a workspace image is only used
+ * by a job whose commit has the same files (see `.github/workflows/workspace_image/image.ts`).
+ */
+export const nativeBuildInputFiles: readonly string[] = ['build/.cachesalt', '.npmrc', 'build/.npmrc', 'remote/.npmrc', '.pnpmfile.mjs', 'build/.pnpmfile.mjs', 'remote/.pnpmfile.mjs', 'build/npm/pnpm/nativeBuildEnv.ts'];
+
+/**
  * Computes the node_modules cache key from the native module build configuration (`.npmrc` and
  * pnpmfiles), the dependency sections of every `package.json`, the `pnpm-lock.yaml` and
  * `pnpm-workspace.yaml` of every install root, and the given arguments.
@@ -28,8 +36,7 @@ function readRepositoryFile(relativePath: string): Buffer {
 export function computeNodeModulesCacheKey(args: readonly string[], readFile: ReadRepositoryFile = readRepositoryFile): string {
 	const shasum = crypto.createHash('sha256');
 
-	shasum.update(readFile('build/.cachesalt'));
-	for (const file of ['.npmrc', 'build/.npmrc', 'remote/.npmrc', '.pnpmfile.mjs', 'build/.pnpmfile.mjs', 'remote/.pnpmfile.mjs', 'build/npm/pnpm/nativeBuildEnv.ts']) {
+	for (const file of nativeBuildInputFiles) {
 		shasum.update(readFile(file));
 	}
 
