@@ -12,6 +12,11 @@ import { IContentPart, IEditorGroup } from '../../../services/editor/common/edit
 import { getGridEdgeInsets, IGridEdgeInsets, NO_GRID_EDGE_INSETS, updateGridGapSashes } from './partGridGap.js';
 
 /**
+ * The class of the element of a {@link PartGrid}.
+ */
+export const PART_GRID_CLASS = 'part-grid';
+
+/**
  * What a cell of a {@link PartGrid} shows that is not an editor part, such as
  * a title row of the window.
  */
@@ -377,7 +382,7 @@ export class PartGrid extends Disposable {
 		this.gridDisposables.value = disposables;
 		this.grid = grid;
 
-		grid.element.classList.add('part-grid');
+		grid.element.classList.add(PART_GRID_CLASS);
 		this.container.appendChild(grid.element);
 
 		this.layoutGrid();
