@@ -41,11 +41,12 @@ function isDragIntoEditorEvent(e: DragEvent): boolean {
 }
 
 /**
- * Whether the drag is over a registered input drop target (or an element inside one).
- * Such inputs handle the drop themselves, so the editor drop overlay must not claim it.
+ * Whether the drag is over a registered input drop target (or an element inside one)
+ * inside `scope`, the group under the drag. Such inputs handle the drop themselves, so
+ * the editor drop overlay must not claim it.
  */
-function isInputDropTargetEvent(e: DragEvent): boolean {
-	return isHTMLElement(e.target) && isInputDropTarget(e.target, e);
+function isInputDropTargetEvent(e: DragEvent, scope: HTMLElement): boolean {
+	return isHTMLElement(e.target) && isInputDropTarget(e.target, e, scope);
 }
 
 class DropOverlay extends Themable {
@@ -152,7 +153,7 @@ class DropOverlay extends Themable {
 	private registerListeners(container: HTMLElement): void {
 		this._register(new DragAndDropObserver(container, {
 			onDragOver: e => {
-				if ((this.enableDropIntoEditor && isDragIntoEditorEvent(e)) || isInputDropTargetEvent(e)) {
+				if ((this.enableDropIntoEditor && isDragIntoEditorEvent(e)) || isInputDropTargetEvent(e, this.groupView.element)) {
 					this.dispose();
 					return;
 				}
@@ -206,7 +207,7 @@ class DropOverlay extends Themable {
 			onDragEnd: e => this.dispose(),
 
 			onDrop: e => {
-				if (isInputDropTargetEvent(e)) {
+				if (isInputDropTargetEvent(e, this.groupView.element)) {
 					this.dispose();
 					return;
 				}
@@ -632,7 +633,8 @@ export class EditorDropTarget extends Themable {
 		this.counter++;
 
 		// Inputs registered as drop targets handle the drop themselves
-		if (isInputDropTargetEvent(event)) {
+		const targetElement = isHTMLElement(event.target) ? event.target : undefined;
+		if (isInputDropTargetEvent(event, (targetElement && this.findTargetGroupView(targetElement)?.element) ?? this.container)) {
 			this.disposeOverlay();
 			return;
 		}
