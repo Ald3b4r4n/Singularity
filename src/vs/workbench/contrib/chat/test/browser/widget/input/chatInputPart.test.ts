@@ -1063,6 +1063,7 @@ suite('ChatInputPart', () => {
 			inputEditorMaxHeight: 250,
 			inputEditorTrailingSpace: 0,
 			ignoreInputEditorContentSizeChanges: false,
+			height: observableValue('height', 0),
 		}) as ChatInputPart;
 		// Getters on the part, computed from the input font size
 		Object.defineProperty(inputPart, 'inputEditorMinHeight', { value: 52 });
