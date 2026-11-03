@@ -749,6 +749,7 @@ Eventos (notificações): log da sessão, mudança de estado, arquivo alterado, 
     *   `win32UserAppId`: `{32444A51-E808-4C25-8471-888D55D5776D}`
     *   `win32x64UserAppId`: `{0EAE4F44-0B3E-4951-BA97-19DE170F0D01}`
     *   Os nomes dos campos são os que o upstream usar na tag escolhida. Confirmar antes de modificar (diretriz 7).
+    *   **Confirmado na tag 1.144.0 (2026-11-03):** os campos reais são `win32x64AppId`, `win32arm64AppId`, `win32x64UserAppId` e `win32arm64UserAppId`, no formato `{{GUID}` do Inno Setup. Não existem `win32AppId` nem `win32UserAppId`. Mapeamento aplicado: `win32x64AppId` = `DC15003A…`, `win32x64UserAppId` = `0EAE4F44…`, `win32arm64AppId` = `81F2F38E…`, `win32arm64UserAppId` = `32444A51…`. O campo `sharedDataFolderName` existe no `product.json` e foi definido como `.singularity-ide-shared`.
 5.  **Separação.** Dados e configurações do Singularity ficam separados das instalações do VS Code e de outros forks, por pasta de dados e identificadores próprios.
 6.  **Troca futura de marca.** Os identificadores técnicos ficam organizados para permitir mudar o nome visível sem perder dados do usuário.
 7.  **Registro de alterações.** Cada campo editado em arquivo do upstream entra em `UPSTREAM-TOUCHPOINTS.md`.
