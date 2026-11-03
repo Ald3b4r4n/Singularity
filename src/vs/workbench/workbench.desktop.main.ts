@@ -179,6 +179,7 @@ import './contrib/canvases/electron-browser/editorCanvases.contribution.js';
 
 // Splash
 import './contrib/splash/electron-browser/splash.contribution.js';
+import './contrib/singularityIntro/electron-browser/singularityIntro.contribution.js'; // Singularity: opening sequence settings and ready signal
 
 // Local History
 import './contrib/localHistory/electron-browser/localHistory.contribution.js';

@@ -6,6 +6,7 @@
 /* eslint-disable no-restricted-globals */
 
 import { getPartsSplashColors, getPartsSplashLayoutMetrics } from './partsSplash.js';
+import { showSingularityIntro } from './singularityIntro.js'; // Singularity: cinematic startup overlay
 
 (async function () {
 
@@ -721,6 +722,7 @@ import { getPartsSplashColors, getPartsSplashLayoutMetrics } from './partsSplash
 
 				// Show our splash as early as possible
 				showSplash(windowConfig);
+				showSingularityIntro(windowConfig); // Singularity: draws on top of the splash, never throws
 
 				// Code windows have a `vscodeWindowId` property to identify them
 				Object.defineProperty(window, 'vscodeWindowId', {
