@@ -1,0 +1,57 @@
+{
+  "name": "singularity-update",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "singularity",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "singularity.update.check",
+        "title": "%command.check%",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.update.download",
+        "title": "%command.download%",
+        "category": "Singularity"
+      }
+    ],
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "singularity.update.channel": {
+          "type": "string",
+          "enum": [
+            "stable",
+            "preview"
+          ],
+          "default": "stable",
+          "scope": "machine",
+          "enumDescriptions": [
+            "%channel.stable%",
+            "%channel.preview%"
+          ],
+          "description": "%configuration.channel%"
+        },
+        "singularity.update.checkAutomatically": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "%configuration.checkAutomatically%"
+        }
+      }
+    }
+  }
+}

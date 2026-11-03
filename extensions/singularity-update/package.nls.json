@@ -1,0 +1,11 @@
+{
+  "displayName": "Singularity Updates",
+  "description": "Checks the official GitHub Releases of the Singularity IDE and downloads verified installers.",
+  "command.check": "Check for Singularity Updates",
+  "command.download": "Download Singularity Update",
+  "configuration.title": "Singularity Updates",
+  "configuration.channel": "Update channel: stable (official releases) or preview (pre-releases included).",
+  "channel.stable": "Official releases only.",
+  "channel.preview": "Pre-releases and official releases.",
+  "configuration.checkAutomatically": "Check for updates in the background, at most once a day."
+}
