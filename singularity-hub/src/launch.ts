@@ -40,11 +40,24 @@ export function findNode(env: NodeJS.ProcessEnv = process.env, root: string = HU
 
 export const HUB_MAIN = path.join(__dirname, 'main.js');
 
-/** Environment for the Hub: keep the user's essentials, drop editor/Electron variables. */
+/**
+ * Environment for the Hub, built from an allowlist: the Hub runs with only what Windows (or POSIX) needs to locate the
+ * user's state and its own runtime. It inherits nothing from the IDE (Electron, VS Code, Copilot, cloud credentials,
+ * proxies) and no PATH: the Hub spawns no processes, and every Windows tool it calls is addressed by absolute path.
+ */
+const HUB_ENV_ALLOWLIST_WIN32 = [
+	'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE',
+	'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+];
+const HUB_ENV_ALLOWLIST_POSIX = ['HOME', 'TMPDIR', 'XDG_STATE_HOME', 'USER', 'LANG', 'LC_ALL'];
+
 export function hubEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	const allowed = process.platform === 'win32' ? HUB_ENV_ALLOWLIST_WIN32 : HUB_ENV_ALLOWLIST_POSIX;
 	const env: NodeJS.ProcessEnv = {};
+	// Windows environment names are case-insensitive: match them that way, but keep the name the OS reported.
+	const wanted = new Set(allowed.map(k => k.toUpperCase()));
 	for (const [key, value] of Object.entries(base)) {
-		if (value !== undefined && !/^(ELECTRON_|VSCODE_|ORIGINAL_XDG|CHROME_)/i.test(key)) {
+		if (value !== undefined && (wanted.has(key.toUpperCase()) || key === 'SINGULARITY_HUB_HOME')) {
 			env[key] = value;
 		}
 	}

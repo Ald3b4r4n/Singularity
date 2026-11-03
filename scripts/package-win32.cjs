@@ -65,10 +65,15 @@ if (!process.argv.includes('--no-hub')) {
 	}
 	check('hub tests are not shipped', !fs.existsSync(path.join(hubDir, 'dist', 'test')));
 }
-const rg = fs.readdirSync(path.join(app, 'node_modules.asar.unpacked'), { recursive: true }).find(f => /rg\.exe$/.test(String(f)));
-if (rg) {
-	const info = execFileSync('pwsh', ['-NoProfile', '-Command', `(Get-Item '${path.join(app, 'node_modules.asar.unpacked', String(rg))}').VersionInfo.CompanyName`], { encoding: 'utf8' }).trim();
-	check('patched binaries carry the Singularity company name, not Microsoft', info === 'Singularity IDE contributors', `(${info})`);
+// third-party binaries must ship byte-for-byte as their authors built them (no rewritten version resources, no removed signatures)
+const crypto = require('crypto');
+const sha = p => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+const thirdParty = [['@vscode/ripgrep-universal/bin/win32-x64/rg.exe', 'node_modules.asar.unpacked/@vscode/ripgrep-universal/bin/win32-x64/rg.exe']];
+for (const [src, shipped] of thirdParty) {
+	const original = path.join(repo, 'node_modules', src);
+	const copy = path.join(app, shipped);
+	const same = fs.existsSync(original) && fs.existsSync(copy) && sha(original) === sha(copy);
+	check(`third-party binary identical to its source: ${shipped}`, same, same ? '' : '(missing or different)');
 }
 if (checks.some(c => !c.ok)) { fail('some checks failed'); }
 console.log('package OK: ' + dest);

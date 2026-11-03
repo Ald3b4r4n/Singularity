@@ -36,6 +36,25 @@ describe('single instance', () => {
 		} finally { cleanup(home); }
 	});
 
+	it('six starters racing for a stale lock: exactly one Hub survives and nobody deletes a live lock', async () => {
+		const home = tempHome('stale-race');
+		try {
+			ensureSecureDir(home);
+			fs.writeFileSync(file(home, 'lock'), JSON.stringify({ pid: 4_194_000, nonce: 'dead', startedAt: new Date(0).toISOString() }));
+			const children = Array.from({ length: 6 }, () => spawnMain(home));
+			const exits = children.map(c => new Promise<number | null>(r => c.once('exit', code => r(code))));
+			const d = await waitFor(() => discover(home).catch(() => undefined), 20_000);
+			await sleep(2500);
+			const running = children.filter(c => c.pid !== undefined && alive(c.pid));
+			assert.equal(running.length, 1, 'one Hub process remains');
+			assert.equal(running[0].pid, d.info.pid);
+			const codes = await Promise.all(exits.filter((_, i) => !running.includes(children[i])));
+			assert.ok(codes.every(code => code === 0), 'the others exited cleanly: ' + codes.join(','));
+			assert.deepEqual(fs.readdirSync(home).filter(n => n.endsWith('.stale')), [], 'no tombstone is left behind');
+			await stopHub(home);
+		} finally { cleanup(home); }
+	});
+
 	it('reports "already running" when a Hub of this user exists', async () => {
 		const home = tempHome('existing');
 		const hub = await startInProcess(home);
@@ -133,15 +152,17 @@ describe('credentials on disk', () => {
 		} finally { await hub.release(); cleanup(home); }
 	});
 
-	it('refuses to read credentials once the directory is opened to other users', async () => {
+	it('refuses to read credentials once the directory is opened to other users, and does not start over it', async () => {
+		const { startHub } = await import('../instance');
 		const home = tempHome('widen');
 		const hub = await startInProcess(home);
 		try {
-			execFileSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe'), [home, '/grant', '*S-1-1-0:(OI)(CI)R'], { stdio: 'ignore', windowsHide: true });
+			execFileSync(path.join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'icacls.exe'), [home, '/grant', '*S-1-1-0:(OI)(CI)R'], { stdio: 'ignore', windowsHide: true });
 			assert.equal(isOwnerOnly(home), false);
 			await assert.rejects(discover(home), /not protected/);
-			await assert.rejects(startInProcess(tempHome('x'), {}).then(() => undefined).catch(e => { throw e; }).then(() => { throw new Error('unreachable'); }), /unreachable|refusing/).catch(() => undefined);
-		} finally { await hub.release().catch(() => undefined); cleanup(home); }
+			// fail closed: a new start does not use the directory while another principal can read it
+			await assert.rejects(startHub({ home }), /not restricted to the current user/);
+		} finally { await hub.release(); cleanup(home); }
 	});
 
 	it('writes the token file atomically (no partial token is ever visible)', async () => {

@@ -1,0 +1,65 @@
+{
+  "exe": "D:\\dev\\VSCode-win32-x64\\Singularity IDE.exe",
+  "steps": [
+    {
+      "name": "precondition: no Hub is running for this user",
+      "ok": true,
+      "detail": {
+        "running": false
+      }
+    },
+    {
+      "name": "temporary workspace and shortcut",
+      "ok": true,
+      "detail": {
+        "shortcut": "C:\\Users\\ANTONI~1\\AppData\\Local\\Temp\\singularity-explorer-hPmqbY\\Singularity IDE (teste).lnk"
+      }
+    },
+    {
+      "name": "start from the shortcut through Explorer; the IDE parent is explorer.exe",
+      "ok": true,
+      "detail": {
+        "pid": 24100,
+        "parent": "explorer"
+      }
+    },
+    {
+      "name": "open the Agents panel with the keyboard; the Hub starts and connects",
+      "ok": true,
+      "detail": {
+        "hubPid": 31616,
+        "instanceId": "e937c7a3-4bab-420d-92c5-25f16c255a46",
+        "image": "d:\\dev\\VSCode-win32-x64\\resources\\app\\singularity-hub\\runtime\\node.exe"
+      }
+    },
+    {
+      "name": "close the window: the Hub keeps running",
+      "ok": true,
+      "detail": {
+        "hubAlive": true,
+        "pid": 31616
+      }
+    },
+    {
+      "name": "start again from the shortcut: reconnects to the same Hub instance",
+      "ok": true,
+      "detail": {
+        "sameInstance": true
+      }
+    },
+    {
+      "name": "explicit shutdown from the IDE releases the Hub",
+      "ok": true,
+      "detail": {
+        "hubFilesLeft": 0
+      }
+    },
+    {
+      "name": "close the IDE and leave nothing running",
+      "ok": true
+    }
+  ],
+  "ok": true,
+  "error": null,
+  "finished": "2026-11-03T19:31:25.508Z"
+}

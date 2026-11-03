@@ -48,6 +48,39 @@ function readLock(lockPath: string): LockContent | undefined {
  *  - a loser asks "is there a Hub that can prove its identity?" (discover). If yes, it exits,
  *  - if not, the lock is stale only when its owner pid is dead or the lock is old and no Hub ever came up.
  */
+/**
+ * Removes a stale lock without ever deleting a live one.
+ *
+ * Reading the lock and then deleting it is racy: another starter can replace it in between, and we would delete the
+ * fresh lock. Instead the stale file is first renamed to a private name. A rename of one path succeeds for exactly one
+ * caller, so only one starter takes the file. Then:
+ *  - if the file is still stale, it is deleted;
+ *  - if it turns out to be live (its owner was replaced between our read and our rename), it is put back with
+ *    hard-link creation, which fails if another lock already exists, so nothing is ever overwritten.
+ * The only remaining window is a live owner whose lock is removed and not restored because another starter created its
+ * own lock in that moment; the identity proof in discover() still stops a second Hub from being trusted by a client.
+ */
+function recoverStaleLock(lockPath: string, logger: Logger): void {
+	const taken = `${lockPath}.${newId()}.stale`;
+	try {
+		fs.renameSync(lockPath, taken);
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code === 'ENOENT') { return; } // someone else took it, or it was released
+		throw e;
+	}
+	const owner = readLock(taken);
+	const age = (() => { try { return Date.now() - fs.statSync(taken).mtimeMs; } catch { return 0; } })();
+	if (owner && pidAlive(owner.pid) && age <= 30_000) {
+		try {
+			fs.linkSync(taken, lockPath); // atomic: fails if a newer lock exists
+		} catch { /* a newer lock exists: keep it */ }
+		fs.rmSync(taken, { force: true });
+		return;
+	}
+	fs.rmSync(taken, { force: true });
+	logger.log('warn', 'removed stale lock');
+}
+
 export async function startHub(options: StartOptions = {}): Promise<StartResult> {
 	const home = options.home ?? hubHome();
 	ensureSecureDir(home);
@@ -79,11 +112,7 @@ export async function startHub(options: StartOptions = {}): Promise<StartResult>
 			const age = (() => { try { return Date.now() - fs.statSync(lockPath).mtimeMs; } catch { return 0; } })();
 			const stale = !owner || !pidAlive(owner.pid) || age > 30_000;
 			if (stale) {
-				const again = readLock(lockPath);
-				if ((again?.nonce ?? '') === (owner?.nonce ?? '')) {
-					fs.rmSync(lockPath, { force: true });
-					logger.log('warn', 'removed stale lock');
-				}
+				recoverStaleLock(lockPath, logger);
 				continue;
 			}
 			if (Date.now() > deadline) {

@@ -30,16 +30,11 @@ import { ensureCopilotPlatformPackage, getCopilotExcludeFilter, getCopilotRuntim
 import { ensureOSProxyResolverPlatformPackage, getOSProxyResolverExcludeFilter, getOSProxyResolverPlatformFiles } from './lib/osProxyResolver.ts';
 import { readAgentSdkResults } from './agent-sdk/common.ts';
 import { readDictationRuntimeResults } from './dictation-runtime/common.ts';
-import { promisify } from 'util';
-import globCallback from 'glob';
-import rceditCallback from 'rcedit';
 import { spawnTsgo } from './lib/tsgo.ts';
 import { runEsbuildTranspile, runEsbuildBundle, getBootstrapEntryPointsForTarget } from './lib/esbuild.ts';
 import { generateNodeCompileCache, shouldGenerateNodeCompileCache } from './lib/nodeCompileCache.ts';
 
 
-const glob = promisify(globCallback);
-const rcedit = promisify(rceditCallback);
 const root = path.dirname(import.meta.dirname);
 const commit = getVersion(root);
 const packageLock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8')) as {
@@ -486,79 +481,6 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 	return task;
 }
 
-function hasAuthenticodeSignature(filePath: string): Promise<boolean> {
-	return new Promise((resolve, reject) => {
-		const proc = cp.spawn('signtool.exe', ['verify', '/pa', filePath]);
-		proc.on('error', reject);
-		proc.on('exit', code => resolve(code === 0));
-	});
-}
-
-async function stripAuthenticodeSignature(filePath: string): Promise<void> {
-	// ESRP's `signtool /as` (append) fails with 0x800700C1 on PEs whose existing
-	// Authenticode signature was invalidated by rcedit. Strip cleanly first so
-	// rcedit operates on an unsigned PE.
-	if (!await hasAuthenticodeSignature(filePath)) {
-		return;
-	}
-	await new Promise<void>((resolve, reject) => {
-		const proc = cp.spawn('signtool.exe', ['remove', '/s', filePath]);
-		let out = '';
-		proc.stdout?.on('data', chunk => out += chunk.toString());
-		proc.stderr?.on('data', chunk => out += chunk.toString());
-		proc.on('error', reject);
-		proc.on('exit', code => {
-			if (code === 0) {
-				resolve();
-			} else {
-				process.stderr.write(out);
-				reject(new Error(`signtool remove /s failed for ${filePath} (exit ${code})`));
-			}
-		});
-	});
-}
-
-function patchWin32DependenciesTask(destinationFolderName: string) {
-	const cwd = path.join(path.dirname(root), destinationFolderName);
-
-	return async () => {
-		const versionedResourcesFolder = util.getVersionedResourcesFolder('win32', commit!);
-		const deps = (await Promise.all([
-			glob('**/*.node', { cwd, ignore: 'extensions/node_modules/@parcel/watcher/**' }),
-			glob('**/rg.exe', { cwd }),
-			glob('**/tgrep.exe', { cwd }),
-			glob('**/*explorer_command*.dll', { cwd }),
-			// TODO@anthonykim1 Remove once @github/copilot ships OneAuthInterop.dll with complete version information.
-			glob('**/OneAuthInterop.dll', { cwd }),
-		])).flatMap(o => o);
-		const packageJson = JSON.parse(await fs.promises.readFile(path.join(cwd, versionedResourcesFolder, 'resources', 'app', 'package.json'), 'utf8'));
-		const product = JSON.parse(await fs.promises.readFile(path.join(cwd, versionedResourcesFolder, 'resources', 'app', 'product.json'), 'utf8'));
-		const baseVersion = packageJson.version.replace(/-.*$/, '');
-
-		const patchPromises = deps.map<Promise<unknown>>(async dep => {
-			const basename = path.basename(dep);
-			const fullPath = path.join(cwd, dep);
-
-			await stripAuthenticodeSignature(fullPath);
-			await rcedit(fullPath, {
-				'file-version': baseVersion,
-				'version-string': {
-					'CompanyName': 'Singularity IDE contributors', // Singularity: these binaries are not Microsoft's
-					'FileDescription': product.nameLong,
-					'FileVersion': packageJson.version,
-					'InternalName': basename,
-					'LegalCopyright': 'Copyright (C) Singularity IDE contributors and the authors of the bundled component. See ThirdPartyNotices.txt',
-					'OriginalFilename': basename,
-					'ProductName': product.nameLong,
-					'ProductVersion': packageJson.version,
-				}
-			});
-		});
-
-		await Promise.all(patchPromises);
-	};
-}
-
 function prepareCopilotRipgrepShimTask(platform: string, arch: string, destinationFolderName: string) {
 	const outputDir = path.join(path.dirname(root), destinationFolderName);
 
@@ -617,9 +539,8 @@ BUILD_TARGETS.forEach(buildTarget => {
 			packageTasks.push(prepareCopilotRipgrepShimTask(platform, arch, destinationFolderName));
 		}
 
-		if (platform === 'win32') {
-			packageTasks.push(patchWin32DependenciesTask(destinationFolderName));
-		}
+		// Singularity: third-party Windows binaries (rg.exe, tgrep.exe, native modules, DLLs) ship exactly as they were built.
+		// The upstream step that rewrote their version resources (and stripped their signatures) is not run; see docs/local-packaged-build.md.
 		if (shouldGenerateNodeCompileCache(platform, arch, product)) {
 			packageTasks.push(generateNodeCompileCacheTask(platform, destinationFolderName));
 		}
