@@ -355,7 +355,7 @@ suite('Chat window grid', () => {
 
 	test('a density round trip, default to compact and back, gives the chat and the main part back their exact widths', () => {
 		const gap = observableValue('gap', 4);
-		const grid = disposables.add(new ChatWindowGrid($('div'), { main: createPart('main'), chat: createPart('chat'), titleRow: { ...createChrome(33), visible: constObservable(false) }, strip: createChrome(34) }, constObservable(ChatWindowLayoutMode.SideBySide), gap, undefined));
+		const grid = disposables.add(new ChatWindowGrid($('div'), { main: createPart('main'), chat: createPart('chat'), titleRow: { ...createChrome(33), visible: constObservable(false) }, strip: createChrome(34) }, constObservable(ChatWindowLayoutMode.SideBySide), gap, undefined, undefined, undefined, editorGroupsService));
 		grid.setOuterInsets({ top: 0, left: 4, right: 4, bottom: 4 });
 		grid.layout(1200, 800);
 		grid.partGrid!.resizeCell(ChatWindowGridCell.Chat, { width: 476, height: 796 });
@@ -373,7 +373,7 @@ suite('Chat window grid', () => {
 
 	test('a change of density lays the grid out again once its styles apply, so that the cards read the frames of the new density', async () => {
 		const gap = observableValue('gap', 4);
-		const grid = disposables.add(new ChatWindowGrid($('div'), { main: createPart('main'), chat: createPart('chat') }, constObservable(ChatWindowLayoutMode.SideBySide), gap, undefined));
+		const grid = disposables.add(new ChatWindowGrid($('div'), { main: createPart('main'), chat: createPart('chat') }, constObservable(ChatWindowLayoutMode.SideBySide), gap, undefined, undefined, undefined, editorGroupsService));
 		grid.layout(1200, 800);
 		await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => resolve()));
 		const layout = sinon.spy(grid.partGrid!, 'layout');
