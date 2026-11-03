@@ -610,8 +610,13 @@ export class PartGrid extends Disposable {
 		}
 
 		const insets = this.outerInsets;
+		const width = Math.max(0, this.dimension.width - insets.left - insets.right);
+		const height = Math.max(0, this.dimension.height - insets.top - insets.bottom);
 		grid.element.style.margin = `${insets.top}px ${insets.right}px ${insets.bottom}px ${insets.left}px`;
-		grid.layout(Math.max(0, this.dimension.width - insets.left - insets.right), Math.max(0, this.dimension.height - insets.top - insets.bottom));
+		// Sized inside the insets, as the cells that span it, such as a row across the window, take its size.
+		grid.element.style.width = `${width}px`;
+		grid.element.style.height = `${height}px`;
+		grid.layout(width, height);
 		this.applyLook();
 	}
 
