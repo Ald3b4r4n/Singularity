@@ -464,13 +464,40 @@ export class PartGrid extends Disposable {
 		const trackGroup = (group: IEditorGroup) => groupListeners.set(group, group.onDidModelChange(() => update()));
 
 		part.groups.forEach(trackGroup);
-		disposables.add(part.onDidAddGroup(group => { trackGroup(group); update(); }));
-		disposables.add(part.onDidRemoveGroup(group => { groupListeners.deleteAndDispose(group); update(); }));
+		disposables.add(part.onDidAddGroup(group => { trackGroup(group); update(); this.updateSplit(id, part); }));
+		disposables.add(part.onDidRemoveGroup(group => { groupListeners.deleteAndDispose(group); update(); this.updateSplit(id, part); }));
+		this.updateSplit(id, part);
 		disposables.add(part.onWillClose(() => this.removeCell(id)));
 
 		if (!hasEditors(part)) {
 			this.empty.add(id);
 		}
+	}
+
+	/**
+	 * Marks the cell of a part split into more than one group
+	 * (`data-part-grid-split`): the part is one card, which a look can frame
+	 * once around its groups, as one part.
+	 */
+	private updateSplit(id: string, part: IContentPart): void {
+		const element = this.cells.get(id)?.element;
+		if (!element) {
+			return;
+		}
+
+		const split = part.groups.length > 1;
+		if (split === (element.dataset.partGridSplit !== undefined)) {
+			return;
+		}
+
+		if (split) {
+			element.dataset.partGridSplit = '';
+		} else {
+			delete element.dataset.partGridSplit;
+		}
+
+		// The look of the card, such as who draws its frame, may change with it
+		this.applyLook();
 	}
 
 	private updateEmpty(id: string, part: IContentPart): void {

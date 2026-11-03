@@ -27,7 +27,7 @@ import { GRID_GAP_SASH_CLASS } from '../../../../browser/parts/partGrid/partGrid
 import { EditorExtensions, IEditorFactoryRegistry } from '../../../../common/editor.js';
 import { SideBySideEditorInput } from '../../../../common/editor/sideBySideEditorInput.js';
 import { IAuxiliaryWindowService } from '../../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
-import { IContentPart, IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
+import { GroupDirection, IContentPart, IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import { IWorkbenchLayoutService } from '../../../../services/layout/browser/layoutService.js';
 import { createEditorParts, registerTestEditor, TestEditorParts, TestFileEditorInput, workbenchInstantiationService } from '../../workbenchTestServices.js';
 
@@ -613,6 +613,34 @@ suite('Part Grid', () => {
 			atRightEdge: { indicatorShown: true, shape: 'row(side, new1)' },
 			newPart: 'new1',
 			afterClose: 'side'
+		});
+	});
+
+	test('the cell of a part split into groups is marked, so that a look can frame the part once, as one card, and the card follows that look as it splits and joins', async () => {
+		const parts = await createParts();
+		const container = boxAt(0, 0, 1000, 800);
+		// A look where the content of a card draws its frame, except where the part is split: then the card frames all its groups
+		const style = container.appendChild(mainWindow.document.createElement('style'));
+		style.textContent = '.part-grid-cell > .part-grid-card { --part-grid-card-border-width: 1px; --part-grid-card-frame-owner: content; } .part-grid-cell[data-part-grid-split] > .part-grid-card { --part-grid-card-frame-owner: card; }';
+		const grid = disposables.add(new PartGrid(container, parts));
+		const [side, main] = [createPart(parts), createPart(parts)];
+		await Promise.all([openEditor(side, '/side.txt'), openEditor(main, '/main.txt')]);
+		grid.addPart('side', side);
+		grid.addPart('main', main, { reference: 'side', direction: Direction.Right });
+		grid.setGap(8);
+		grid.layout(1000, 800);
+		const cellOf = (id: string) => container.querySelector<HTMLElement>(`[data-part-grid-cell="${id}"]`)!;
+		const read = () => ({ split: cellOf('main').dataset.partGridSplit !== undefined, cardLeft: cellOf('main').querySelector<HTMLElement>('.part-grid-card')!.getBoundingClientRect().left - cellOf('main').getBoundingClientRect().left });
+
+		const single = read();
+		const added = main.addGroup(main.activeGroup, GroupDirection.DOWN);
+		const split = read();
+		main.removeGroup(added);
+
+		assert.deepStrictEqual({ single, split, joined: read() }, {
+			single: { split: false, cardLeft: 3 },
+			split: { split: true, cardLeft: 4 },
+			joined: { split: false, cardLeft: 3 }
 		});
 	});
 
