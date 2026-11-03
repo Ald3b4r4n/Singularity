@@ -1,7 +1,7 @@
 {
 	"$schema": "vscode://schemas/color-theme",
 	"name": "Event Minimal Light",
-	"type": "#2B5CC4",
+	"type": "light",
 	"colors": {
 		"foreground": "#1C1B22",
 		"disabledForeground": "#625F6B",

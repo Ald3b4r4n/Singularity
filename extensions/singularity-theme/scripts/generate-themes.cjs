@@ -3,22 +3,22 @@ const fs = require('fs'), path = require('path');
 
 const P = {
 	dark: {
-		type: 'dark', name: 'Event Minimal Dark',
+		themeKind: 'dark', name: 'Event Minimal Dark',
 		bg: '#07080C', surface: '#0C0E15', panel: '#10131C', elev: '#171B27', hover: '#1C2130', border: '#212637', borderStrong: '#6B7390',
 		text: '#E8EAF2', muted: '#A4AABD', faint: '#8089A3', accent: '#FFB45E', accentHover: '#FFC47E', onAccent: '#1A1004',
 		ok: '#5BD6A0', info: '#8AB4FF', err: '#FF7A7A', warn: '#F5D547',
 		sel: '#FFB45E2E', selInactive: '#FFB45E1A', find: '#FFB45E40', lineHl: '#FFFFFF08', word: '#FFFFFF14',
-		kw: '#AEBBFF', str: '#8FD3B6', type: '#9CC4FF', num: '#FFB45E', cm: '#7F8499', fn: '#E8EAF2', va: '#D5D9E6', prop: '#C4CBE0', cst: '#F2A27B', rx: '#FF9E7A', op: '#A4AABD',
+		kw: '#AEBBFF', str: '#8FD3B6', typeColor: '#9CC4FF', num: '#FFB45E', cm: '#7F8499', fn: '#E8EAF2', va: '#D5D9E6', prop: '#C4CBE0', cst: '#F2A27B', rx: '#FF9E7A', op: '#A4AABD',
 		ansi: ['#10131C', '#FF7A7A', '#5BD6A0', '#F5D547', '#8AB4FF', '#C7A6FF', '#6FD6E6', '#E8EAF2', '#4A5068', '#FF9A9A', '#7FE6B8', '#FFE27A', '#A9C8FF', '#D9C0FF', '#8FE6F0', '#FFFFFF'],
 		add: '#5BD6A0', del: '#FF7A7A', errFg: '#1A0707', warnFg: '#1A1400'
 	},
 	light: {
-		type: 'light', name: 'Event Minimal Light',
+		themeKind: 'light', name: 'Event Minimal Light',
 		bg: '#FBF9F5', surface: '#F3F0E8', panel: '#EFEBE1', elev: '#FFFFFF', hover: '#E6E1D3', border: '#DDD7C9', borderStrong: '#7A7668',
 		text: '#1C1B22', muted: '#55535E', faint: '#625F6B', accent: '#A64E05', accentHover: '#8F4204', onAccent: '#FFFFFF',
 		ok: '#157A52', info: '#2B5CC4', err: '#C42B3D', warn: '#7A5C00',
 		sel: '#A64E0526', selInactive: '#A64E0514', find: '#A64E0538', lineHl: '#0000000A', word: '#0000001A',
-		kw: '#4B55C9', str: '#157A52', type: '#2B5CC4', num: '#A64E05', cm: '#625F6B', fn: '#1C1B22', va: '#2B2A33', prop: '#3A3846', cst: '#B4430B', rx: '#B4430B', op: '#55535E',
+		kw: '#4B55C9', str: '#157A52', typeColor: '#2B5CC4', num: '#A64E05', cm: '#625F6B', fn: '#1C1B22', va: '#2B2A33', prop: '#3A3846', cst: '#B4430B', rx: '#B4430B', op: '#55535E',
 		ansi: ['#1C1B22', '#C42B3D', '#157A52', '#7A5C00', '#2B5CC4', '#7A3FC4', '#0B7285', '#55535E', '#7A7668', '#D9485A', '#1E9468', '#946F00', '#4474D6', '#9158DB', '#1296AD', '#1C1B22'],
 		add: '#157A52', del: '#C42B3D', errFg: '#FFFFFF', warnFg: '#FFFFFF'
 	}
@@ -110,8 +110,8 @@ function build(c) {
 		'minimap.background': c.bg, 'minimap.selectionHighlight': c.sel, 'minimap.findMatchHighlight': c.accent, 'minimapSlider.background': a(c.faint, '22'), 'minimapSlider.hoverBackground': a(c.faint, '33'),
 		'sash.hoverBorder': c.accent, 'banner.background': c.elev, 'banner.foreground': c.text, 'banner.iconForeground': c.accent,
 		'welcomePage.tileBackground': c.elev, 'welcomePage.tileHoverBackground': c.hover, 'welcomePage.progress.foreground': c.accent, 'walkThrough.embeddedEditorBackground': c.surface,
-		'editorBracketHighlight.foreground1': c.muted, 'editorBracketHighlight.foreground2': c.kw, 'editorBracketHighlight.foreground3': c.type, 'editorBracketHighlight.foreground4': c.str, 'editorBracketHighlight.foreground5': c.cst, 'editorBracketHighlight.foreground6': c.prop, 'editorBracketHighlight.unexpectedBracket.foreground': c.err,
-		'symbolIcon.keywordForeground': c.kw, 'symbolIcon.functionForeground': c.accent, 'symbolIcon.classForeground': c.type, 'symbolIcon.methodForeground': c.accent
+		'editorBracketHighlight.foreground1': c.muted, 'editorBracketHighlight.foreground2': c.kw, 'editorBracketHighlight.foreground3': c.typeColor, 'editorBracketHighlight.foreground4': c.str, 'editorBracketHighlight.foreground5': c.cst, 'editorBracketHighlight.foreground6': c.prop, 'editorBracketHighlight.unexpectedBracket.foreground': c.err,
+		'symbolIcon.keywordForeground': c.kw, 'symbolIcon.functionForeground': c.accent, 'symbolIcon.classForeground': c.typeColor, 'symbolIcon.methodForeground': c.accent
 	};
 	['Black', 'Red', 'Green', 'Yellow', 'Blue', 'Magenta', 'Cyan', 'White', 'BrightBlack', 'BrightRed', 'BrightGreen', 'BrightYellow', 'BrightBlue', 'BrightMagenta', 'BrightCyan', 'BrightWhite']
 		.forEach((n, i) => { colors['terminal.ansi' + n] = c.ansi[i]; });
@@ -124,12 +124,12 @@ function build(c) {
 		tc(['constant.character.escape', 'string.regexp', 'constant.other.character-class.regexp'], c.rx),
 		tc(['constant.numeric', 'constant.language.boolean', 'constant.language.null', 'constant.language.undefined'], c.num),
 		tc(['constant', 'support.constant', 'variable.language'], c.cst),
-		tc(['entity.name.type', 'entity.name.class', 'entity.other.inherited-class', 'support.type', 'support.class', 'entity.name.namespace', 'storage.type.cs', 'storage.type.kotlin'], c.type),
+		tc(['entity.name.type', 'entity.name.class', 'entity.other.inherited-class', 'support.type', 'support.class', 'entity.name.namespace', 'storage.type.cs', 'storage.type.kotlin'], c.typeColor),
 		tc(['entity.name.function', 'support.function', 'meta.function-call entity.name.function', 'entity.name.method'], c.fn),
 		tc(['variable', 'variable.other.readwrite', 'meta.definition.variable'], c.va),
 		tc(['variable.other.property', 'variable.other.object.property', 'support.type.property-name', 'meta.object-literal.key', 'entity.name.tag.yaml'], c.prop),
 		tc(['entity.name.tag', 'punctuation.definition.tag', 'meta.tag'], c.kw),
-		tc(['entity.other.attribute-name'], c.type),
+		tc(['entity.other.attribute-name'], c.typeColor),
 		tc(['meta.annotation', 'storage.type.annotation', 'entity.name.decorator', 'meta.decorator'], c.cst),
 		tc(['markup.heading', 'entity.name.section.markdown', 'markup.heading entity.name'], c.accent, 'bold'),
 		tc(['markup.bold'], c.text, 'bold'), tc(['markup.italic'], c.text, 'italic'), tc(['markup.strikethrough'], c.muted, 'strikethrough'),
@@ -140,10 +140,10 @@ function build(c) {
 		tc(['invalid', 'invalid.illegal'], c.err)
 	];
 	return {
-		$schema: 'vscode://schemas/color-theme', name: c.name, type: c.type, colors, tokenColors,
+		$schema: 'vscode://schemas/color-theme', name: c.name, type: c.themeKind, colors, tokenColors,
 		semanticHighlighting: true,
 		semanticTokenColors: {
-			'class': c.type, 'interface': c.type, 'enum': c.type, 'struct': c.type, 'typeParameter': c.type, 'type': c.type, 'namespace': c.type,
+			'class': c.typeColor, 'interface': c.typeColor, 'enum': c.typeColor, 'struct': c.typeColor, 'typeParameter': c.typeColor, 'type': c.typeColor, 'namespace': c.typeColor,
 			'function': c.fn, 'method': c.fn, 'macro': c.cst, 'variable': c.va, 'parameter': c.va, 'property': c.prop, 'enumMember': c.cst, 'decorator': c.cst
 		}
 	};
@@ -153,11 +153,13 @@ function build(c) {
 const L = h => { const v = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(x => x <= .03928 ? x / 12.92 : Math.pow((x + .055) / 1.055, 2.4)); return .2126 * v[0] + .7152 * v[1] + .0722 * v[2]; };
 const cr = (a, b) => { const x = L(a), y = L(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
 
-for (const [k, c] of Object.entries(P)) {
+if (require.main === module) for (const [k, c] of Object.entries(P)) {
 	fs.writeFileSync(path.join(__dirname, '..', 'themes', `event-minimal-${k}.json`), JSON.stringify(build(c), null, '\t') + '\n');
 	const pairs = [['text/bg', c.text, c.bg, 4.5], ['text/panel', c.text, c.panel, 4.5], ['muted/panel', c.muted, c.panel, 4.5], ['faint/bg', c.faint, c.bg, 4.5], ['faint/panel', c.faint, c.panel, 4.5], ['faint/surface', c.faint, c.surface, 4.5], ['muted/surface', c.muted, c.surface, 4.5],
-		['accent/bg', c.accent, c.bg, 4.5], ['accent/panel', c.accent, c.panel, 4.5], ['onAccent/accent', c.onAccent, c.accent, 4.5], ['comment/bg', c.cm, c.bg, 4.5], ['kw/bg', c.kw, c.bg, 4.5], ['str/bg', c.str, c.bg, 4.5], ['type/bg', c.type, c.bg, 4.5],
+		['accent/bg', c.accent, c.bg, 4.5], ['accent/panel', c.accent, c.panel, 4.5], ['onAccent/accent', c.onAccent, c.accent, 4.5], ['comment/bg', c.cm, c.bg, 4.5], ['kw/bg', c.kw, c.bg, 4.5], ['str/bg', c.str, c.bg, 4.5], ['type/bg', c.typeColor, c.bg, 4.5],
 		['num/bg', c.num, c.bg, 4.5], ['const/bg', c.cst, c.bg, 4.5], ['rx/bg', c.rx, c.bg, 4.5], ['err/bg', c.err, c.bg, 4.5], ['warn/bg', c.warn, c.bg, 4.5], ['ok/bg', c.ok, c.bg, 4.5], ['info/bg', c.info, c.bg, 4.5], ['ctrlBorder/elev', c.borderStrong, c.elev, 3], ['ctrlBorder/panel', c.borderStrong, c.panel, 3]];
 	console.log('\n' + c.name);
 	pairs.forEach(([n, f, b, need]) => { const r = cr(f, b); console.log((r >= need ? '  ok  ' : '  FAIL') + ' ' + n.padEnd(18) + r.toFixed(2)); });
 }
+
+module.exports = { P, build };
