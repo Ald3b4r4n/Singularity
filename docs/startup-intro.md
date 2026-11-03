@@ -37,6 +37,25 @@ Medido em modo desenvolvimento (carregamento sem empacotamento, cerca de 7,7 s a
 | full | 7982 ms | +243 ms |
 | static | 7742 ms | +3 ms |
 
+
+### Build empacotado local (minificado, `vscode-win32-x64-min`)
+
+Mediana de 4 execuções por modo; `code/didRestoreEditors` (editor restaurado, IDE utilizável) e o instante em que o overlay termina, ambos em ms desde o início do renderer:
+
+| Modo | Editor restaurado | Diferença para "off" | Overlay termina |
+|---|---|---|---|
+| off | 953 | referência | sem overlay |
+| quick | 993 | +40 | 1403 |
+| full | 1017 | +64 | 4648 |
+| static | 949 | -4 (ruído) | 1325 |
+
+Carregamento (`didLoadWorkbenchMain`) ficou entre 709 e 748 ms nos quatro modos. Portanto:
+
+- **Tempo de carregamento:** a abertura soma de 0 a cerca de 65 ms até o editor ficar utilizável.
+- **Tempo de exibição do overlay:** em `full` o overlay fica 2,4 s além do ponto em que a IDE já está utilizável (3,6 s de mínimo menos cerca de 1,0 s de carregamento, mais o fade). Nesse intervalo os cliques passam pelo overlay e `Esc` o encerra. Em `quick` ele sai cerca de 0,4 s depois.
+- Na primeira execução do build empacotado, a sequência completa foi registrada a 51 quadros por segundo (250 quadros em 4,9 s).
+
+Medições feitas com a janela real, via DevTools (marks de performance), sem instalador. O build foi gerado só para teste local e não foi publicado.
 Uma primeira versão (efeitos de mistura e máscara, animações infinitas) custava cerca de +500 ms; as mudanças acima a reduziram. Os números de uma build empacotada ainda não foram medidos.
 
 ## Peças do upstream tocadas
