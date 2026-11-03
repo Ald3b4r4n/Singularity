@@ -45,6 +45,10 @@ const commit = getVersion(root);
 const packageLock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8')) as {
 	readonly packages?: Readonly<Record<string, { readonly version?: string }>>;
 };
+// Singularity: the Copilot CLI runtime that the built-in Copilot extension needs (@github/copilot) may only be redistributed
+// unmodified and this build prunes it, so Singularity packages do not ship the built-in Copilot extension. Set
+// "singularityBuild.shipBuiltInCopilot" to true in product.json to build with it again.
+const shipBuiltInCopilot = (product as { singularityBuild?: { shipBuiltInCopilot?: boolean } }).singularityBuild?.shipBuiltInCopilot === true;
 const copilotRuntimeVersion = getCopilotRuntimeVersion(path.join(root, 'node_modules'));
 if (packageJson.copilotRuntimeVersion !== copilotRuntimeVersion) {
 	throw new Error(`package.json declares Copilot runtime ${packageJson.copilotRuntimeVersion}, but @github/copilot-sdk bundles ${copilotRuntimeVersion}.`);
@@ -429,6 +433,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				.pipe(rename(product.nameShort + '.VisualElementsManifest.xml')));
 
 			// Setup publishes it next to the copilot.exe shim; see build/win32/copilot.iss.
+			if (shipBuiltInCopilot) {
 			result = es.merge(result, gulp.src('resources/win32/bin/copilot.sh', { base: 'resources/win32' })
 				.pipe(es.through(function (file) {
 					file.contents = Buffer.from(renderCopilotShimLauncher(file.contents.toString('utf8'), {
@@ -441,6 +446,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 					this.emit('data', file);
 				}))
 				.pipe(rename(f => { f.dirname = 'bin/copilot-shim'; f.basename = 'copilot'; f.extname = ''; })));
+			}
 
 			result = es.merge(result, gulp.src('.build/policies/win32/**', { base: '.build/policies/win32' })
 				.pipe(rename(f => f.dirname = `policies/${f.dirname}`)));
@@ -537,11 +543,11 @@ function patchWin32DependenciesTask(destinationFolderName: string) {
 			await rcedit(fullPath, {
 				'file-version': baseVersion,
 				'version-string': {
-					'CompanyName': 'Microsoft Corporation',
+					'CompanyName': 'Singularity IDE contributors', // Singularity: these binaries are not Microsoft's
 					'FileDescription': product.nameLong,
 					'FileVersion': packageJson.version,
 					'InternalName': basename,
-					'LegalCopyright': 'Copyright (C) 2026 Microsoft. All rights reserved',
+					'LegalCopyright': 'Copyright (C) Singularity IDE contributors and the authors of the bundled component. See ThirdPartyNotices.txt',
 					'OriginalFilename': basename,
 					'ProductName': product.nameLong,
 					'ProductVersion': packageJson.version,
@@ -606,8 +612,10 @@ BUILD_TARGETS.forEach(buildTarget => {
 			compileNativeExtensionsBuildTask,
 			util.rimraf(path.join(buildRoot, destinationFolderName)),
 			packageTask(platform, arch, sourceFolderName, destinationFolderName, opts),
-			prepareCopilotRipgrepShimTask(platform, arch, destinationFolderName)
 		];
+		if (shipBuiltInCopilot) {
+			packageTasks.push(prepareCopilotRipgrepShimTask(platform, arch, destinationFolderName));
+		}
 
 		if (platform === 'win32') {
 			packageTasks.push(patchWin32DependenciesTask(destinationFolderName));
@@ -633,7 +641,7 @@ BUILD_TARGETS.forEach(buildTarget => {
 			copyCodiconsTask,
 			cleanExtensionsBuildTask,
 			compileNonNativeExtensionsBuildTask,
-			compileCopilotExtensionBuildTask,
+			...(shipBuiltInCopilot ? [compileCopilotExtensionBuildTask] : []),
 			compileExtensionMediaBuildTask,
 			writeISODate('out-build'),
 			esbuildBundleTask,

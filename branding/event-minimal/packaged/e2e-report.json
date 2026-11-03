@@ -1,0 +1,91 @@
+{
+  "mode": "packaged",
+  "started": "2026-11-03T18:30:40.604Z",
+  "steps": [
+    {
+      "name": "temporary workspace with a git repository",
+      "ok": true,
+      "ms": 466,
+      "detail": {
+        "workspace": "C:\\Users\\ANTONI~1\\AppData\\Local\\Temp\\singularity-e2e-hD06Ut\\ws"
+      }
+    },
+    {
+      "name": "launch, opening plays and leaves, window comes to the front",
+      "ok": true,
+      "ms": 12555,
+      "detail": {
+        "editorRestoredMs": 1747,
+        "overlayEndMs": 4819,
+        "title": "ws - Singularity IDE"
+      }
+    },
+    {
+      "name": "open a file with Ctrl+P and type into it",
+      "ok": true,
+      "ms": 30771,
+      "detail": {
+        "bytes": 39
+      }
+    },
+    {
+      "name": "switch to Event Minimal Light and back to Dark",
+      "ok": true,
+      "ms": 40254,
+      "detail": {
+        "switched": true
+      }
+    },
+    {
+      "name": "terminal runs a command",
+      "ok": true,
+      "ms": 29992,
+      "detail": {
+        "gitStatus": "M notes.txt"
+      }
+    },
+    {
+      "name": "Source Control view shows the change",
+      "ok": true,
+      "ms": 18941
+    },
+    {
+      "name": "Command Palette lists Singularity commands",
+      "ok": true,
+      "ms": 16757
+    },
+    {
+      "name": "built-in extensions are present",
+      "ok": true,
+      "ms": 23867
+    },
+    {
+      "name": "Singularity Agents panel opens",
+      "ok": true,
+      "ms": 23340
+    },
+    {
+      "name": "close the window like a user",
+      "ok": true,
+      "ms": 5563,
+      "detail": {
+        "forced": 0
+      }
+    },
+    {
+      "name": "reopen: workspace and the edited file are restored",
+      "ok": true,
+      "ms": 8224,
+      "detail": {
+        "title": "notes.txt - ws - Singularity IDE"
+      }
+    },
+    {
+      "name": "final close and cleanup",
+      "ok": true,
+      "ms": 5537
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-03T18:34:16.873Z"
+}

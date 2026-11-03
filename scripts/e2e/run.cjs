@@ -15,6 +15,9 @@ const lib = require('./lib.cjs');
 const arg = (n, d) => { const i = process.argv.indexOf('--' + n); return i < 0 ? d : (process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : true); };
 const dev = arg('dev', ''), exe = arg('exe', ''), withHub = !!arg('hub', false), keep = !!arg('keep', false);
 if (!dev && !exe) { console.error('usage: run.cjs --dev <repo> | --exe <path> [--out dir] [--hub] [--keep]'); process.exit(2); }
+// --no-system-node: start the IDE with a PATH that has no node.exe, proving the Hub runs on its bundled runtime
+const noSystemNode = !!arg('no-system-node', false);
+const pathWithoutNode = () => (process.env.PATH || process.env.Path || '').split(path.delimiter).filter(d => d && !fs.existsSync(path.join(d.replace(/^"|"$/g, ''), 'node.exe'))).join(path.delimiter);
 const outDir = path.resolve(arg('out', path.join(process.cwd(), 'e2e-out')));
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -27,7 +30,9 @@ const report = { mode: dev ? 'dev' : 'packaged', started: new Date().toISOString
 const hubCli = () => {
 	const cli = path.join(dev || path.dirname(exe), dev ? 'singularity-hub' : 'resources\\app\\singularity-hub', 'dist', 'cli.js');
 	try {
-		return JSON.parse(execFileSync(process.env.SINGULARITY_E2E_NODE || 'node', [cli, 'status'], { env: { ...process.env, SINGULARITY_HUB_HOME: hubHome }, encoding: 'utf8' }));
+		// a packaged build is checked with the Node it ships; a checkout with the Node on PATH
+		const node = exe ? path.join(path.dirname(exe), 'resources', 'app', 'singularity-hub', 'runtime', 'node.exe') : (process.env.SINGULARITY_E2E_NODE || 'node');
+		return JSON.parse(execFileSync(node, [cli, 'status'], { env: { ...process.env, SINGULARITY_HUB_HOME: hubHome }, encoding: 'utf8' }));
 	} catch (e) {
 		// `status` exits with 1 and prints { running: false } when there is no Hub
 		return JSON.parse(String(e.stdout || '{"running":false}'));
@@ -66,7 +71,7 @@ async function waitFor(fn, ms = 20000, every = 300) {
 }
 
 async function launchAndWait(files) {
-	lib.launch({ exe: exe || undefined, dev: dev || undefined, profile, workspace, port, files, env: { SINGULARITY_HUB_HOME: hubHome } });
+	lib.launch({ exe: exe || undefined, dev: dev || undefined, profile, workspace, port, files, env: { SINGULARITY_HUB_HOME: hubHome, ...(noSystemNode ? { PATH: pathWithoutNode(), Path: pathWithoutNode() } : {}) } });
 	const page = await lib.cdp(port);
 	await waitFor(async () => page.evaluate('window.__singularityWorkbenchRestored === true'), 90000);
 	await waitFor(async () => page.evaluate("!document.getElementById('singularity-intro')"), 20000);
