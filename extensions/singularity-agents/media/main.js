@@ -5,7 +5,6 @@
 
 	function draw(state) {
 		app.innerHTML = window.SingularityAgentsRender.render(state);
-		vscode.setState({ state });
 	}
 
 	window.addEventListener('message', event => {
@@ -21,9 +20,7 @@
 		}
 	});
 
-	const previous = vscode.getState();
-	if (previous && previous.state) {
-		draw(previous.state);
-	}
+	// Nothing is restored from a previous run: the panel only ever shows the state the extension host posts now,
+	// so a stale "connected" can never be displayed.
 	vscode.postMessage({ type: 'ready' });
 })();

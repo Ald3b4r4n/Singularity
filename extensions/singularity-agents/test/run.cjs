@@ -32,7 +32,7 @@ test('the command palette entry reads "Singularity: Abrir painel de agentes"', (
 });
 
 test('no network code, no remote URLs and a strict CSP', () => {
-	const files = ['extension.js', 'hub.js', 'media/render.js', 'media/main.js', 'media/agents.css'];
+	const files = ['extension.js', 'hub.js', 'hubClient.js', 'media/render.js', 'media/main.js', 'media/agents.css'];
 	for (const f of files) {
 		const text = read(f)
 			.replace(/http:\/\/www\.w3\.org\/2000\/svg/g, '')
@@ -94,6 +94,38 @@ test('session data is rendered from state and escaped', () => {
 
 test('unknown hub status falls back to disconnected', () => {
 	assert.ok(render({ hub: { status: 'weird' }, sessions: [] }).includes('não conectado'));
+});
+
+const text = html => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+test('connected hub with zero sessions reads "Hub conectado" and "SESSÕES 0"', () => {
+	const t = text(render({ hub: { status: 'connected' }, sessions: [] }));
+	assert.ok(/Hub conectado/.test(t), t);
+	assert.ok(/SESSÕES 0/.test(t), t);
+	assert.ok(!/não conectado/.test(t), 'no "not connected" text while connected');
+});
+
+test('the webview never restores remembered state, so a stale "connected" cannot be shown', () => {
+	const main = read('media/main.js').replace(/\/\/.*$/gm, '');
+	assert.ok(!/getState\(|setState\(/.test(main));
+});
+
+test('the real client never exposes credentials and degrades to an error state without the Hub package', () => {
+	const { RealHubClient } = require('../hubClient.js');
+	const c = new RealHubClient({});
+	const s = JSON.stringify(c.getState());
+	assert.ok(!/token|bearer|authorization/i.test(s), s);
+	assert.ok(['disconnected', 'error'].includes(c.getState().hub.status));
+	c.dispose();
+});
+
+test('hub commands and settings are declared and registered', () => {
+	const ids = pkg.contributes.commands.map(c => c.command);
+	for (const id of ['singularity.hub.start', 'singularity.hub.stop']) {
+		assert.ok(ids.includes(id) && read('extension.js').includes(`'${id}'`), id);
+	}
+	assert.ok('singularity.agents.hub.autoStart' in pkg.contributes.configuration.properties);
+	assert.strictEqual(pkg.contributes.configuration.properties['singularity.agents.hub.nodePath'].scope, 'machine');
 });
 
 console.log(`ok: ${n} checks`);

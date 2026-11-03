@@ -1,7 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
-const { DisconnectedHubClient } = require('./hub.js');
+const { RealHubClient } = require('./hubClient.js');
 
 const VIEW_ID = 'singularity.agents.sessions';
 const CONTAINER_ID = 'singularityAgents';
@@ -10,8 +10,10 @@ class AgentsViewProvider {
 	/**
 	 * @param {vscode.Uri} extensionUri
 	 * @param {{ getState(): object, onDidChange(l: () => void): () => void }} hub
+	 * @param {() => void} onVisible called when the panel is shown
 	 */
-	constructor(extensionUri, hub) {
+	constructor(extensionUri, hub, onVisible) {
+		this._onVisible = onVisible;
 		this._extensionUri = extensionUri;
 		this._hub = hub;
 		this._view = undefined;
@@ -24,6 +26,8 @@ class AgentsViewProvider {
 
 		const stop = this._hub.onDidChange(() => this._post());
 		view.onDidDispose(() => { stop(); this._view = undefined; });
+		view.onDidChangeVisibility(() => { if (view.visible) { this._onVisible(); this._post(); } });
+		this._onVisible();
 		view.webview.onDidReceiveMessage(message => {
 			if (message && message.type === 'ready') {
 				this._post();
@@ -63,25 +67,39 @@ class AgentsViewProvider {
 }
 
 function activate(context) {
-	const hub = new DisconnectedHubClient();
-	const provider = new AgentsViewProvider(context.extensionUri, hub);
+	const settings = () => vscode.workspace.getConfiguration('singularity.agents');
+	const hub = new RealHubClient({ nodePath: settings().get('hub.nodePath', '') });
+	// Showing the panel is what starts the Hub (when autoStart is on). Reconnecting after a drop never starts one by itself.
+	const ensureHub = () => hub.start(settings().get('hub.autoStart', true));
+	const provider = new AgentsViewProvider(context.extensionUri, hub, () => { void ensureHub(); });
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),
 		vscode.commands.registerCommand('singularity.agents.open', () => vscode.commands.executeCommand(`workbench.view.extension.${CONTAINER_ID}`)),
+		vscode.commands.registerCommand('singularity.hub.start', async () => { await hub.start(true); }),
+		vscode.commands.registerCommand('singularity.hub.stop', async () => {
+			try {
+				await hub.stopHub();
+			} catch {
+				vscode.window.showWarningMessage('O Singularity Hub não está em execução.');
+			}
+		}),
 		vscode.commands.registerCommand('singularity.agents.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:singularity.singularity-agents'))
 	);
 
 	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+	// At startup only look for a Hub that is already running; nothing is started until the panel is opened.
+	void hub.start(false);
 	item.name = 'Singularity Agents';
 	item.command = 'singularity.agents.open';
 	context.subscriptions.push(item);
 
 	const refreshItem = () => {
 		const { hub: hubState, sessions } = hub.getState();
-		item.text = sessions.length ? `$(circle-filled) Agentes: ${sessions.length}` : '$(circle-large-outline) Agentes';
-		item.tooltip = hubState.status === 'connected'
-			? 'Singularity Agents: abrir painel'
+		const connected = hubState.status === 'connected';
+		item.text = connected ? `$(circle-filled) Agentes: ${sessions.length}` : '$(circle-large-outline) Agentes';
+		item.tooltip = connected
+			? `Singularity Hub conectado, ${sessions.length} sessões. Clique para abrir o painel.`
 			: 'Singularity Hub não conectado. Clique para abrir o painel de agentes.';
 		if (vscode.workspace.getConfiguration('singularity.agents').get('showStatusBarItem', true)) {
 			item.show();
@@ -91,11 +109,14 @@ function activate(context) {
 	};
 	refreshItem();
 	context.subscriptions.push(
+		{ dispose: () => hub.dispose() },
 		{ dispose: hub.onDidChange(refreshItem) },
 		vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('singularity.agents.showStatusBarItem')) { refreshItem(); } })
 	);
 }
 
 function deactivate() { }
+
+// The Hub is deliberately NOT stopped when the window closes: it is an independent process.
 
 module.exports = { activate, deactivate };

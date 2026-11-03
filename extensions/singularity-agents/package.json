@@ -52,6 +52,16 @@
         "command": "singularity.agents.openSettings",
         "title": "%command.openSettings%",
         "category": "Singularity"
+      },
+      {
+        "command": "singularity.hub.start",
+        "title": "%command.hubStart%",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.hub.stop",
+        "title": "%command.hubStop%",
+        "category": "Singularity"
       }
     ],
     "configuration": {
@@ -61,6 +71,17 @@
           "type": "boolean",
           "default": true,
           "description": "%configuration.showStatusBarItem%"
+        },
+        "singularity.agents.hub.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.autoStart%"
+        },
+        "singularity.agents.hub.nodePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%configuration.nodePath%"
         }
       }
     }

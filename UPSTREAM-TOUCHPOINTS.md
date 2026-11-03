@@ -26,3 +26,4 @@ Base atual: tag `1.144.0`, commit `2c33b50b16c472efe58357d1d2a8a5414bc23fbf`.
 *   Ícones dos tipos de arquivo em `resources/win32/*.ico` (cerca de 25), `resources/linux/rpm/code.xpm` e ícones do macOS.
 *   Inclusão da extensão `extensions/singularity-theme` no build empacotado: em desenvolvimento ela é carregada sem alterar nenhum arquivo do upstream; o pacote final ainda precisa ser conferido.
 *   A extensão `extensions/singularity-agents` (painel de agentes na barra lateral secundária) não editou nenhum arquivo do upstream: usa o ponto de extensão público `viewsContainers.secondarySidebar`.
+*   O módulo `singularity-hub/` (processo do Hub, TypeScript) e a ligação em `extensions/singularity-agents` não editaram nenhum arquivo do upstream. Em desenvolvimento a extensão procura `../../singularity-hub/dist`; empacotar o Hub no build da IDE ainda não foi feito.

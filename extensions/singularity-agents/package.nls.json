@@ -6,5 +6,9 @@
   "command.open": "Abrir painel de agentes",
   "command.openSettings": "Configurações do painel de agentes",
   "configuration.title": "Singularity Agents",
-  "configuration.showStatusBarItem": "Mostra o item Singularity Agents na barra de status."
+  "configuration.showStatusBarItem": "Mostra o item Singularity Agents na barra de status.",
+  "command.hubStart": "Iniciar o Hub",
+  "command.hubStop": "Encerrar o Hub",
+  "configuration.autoStart": "Inicia o Singularity Hub (um processo local independente) quando o painel de agentes é aberto. Desligado, o painel só se conecta a um Hub que já esteja em execução.",
+  "configuration.nodePath": "Caminho do node.exe usado para iniciar o Hub. Vazio: usa o Node.js encontrado no PATH."
 }
