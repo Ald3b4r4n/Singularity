@@ -151,6 +151,26 @@ export default defineConfig(
 			]
 		},
 	},
+	// Files written for Singularity carry the Singularity header (MIT), not Microsoft's copyright.
+	{
+		files: [
+			'src/vs/base/common/singularityIntroLogic.ts',
+			'src/vs/code/electron-browser/workbench/singularityIntro.ts',
+			'src/vs/workbench/contrib/singularityIntro/**/*.ts',
+		],
+		rules: {
+			'header/header': [
+				2,
+				'block',
+				[
+					'---------------------------------------------------------------------------------------------',
+					' *  Copyright (c) Singularity IDE contributors. Licensed under the MIT License.',
+					' *  See LICENSE.txt in the project root for license information.',
+					' *--------------------------------------------------------------------------------------------'
+				]
+			]
+		},
+	},
 	// Production filesystem operations must not block the event loop.
 	{
 		files: [

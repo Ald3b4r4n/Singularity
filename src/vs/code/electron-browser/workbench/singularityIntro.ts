@@ -1,18 +1,22 @@
 /*---------------------------------------------------------------------------------------------
- *  Singularity IDE. MIT License.
- *  Cinematic startup overlay (Event Minimal). Runs in the renderer bootstrap, before the workbench
- *  is imported, so it is part of the real startup rather than a page opened afterwards.
- *
- *  - Pure CSS animation on transform and opacity of HTML layers. Every animation is finite and the scene
- *    comes to rest after about four seconds, so a slow workbench load does not keep the renderer animating.
- *  - Built with DOM APIs: the window's CSP enforces Trusted Types.
- *  - No assets, no network, no audio.
- *  - Every failure path ends with the overlay removed: it can never keep the IDE from opening.
+ *  Copyright (c) Singularity IDE contributors. Licensed under the MIT License.
+ *  See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Cinematic startup overlay (Event Minimal). Runs in the renderer bootstrap, before the workbench
+ * is imported, so it is part of the real startup rather than a page opened afterwards.
+ *
+ * - Pure CSS animation on transform and opacity of HTML layers. Every animation is finite and the scene
+ *   comes to rest after about four seconds, so a slow workbench load does not keep the renderer animating.
+ * - Built with DOM APIs: the window's CSP enforces Trusted Types.
+ * - No assets, no network, no audio.
+ * - Every failure path ends with the overlay removed: it can never keep the IDE from opening.
+ */
 
 /* eslint-disable no-restricted-globals */
 
-import { INTRO_HARD_TIMEOUT_MS, INTRO_KEYS, INTRO_MIN_MS, IntroVariant, leaveDelayMs, resolveIntroVariant } from '../../../base/common/singularityIntroLogic.js';
+import { INTRO_HARD_TIMEOUT_MS, INTRO_KEYS, INTRO_MIN_MS, IntroVariant, leaveDelayMs, resolveIntroVariant, skipHint } from '../../../base/common/singularityIntroLogic.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ID = 'singularity-intro';
@@ -20,6 +24,7 @@ const ID = 'singularity-intro';
 interface IIntroWindowConfiguration {
 	autoDetectHighContrast?: boolean;
 	colorScheme?: { highContrast?: boolean };
+	nls?: { language?: string };
 	extensionTestsPath?: string;
 	['enable-smoke-test-driver']?: boolean;
 }
@@ -137,6 +142,7 @@ const CSS = `
 `;
 
 let current: { dispose(): void } | undefined;
+let hint = skipHint();
 
 function play(variant: Exclude<IntroVariant, 'none'>, readyAlready: boolean): void {
 	current?.dispose();
@@ -164,7 +170,7 @@ function play(variant: Exclude<IntroVariant, 'none'>, readyAlready: boolean): vo
 	overlay.appendChild(stage);
 	overlay.appendChild(words);
 	if (variant === 'full') {
-		overlay.appendChild(html('div', 'si-hint', 'Press Esc to skip'));
+		overlay.appendChild(html('div', 'si-hint', hint));
 	}
 
 	const startedAt = performance.now();
@@ -230,8 +236,8 @@ function play(variant: Exclude<IntroVariant, 'none'>, readyAlready: boolean): vo
 		leave('skip-pointer');
 	}
 
-	document.head.appendChild(style);
-	document.body.appendChild(overlay);
+	window.document.head.appendChild(style);
+	window.document.body.appendChild(overlay);
 	performance.mark('singularity/introStart');
 	window.addEventListener('singularity:workbench-restored', onReady);
 	window.addEventListener('keydown', onKey, true);
@@ -243,6 +249,16 @@ function play(variant: Exclude<IntroVariant, 'none'>, readyAlready: boolean): vo
 	scheduleLeave();
 }
 
+/** The user and OS locales the main process put in VSCODE_NLS_CONFIG (the renderer's navigator.language is always en-US). */
+function osLocales(raw: string | undefined): string[] {
+	try {
+		const parsed = raw ? JSON.parse(raw) as { userLocale?: string; osLocale?: string } : undefined;
+		return [parsed?.userLocale, parsed?.osLocale].filter((l): l is string => typeof l === 'string');
+	} catch {
+		return [];
+	}
+}
+
 function isWorkbenchReady(): boolean {
 	return (window as unknown as { __singularityWorkbenchRestored?: boolean }).__singularityWorkbenchRestored === true;
 }
@@ -252,8 +268,9 @@ function isWorkbenchReady(): boolean {
  * `INTRO_MIN_MS` is a floor for how long the overlay is visible, not a delay on the workbench,
  * which keeps loading underneath.
  */
-export function showSingularityIntro(configuration: IIntroWindowConfiguration): void {
+export function showSingularityIntro(configuration: IIntroWindowConfiguration, rawNlsConfig?: string): void {
 	try {
+		hint = skipHint(configuration.nls?.language, osLocales(rawNlsConfig), window.navigator.language);
 		const variant = resolveIntroVariant({
 			mode: storage(INTRO_KEYS.mode),
 			seen: storage(INTRO_KEYS.seen) === '1',
@@ -283,8 +300,6 @@ export function showSingularityIntro(configuration: IIntroWindowConfiguration): 
 		play(variant, isWorkbenchReady());
 	} catch {
 		current?.dispose();
-		document.getElementById(ID)?.remove();
-		document.getElementById(`${ID}-style`)?.remove();
 	}
 }
 

@@ -43,3 +43,13 @@ test('the workbench is never held back: the overlay leaves as soon as it is read
 	assert.equal(leaveDelayMs('quick', 10, true), INTRO_MIN_MS.quick - 10);
 	assert.ok(INTRO_MIN_MS.quick < 1000 && INTRO_MIN_MS.static < INTRO_MIN_MS.quick && INTRO_MIN_MS.full < 5000);
 });
+
+test('the skip hint follows the user or OS locale and falls back to English', async () => {
+	const { skipHint } = await import('../out/vs/base/common/singularityIntroLogic.js');
+	assert.equal(skipHint('en', 'pt-BR'), 'Pressione Esc para pular');
+	assert.equal(skipHint('pt-br'), 'Pressione Esc para pular');
+	assert.equal(skipHint('pt'), 'Pressione Esc para pular');
+	assert.equal(skipHint('en', 'en-US'), 'Press Esc to skip');
+	assert.equal(skipHint(undefined, null), 'Press Esc to skip');
+	assert.equal(skipHint('ptolemy'), 'Press Esc to skip', 'only the pt language code matches');
+});

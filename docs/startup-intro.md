@@ -22,7 +22,7 @@ Sequência de abertura (Event Minimal) desenhada na inicialização real da jane
 
 Configuração `singularity.startup.intro`: `firstRun` (padrão), `always`, `quick`, `off`. O valor vale a partir da próxima abertura. Comando: **Replay the Opening** (F1) toca a versão completa numa janela já aberta.
 
-`Esc`, `Enter`, `Espaço` ou um clique pulam a abertura. Se algo falhar ao desenhar, o overlay é removido e a IDE abre normalmente. Há um limite de 20 s.
+`Esc`, `Enter`, `Espaço` ou um clique pulam a abertura. A dica "Pressione Esc para pular" aparece em português quando o idioma do usuário ou do Windows é português (lido de `VSCODE_NLS_CONFIG`, porque o bootstrap roda antes do carregamento do NLS); caso contrário, em inglês. Se algo falhar ao desenhar, o overlay é removido e a IDE abre normalmente. Há um limite de 20 s.
 
 ## Desempenho
 

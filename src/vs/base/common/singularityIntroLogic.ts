@@ -1,7 +1,9 @@
 /*---------------------------------------------------------------------------------------------
- *  Singularity IDE. MIT License.
- *  Pure decisions for the startup intro. No DOM, so it can be tested in plain Node.
+ *  Copyright (c) Singularity IDE contributors. Licensed under the MIT License.
+ *  See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
+
+// Pure decisions for the startup intro. No DOM, so it can be tested in plain Node.
 
 export type IntroMode = 'firstRun' | 'always' | 'quick' | 'off';
 export type IntroVariant = 'full' | 'quick' | 'static' | 'none';
@@ -22,6 +24,11 @@ export const INTRO_MIN_MS: Record<Exclude<IntroVariant, 'none'>, number> = {
 	quick: 650,
 	static: 350,
 };
+
+/** Portuguese for Portuguese locales (user or OS), English otherwise. The bootstrap runs before NLS is loaded. */
+export function skipHint(...locales: Array<string | string[] | null | undefined>): string {
+	return locales.flat().some(l => /^pt([-_]|$)/i.test(l ?? '')) ? 'Pressione Esc para pular' : 'Press Esc to skip';
+}
 
 export function parseMode(value: string | null | undefined): IntroMode {
 	return value === 'always' || value === 'quick' || value === 'off' || value === 'firstRun' ? value : 'firstRun';

@@ -722,7 +722,7 @@ import { showSingularityIntro } from './singularityIntro.js'; // Singularity: ci
 
 				// Show our splash as early as possible
 				showSplash(windowConfig);
-				showSingularityIntro(windowConfig); // Singularity: draws on top of the splash, never throws
+				showSingularityIntro(windowConfig, safeProcess.env['VSCODE_NLS_CONFIG']); // Singularity: draws on top of the splash, never throws
 
 				// Code windows have a `vscodeWindowId` property to identify them
 				Object.defineProperty(window, 'vscodeWindowId', {

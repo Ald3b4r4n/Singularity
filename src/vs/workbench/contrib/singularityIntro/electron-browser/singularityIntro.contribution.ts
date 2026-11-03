@@ -1,5 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- *  Singularity IDE. MIT License.
+ *  Copyright (c) Singularity IDE contributors. Licensed under the MIT License.
+ *  See LICENSE.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
 import { mainWindow } from '../../../../base/browser/window.js';
