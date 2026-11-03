@@ -107,6 +107,7 @@ function activate(context) {
 		item.show();
 	};
 
+	require('./publishing.js').registerPublishing(context, output);
 	context.subscriptions.push(
 		vscode.commands.registerCommand('singularity.account.signIn', () => signIn(context, output, render)),
 		vscode.commands.registerCommand('singularity.account.signOut', () => signOut(context, output, render)),

@@ -36,6 +36,11 @@
         "command": "singularity.account.manage",
         "title": "%command.manage%",
         "category": "Singularity"
+      },
+      {
+        "command": "singularity.publish.now",
+        "title": "%command.publishNow%",
+        "category": "Singularity"
       }
     ],
     "configuration": {
@@ -46,6 +51,29 @@
           "default": "",
           "scope": "machine",
           "description": "%configuration.githubClientId%"
+        },
+        "singularity.publish.defaultMode": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "assisted"
+          ],
+          "default": "manual",
+          "scope": "machine",
+          "enumDescriptions": [
+            "%publish.mode.manual%",
+            "%publish.mode.assisted%"
+          ],
+          "description": "%publish.defaultMode%"
+        },
+        "singularity.publish.automaticRepositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "%publish.automaticRepositories%"
         }
       }
     }

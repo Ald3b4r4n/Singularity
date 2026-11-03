@@ -7,7 +7,7 @@ const gh = require('../github.js');
 const root = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const nls = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.json'), 'utf8'));
-const ext = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+const ext = ['extension.js', 'publishing.js'].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n');
 const results = [];
 const test = async (name, fn) => {
 	try { await fn(); results.push(true); console.log('  ok  ' + name); }

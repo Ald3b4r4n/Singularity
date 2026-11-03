@@ -1,0 +1,50 @@
+{
+  "dev": "D:\\dev\\singularity",
+  "results": [
+    {
+      "name": "assisted: a commit made outside the editor asks before pushing",
+      "ok": true
+    },
+    {
+      "name": "assisted: \"Publicar\" pushes exactly that commit",
+      "ok": true,
+      "detail": {
+        "remoteHead": "a0abb5d",
+        "local": "a0abb5d"
+      }
+    },
+    {
+      "name": "automatic: the next external commit is pushed without asking",
+      "ok": true,
+      "detail": {
+        "remoteHead": "402e6da"
+      }
+    },
+    {
+      "name": "divergence: reported to the user",
+      "ok": true
+    },
+    {
+      "name": "divergence: the remote is not overwritten and nothing is forced",
+      "ok": true,
+      "detail": {
+        "remoteHead": "4d466b4",
+        "theirs": "4d466b4",
+        "mine": "b6b4348"
+      }
+    },
+    {
+      "name": "the history before the divergence is preserved on the remote",
+      "ok": true
+    },
+    {
+      "name": "automatic: the decision is in the extension log (mode=automatic, push)",
+      "ok": true,
+      "detail": {
+        "decisions": 4
+      }
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-03T19:52:57.984Z"
+}
