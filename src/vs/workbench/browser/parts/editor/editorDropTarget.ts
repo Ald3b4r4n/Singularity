@@ -309,63 +309,69 @@ class DropOverlay extends Themable {
 		}
 	}
 
+	/**
+	 * Updates the overlay for a drag over the group, such as the one that
+	 * created it: what a drop there does, or, where the group does not take
+	 * the drop, such as over an input, it goes away.
+	 */
+	update(e: DragEvent): void {
+		const isDraggingGroup = this.groupTransfer.hasData(DraggedEditorGroupIdentifier.prototype);
+		const isDraggingEditor = this.editorTransfer.hasData(DraggedEditorIdentifier.prototype);
+
+		// An input drop target takes the drop. So does content that
+		// handles drops, except for editors and groups dropped on an
+		// edge of the group, which still split
+		if (
+			(this.enableDropIntoEditor && isDragIntoEditorEvent(e)) ||
+			isInputDropTargetEvent(e, this.groupView.element) ||
+			(isContentDropTargetEvent(e, this.groupView.element) && (!(isDraggingEditor || isDraggingGroup) || !isEdgeDropOverContent(e, this.groupView, isDraggingGroup, this.isSplittingEnabled(e))))
+		) {
+			this.dispose();
+			return;
+		}
+
+		// Update the dropEffect to "copy" if there is no local data to be dragged because
+		// in that case we can only copy the data into and not move it from its source
+		if (!isDraggingEditor && !isDraggingGroup && e.dataTransfer) {
+			e.dataTransfer.dropEffect = 'copy';
+		}
+
+		// Find out if operation is valid
+		let isCopy = true;
+		if (isDraggingGroup) {
+			isCopy = this.isCopyOperation(e);
+		} else if (isDraggingEditor) {
+			const data = this.editorTransfer.getData(DraggedEditorIdentifier.prototype);
+			if (Array.isArray(data) && data.length > 0) {
+				isCopy = this.isCopyOperation(e, data[0].identifier);
+			}
+		}
+
+		if (!isCopy) {
+			const sourceGroupView = this.findSourceGroupView();
+			if (sourceGroupView === this.groupView) {
+				if (isDraggingGroup || (isDraggingEditor && sourceGroupView.count < 2)) {
+					this.hideOverlay();
+					return; // do not allow to drop group/editor on itself if this results in an empty group
+				}
+			}
+		}
+
+		// Position overlay and conditionally enable or disable
+		// editor group splitting support based on setting and
+		// keymodifiers used.
+		const { x, y } = getDropAreaPosition(e, this.groupView);
+		this.positionOverlay(x, y, isDraggingGroup, this.isSplittingEnabled(e));
+
+		// Make sure to stop any running cleanup scheduler to remove the overlay
+		if (this.cleanupOverlayScheduler.isScheduled()) {
+			this.cleanupOverlayScheduler.cancel();
+		}
+	}
+
 	private registerListeners(container: HTMLElement): void {
 		this._register(new DragAndDropObserver(container, {
-			onDragOver: e => {
-				const isDraggingGroup = this.groupTransfer.hasData(DraggedEditorGroupIdentifier.prototype);
-				const isDraggingEditor = this.editorTransfer.hasData(DraggedEditorIdentifier.prototype);
-
-				// An input drop target takes the drop. So does content that
-				// handles drops, except for editors and groups dropped on an
-				// edge of the group, which still split
-				if (
-					(this.enableDropIntoEditor && isDragIntoEditorEvent(e)) ||
-					isInputDropTargetEvent(e, this.groupView.element) ||
-					(isContentDropTargetEvent(e, this.groupView.element) && (!(isDraggingEditor || isDraggingGroup) || !isEdgeDropOverContent(e, this.groupView, isDraggingGroup, this.isSplittingEnabled(e))))
-				) {
-					this.dispose();
-					return;
-				}
-
-				// Update the dropEffect to "copy" if there is no local data to be dragged because
-				// in that case we can only copy the data into and not move it from its source
-				if (!isDraggingEditor && !isDraggingGroup && e.dataTransfer) {
-					e.dataTransfer.dropEffect = 'copy';
-				}
-
-				// Find out if operation is valid
-				let isCopy = true;
-				if (isDraggingGroup) {
-					isCopy = this.isCopyOperation(e);
-				} else if (isDraggingEditor) {
-					const data = this.editorTransfer.getData(DraggedEditorIdentifier.prototype);
-					if (Array.isArray(data) && data.length > 0) {
-						isCopy = this.isCopyOperation(e, data[0].identifier);
-					}
-				}
-
-				if (!isCopy) {
-					const sourceGroupView = this.findSourceGroupView();
-					if (sourceGroupView === this.groupView) {
-						if (isDraggingGroup || (isDraggingEditor && sourceGroupView.count < 2)) {
-							this.hideOverlay();
-							return; // do not allow to drop group/editor on itself if this results in an empty group
-						}
-					}
-				}
-
-				// Position overlay and conditionally enable or disable
-				// editor group splitting support based on setting and
-				// keymodifiers used.
-				const { x, y } = getDropAreaPosition(e, this.groupView);
-				this.positionOverlay(x, y, isDraggingGroup, this.isSplittingEnabled(e));
-
-				// Make sure to stop any running cleanup scheduler to remove the overlay
-				if (this.cleanupOverlayScheduler.isScheduled()) {
-					this.cleanupOverlayScheduler.cancel();
-				}
-			},
-
+			onDragOver: e => this.update(e),
 			onDragLeave: e => this.dispose(),
 			onDragEnd: e => this.dispose(),
 
@@ -379,6 +385,12 @@ class DropOverlay extends Themable {
 				}
 
 				EventHelper.stop(e, true);
+
+				// An overlay that shows takes its drop, also when no drag moved
+				// over it yet, such as when it showed for the drag that created it
+				if (!this.currentDropOperation) {
+					this.update(e);
+				}
 
 				// Dispose overlay
 				this.dispose();
@@ -805,6 +817,14 @@ export class EditorDropTarget extends Themable {
 
 		this.updateContainer(true);
 		this.createOverlay(event.target);
+
+		// The overlay shows for this drag already, and the content under it
+		// does not show its own drop feedback for it
+		const overlay = this._overlay;
+		if (overlay && !overlay.disposed) {
+			overlay.update(event);
+			EventHelper.stop(event, true);
+		}
 	}
 
 	private isEdgeDropOverContent(event: DragEvent): boolean {
