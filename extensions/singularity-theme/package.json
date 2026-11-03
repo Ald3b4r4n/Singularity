@@ -1,0 +1,33 @@
+{
+  "name": "singularity-theme",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "categories": [
+    "Themes"
+  ],
+  "version": "0.1.0",
+  "publisher": "singularity",
+  "license": "MIT",
+  "engines": {
+    "vscode": "*"
+  },
+  "contributes": {
+    "themes": [
+      {
+        "id": "Event Minimal Dark",
+        "label": "%eventMinimalDark%",
+        "uiTheme": "vs-dark",
+        "path": "./themes/event-minimal-dark.json"
+      },
+      {
+        "id": "Event Minimal Light",
+        "label": "%eventMinimalLight%",
+        "uiTheme": "vs",
+        "path": "./themes/event-minimal-light.json"
+      }
+    ],
+    "configurationDefaults": {
+      "workbench.colorTheme": "Event Minimal Dark"
+    }
+  }
+}

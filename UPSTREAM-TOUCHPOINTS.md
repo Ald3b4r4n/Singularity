@@ -19,4 +19,4 @@ Base atual: tag `1.144.0`, commit `2c33b50b16c472efe58357d1d2a8a5414bc23fbf`.
 ## Ainda não tocado, mas previsto
 
 *   Ícones dos tipos de arquivo em `resources/win32/*.ico` (cerca de 25), `resources/linux/rpm/code.xpm` e ícones do macOS.
-*   Inclusão das extensões embutidas próprias no build, se o upstream exigir uma lista explícita.
+*   Inclusão da extensão `extensions/singularity-theme` no build empacotado: em desenvolvimento ela é carregada sem alterar nenhum arquivo do upstream; o pacote final ainda precisa ser conferido.
