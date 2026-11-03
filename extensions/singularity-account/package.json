@@ -1,0 +1,53 @@
+{
+  "name": "singularity-account",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "singularity",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "singularity.account.signIn",
+        "title": "%command.signIn%",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.account.signOut",
+        "title": "%command.signOut%",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.account.switch",
+        "title": "%command.switch%",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.account.manage",
+        "title": "%command.manage%",
+        "category": "Singularity"
+      }
+    ],
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "singularity.account.githubClientId": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%configuration.githubClientId%"
+        }
+      }
+    }
+  }
+}

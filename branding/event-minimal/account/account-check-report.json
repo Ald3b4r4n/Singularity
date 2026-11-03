@@ -1,0 +1,25 @@
+{
+  "dev": "D:\\dev\\singularity",
+  "results": [
+    {
+      "name": "Command Palette lists \"Sign In with GitHub\"",
+      "ok": true
+    },
+    {
+      "name": "without a client id, the user is told it is unavailable in this build",
+      "ok": true,
+      "detail": {
+        "toast": "Conta GitHub indisponível nesta build: falta o client id do aplicativo OAuth do Singularity."
+      }
+    },
+    {
+      "name": "status bar item shows the GitHub account entry",
+      "ok": true,
+      "detail": {
+        "statusBar": " |  0 \n 0 |  |  Entrar no GitHub |  Agentes |  | "
+      }
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-03T19:40:33.120Z"
+}

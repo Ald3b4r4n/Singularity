@@ -1,0 +1,10 @@
+{
+  "displayName": "Singularity Account",
+  "description": "Sign in with GitHub for the Singularity IDE. Independent of Copilot and of any AI subscription.",
+  "command.signIn": "Sign In with GitHub",
+  "command.signOut": "Sign Out of GitHub",
+  "command.switch": "Switch GitHub Account",
+  "command.manage": "Manage GitHub Account",
+  "configuration.title": "Singularity Account",
+  "configuration.githubClientId": "Client ID of the Singularity GitHub OAuth App (public, not a secret). Empty: GitHub sign-in is unavailable in this build."
+}
