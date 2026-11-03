@@ -377,8 +377,11 @@ export interface ISessionsService {
 	 */
 	closeAllSessions(): void;
 
-	/** Make the given (already visible) session the active session. */
-	setActive(session: IActiveSession | undefined): void;
+	/**
+	 * Make the given (already visible) session the active session, and move focus into it unless `preserveFocus`, such as
+	 * when its window gains focus elsewhere than in its session.
+	 */
+	setActive(session: IActiveSession | undefined, preserveFocus?: boolean): void;
 
 	/** Sessions shown in windows of their own, outside the grid; see {@link showSessionInWindow}. */
 	readonly windowSessions: IObservable<readonly IActiveSession[]>;
@@ -1855,7 +1858,7 @@ export class SessionsService extends Disposable implements ISessionsService {
 		}
 	}
 
-	setActive(session: IActiveSession | undefined): void {
+	setActive(session: IActiveSession | undefined, preserveFocus?: boolean): void {
 		if (this._visibility.isPassiveWindowSession(session)) {
 			return;
 		}
@@ -1867,7 +1870,7 @@ export class SessionsService extends Disposable implements ISessionsService {
 			this._startOpenSession();
 			this._recordNavigation();
 		}
-		this._activate(session);
+		this._activate(session, preserveFocus);
 	}
 
 	async submitNewSessionInput(): Promise<boolean> {
