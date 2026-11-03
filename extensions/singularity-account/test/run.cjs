@@ -78,7 +78,7 @@ const noSleep = async () => {};
 		const { fetchFn, calls } = scripted([{ body: { login: 'octocat', name: 'The Octocat', avatar_url: 'https://avatars.githubusercontent.com/u/1', id: 1, email: 'private@example.invalid', plan: { name: 'free' } } }]);
 		const a = await gh.fetchAccount({ fetchFn, accessToken: 'tok' });
 		assert.equal(calls[0].init.headers.Authorization, 'Bearer tok');
-		assert.deepEqual(Object.keys(a).sort(), ['avatarUrl', 'id', 'login', 'name']);
+		assert.deepEqual(Object.keys(a).sort(), ['avatarUrl', 'id', 'login', 'name', 'scopes']);
 		assert.equal(JSON.stringify(a).includes('private@example.invalid'), false, 'no email is kept');
 	});
 

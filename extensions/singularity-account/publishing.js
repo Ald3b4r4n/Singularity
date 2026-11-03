@@ -5,7 +5,9 @@
 const vscode = require('vscode');
 const pub = require('./publish.js');
 
-const TOKEN_KEY = 'singularity.github.token';
+// Only the publishing authorization (scope repo) can push to github.com. The identity token (read:user) never does.
+const PUBLISH_KEY = 'singularity.github.publishToken';
+const GITHUB_HTTPS = /^https:\/\/github\.com\//i;
 const askedFor = new Map(); // root -> head commit the user answered "not now" for
 const pushedThisSession = new Set();
 
@@ -22,7 +24,7 @@ async function checkRepository(context, output, root, { explicit = false } = {})
 	const { defaultMode, automaticRepositories } = settings();
 	const mode = pub.modeFor(root, { defaultMode, automaticRepositories });
 	const wantsNetwork = explicit || mode !== 'manual';
-	const token = wantsNetwork ? await context.secrets.get(TOKEN_KEY) : undefined;
+	const token = wantsNetwork ? await context.secrets.get(PUBLISH_KEY) : undefined;
 	const state = await pub.inspect(root, { fetch: wantsNetwork, token });
 	if (state.fetchError) { output.appendLine(`fetch skipped for ${root}: ${state.fetchError}`); }
 	const decision = pub.decide(explicit ? 'automatic' : mode, state);
@@ -54,7 +56,13 @@ async function checkRepository(context, output, root, { explicit = false } = {})
 }
 
 async function runPush(context, output, state, tokenIfAny) {
-	const token = tokenIfAny ?? await context.secrets.get(TOKEN_KEY);
+	const token = tokenIfAny ?? await context.secrets.get(PUBLISH_KEY);
+	// a GitHub remote needs the publishing authorization; without it nothing is pushed and the user is told how to grant it
+	if (state.remoteUrl && GITHUB_HTTPS.test(state.remoteUrl) && !token) {
+		output.appendLine(`${state.root}: needs publishing authorization`);
+		vscode.window.showWarningMessage(vscode.l10n.t('Publicar no GitHub exige a autorização de publicação. Use "Singularity: Gerenciar conta GitHub" → Autorizar publicação.'));
+		return;
+	}
 	const r = await pub.publish(state, { token, published: pushedThisSession });
 	output.appendLine(`${state.root}: ${r.code}${r.stderr ? ' | ' + r.stderr.split('\n')[0] : ''}`); // git's first message, no token
 	if (r.ok) {

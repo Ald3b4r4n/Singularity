@@ -11,8 +11,12 @@ const TOKEN_PATH = '/login/oauth/access_token';
 const DEFAULT_LOGIN_BASE = 'https://github.com';
 const DEFAULT_API_BASE = 'https://api.github.com';
 
-/** Scopes requested at sign-in. Only identity: publishing asks for more, later, when the user enables it. */
+/** Scopes requested at sign-in. Only identity: publishing asks for more, separately, when the user authorizes it. */
 const IDENTITY_SCOPES = 'read:user';
+/** Scope needed to push commits (classic OAuth App: "repo" covers private and public repositories). */
+const PUBLISH_SCOPES = 'repo';
+/** Public client id of the official Singularity OAuth App (Ald3b4r4n). Not a secret: device flow needs no secret. */
+const DEFAULT_CLIENT_ID = 'Ov23li7YnPUKuiSrwRCh';
 
 class GitHubAuthError extends Error {
 	constructor(code, message) {
@@ -75,7 +79,10 @@ async function fetchAccount({ fetchFn, accessToken, apiBase = DEFAULT_API_BASE }
 	const json = await readJson(res, 'user');
 	if (res.status === 401) { throw new GitHubAuthError('unauthorized', 'O GitHub recusou o token (revogado ou expirado).'); }
 	if (!res.ok || typeof json.login !== 'string') { throw new GitHubAuthError('user-failed', json.message || `HTTP ${res.status}`); }
-	return { login: json.login, name: json.name || json.login, avatarUrl: typeof json.avatar_url === 'string' ? json.avatar_url : undefined, id: json.id };
+	// the scopes the token actually has, as reported by GitHub (classic tokens); empty when not reported
+	const header = res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-oauth-scopes') : undefined;
+	const scopes = typeof header === 'string' ? header.split(',').map(s => s.trim()).filter(Boolean) : [];
+	return { login: json.login, name: json.name || json.login, avatarUrl: typeof json.avatar_url === 'string' ? json.avatar_url : undefined, id: json.id, scopes };
 }
 
 async function readJson(res, what) {
@@ -85,4 +92,4 @@ async function readJson(res, what) {
 	return json;
 }
 
-module.exports = { requestDeviceCode, pollForToken, fetchAccount, GitHubAuthError, IDENTITY_SCOPES, DEFAULT_LOGIN_BASE, DEFAULT_API_BASE };
+module.exports = { requestDeviceCode, pollForToken, fetchAccount, GitHubAuthError, IDENTITY_SCOPES, PUBLISH_SCOPES, DEFAULT_CLIENT_ID, DEFAULT_LOGIN_BASE, DEFAULT_API_BASE };

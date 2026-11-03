@@ -6,10 +6,12 @@
   "command.switch": "Switch GitHub Account",
   "command.manage": "Manage GitHub Account",
   "configuration.title": "Singularity Account",
-  "configuration.githubClientId": "Client ID of the Singularity GitHub OAuth App (public, not a secret). Empty: GitHub sign-in is unavailable in this build.",
+  "configuration.githubClientId": "Client ID of the official Singularity OAuth App (public, not a secret). The default is the official app; change it only for a fork with its own app.",
   "command.publishNow": "Publish Commits Now",
   "publish.defaultMode": "Default publishing mode for repositories: manual (nothing is pushed by the IDE) or assisted (asks before pushing). Automatic is only enabled per repository in singularity.publish.automaticRepositories.",
   "publish.mode.manual": "Nothing is pushed by the IDE.",
   "publish.mode.assisted": "Asks before pushing commits that are ahead of the upstream.",
-  "publish.automaticRepositories": "Repository folders allowed to push automatically after each commit. Machine scope: a repository cannot enable this for itself through its own settings file."
+  "publish.automaticRepositories": "Repository folders allowed to push automatically after each commit. Machine scope: a repository cannot enable this for itself through its own settings file.",
+  "command.authorizePublish": "Authorize GitHub Publishing",
+  "command.revokePublish": "Remove GitHub Publishing Authorization"
 }

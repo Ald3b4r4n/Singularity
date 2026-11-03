@@ -41,6 +41,16 @@
         "command": "singularity.publish.now",
         "title": "%command.publishNow%",
         "category": "Singularity"
+      },
+      {
+        "command": "singularity.account.authorizePublish",
+        "title": "%command.authorizePublish%",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.account.revokePublish",
+        "title": "%command.revokePublish%",
+        "category": "Singularity"
       }
     ],
     "configuration": {
@@ -48,7 +58,7 @@
       "properties": {
         "singularity.account.githubClientId": {
           "type": "string",
-          "default": "",
+          "default": "Ov23li7YnPUKuiSrwRCh",
           "scope": "machine",
           "description": "%configuration.githubClientId%"
         },
