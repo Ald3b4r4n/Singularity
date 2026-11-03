@@ -1,0 +1,84 @@
+{
+  "dev": "D:\\dev\\singularity",
+  "expectedLogin": "Ald3b4r4n",
+  "results": [
+    {
+      "name": "sign-in: session already present for Ald3b4r4n",
+      "ok": true
+    },
+    {
+      "name": "manage picker shows the account as connected",
+      "ok": true,
+      "detail": {
+        "entries": [
+          "Antônio Rafael Souza Cruz de Noronha (Ald3b4r4n) Conectada",
+          "Publicação: não autorizada Autorizar escrita (permissão repo), só quando for publicar",
+          "Trocar de conta",
+          "Sair da conta"
+        ]
+      }
+    },
+    {
+      "name": "the avatar was cached on disk",
+      "ok": true,
+      "detail": {
+        "bytes": "22866"
+      }
+    },
+    {
+      "name": "persistence: after restart the status bar shows Ald3b4r4n without a new login",
+      "ok": true,
+      "detail": {
+        "statusBar": "0 \n 0 | Ald3b4r4n | Agentes"
+      }
+    },
+    {
+      "name": "persistence: no authorization dialog appeared on startup",
+      "ok": true
+    },
+    {
+      "name": "publishing: second device code issued and accepted",
+      "ok": true
+    },
+    {
+      "name": "publishing: the picker reports publishing as authorized (repo verified by the extension)",
+      "ok": true,
+      "detail": {
+        "entries": [
+          "Antônio Rafael Souza Cruz de Noronha (Ald3b4r4n) Conectada",
+          "Publicação: autorizada Revogar autorização de publicação",
+          "Trocar de conta",
+          "Sair da conta"
+        ]
+      }
+    },
+    {
+      "name": "publishing: removal returns the picker to \"não autorizada\"",
+      "ok": true,
+      "detail": {
+        "entries": [
+          "Antônio Rafael Souza Cruz de Noronha (Ald3b4r4n) Conectada",
+          "Publicação: não autorizada Autorizar escrita (permissão repo), só quando for publicar",
+          "Trocar de conta",
+          "Sair da conta"
+        ]
+      }
+    },
+    {
+      "name": "sign-out: the status bar returns to \"Entrar no GitHub\"",
+      "ok": true,
+      "detail": {
+        "statusBar": "0 \n 0 | Entrar no GitHub | Agentes"
+      }
+    },
+    {
+      "name": "no GitHub token pattern in the profile (logs and state)",
+      "ok": true,
+      "detail": {
+        "files": "0"
+      }
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-03T22:18:00.806Z"
+}
