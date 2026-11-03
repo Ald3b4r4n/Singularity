@@ -60,6 +60,8 @@ suite('Chat window', () => {
 			override readonly activeGroup = group;
 			override readonly onDidAddGroup = onDidAddGroup.event;
 			override readonly onDidRemoveGroup = Event.None;
+			override readonly onDidMoveGroup = Event.None;
+			override getGroups() { return this.groups; }
 			override close() {
 				events.push(`close ${name}`);
 				if (options?.veto) {
@@ -72,9 +74,13 @@ suite('Chat window', () => {
 				return true;
 			}
 		}();
-		const addGroup = () => {
+		const addGroup = (options?: { first?: boolean }) => {
 			const added = new TestGroup(events, `${name} 2`);
-			part.groups.push(added);
+			if (options?.first) {
+				part.groups.unshift(added);
+			} else {
+				part.groups.push(added);
+			}
 			onDidAddGroup.fire(added);
 			return added;
 		};
@@ -265,6 +271,17 @@ suite('Chat window', () => {
 		await timeout(0);
 
 		assert.deepStrictEqual({ afterMove, events }, { afterMove: [], events: ['close chat', 'close main', 'will close', 'close window', 'closed'] });
+	});
+
+	test('the chat leads the window from the first group of its part, not after a group split off before it', () => {
+		const { window, chat } = createWindow();
+		const leads = [window.chatLeads.get()];
+		chat.addGroup();
+		leads.push(window.chatLeads.get());
+		chat.addGroup({ first: true });
+		leads.push(window.chatLeads.get());
+
+		assert.deepStrictEqual(leads, [true, true, false]);
 	});
 
 	test('the chat\'s editor moving out of the window, such as into the main window or an editor window, takes the chat out of the window rather than closing it', () => {
