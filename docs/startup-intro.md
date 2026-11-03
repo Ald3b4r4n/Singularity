@@ -42,3 +42,9 @@ Uma primeira versão (efeitos de mistura e máscara, animações infinitas) cust
 ## Peças do upstream tocadas
 
 Ver `UPSTREAM-TOUCHPOINTS.md`.
+
+## Continuidade depois da abertura
+
+A tela de editor vazio mostrava a marca d'água do VS Code logo depois da abertura. Os quatro arquivos letterpress-*.svg agora desenham a marca Event Minimal (gerada por randing/event-minimal/icon-gen.js, variante mono). Os atalhos da tela continuam. Capturas em randing/event-minimal/startup/ (`marca-dagua-*.png` e `transicao-abertura-para-editor.png`).
+
+Limite conhecido: na primeira abertura de um perfil novo, o workbench pinta por alguns instantes com o tema padrão do Code - OSS antes de a extensão Event Minimal registrar o tema; isso acontece sob o fade da abertura (um tom um pouco mais cinza por cerca de 0,3 s). Nas aberturas seguintes as cores guardadas do splash evitam isso.
