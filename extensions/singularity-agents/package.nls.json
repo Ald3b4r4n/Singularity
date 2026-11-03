@@ -1,0 +1,10 @@
+{
+  "displayName": "Singularity Agents",
+  "description": "Painel Singularity Agents. Mostra as sessões do Singularity Hub quando um Hub estiver disponível.",
+  "container.title": "Singularity Agents",
+  "view.name": "Sessões",
+  "command.open": "Abrir painel de agentes",
+  "command.openSettings": "Configurações do painel de agentes",
+  "configuration.title": "Singularity Agents",
+  "configuration.showStatusBarItem": "Mostra o item Singularity Agents na barra de status."
+}

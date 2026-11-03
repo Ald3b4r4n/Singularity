@@ -1,0 +1,59 @@
+/* Colors come only from the active theme, so Event Minimal Dark/Light (and any third-party theme) apply as is. */
+:root { --accent: var(--vscode-progressBar-background, var(--vscode-focusBorder)); }
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	padding: 0;
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+
+#app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.hd { display: flex; align-items: center; gap: 8px; padding: 12px 14px 10px; }
+.hd h1 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .09em; color: var(--vscode-foreground); }
+.mark { width: 18px; height: 18px; flex: none; color: var(--accent); }
+.mark.big { width: 34px; height: 34px; margin-bottom: 4px; }
+
+.hub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 14px; border-top: 1px solid var(--vscode-panel-border, transparent); border-bottom: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); font-size: 12px; }
+.hub .k { color: var(--vscode-descriptionForeground); }
+.hub .v { color: var(--vscode-foreground); font-weight: 600; }
+.gl { width: 12px; height: 12px; flex: none; vertical-align: -2px; }
+.state { display: inline-flex; align-items: center; gap: 5px; color: var(--vscode-descriptionForeground); }
+.state-connected, .state-running { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
+.state-waiting { color: var(--vscode-textLink-foreground); }
+.state-done { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
+.state-failed, .state-error { color: var(--vscode-errorForeground); }
+
+.list { padding: 12px 14px 8px; flex: 1; min-height: 0; }
+.list h2 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .09em; color: var(--vscode-descriptionForeground); }
+.count { margin-left: 4px; padding: 0 6px; border: 1px solid var(--vscode-panel-border, currentColor); border-radius: 999px; letter-spacing: 0; font-weight: 400; }
+
+.empty { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 14px; border: 1px dashed var(--vscode-panel-border, currentColor); border-radius: 6px; color: var(--vscode-descriptionForeground); }
+.empty p { margin: 0; }
+.empty .lead { color: var(--vscode-foreground); font-weight: 600; }
+.empty .fine { font-size: 11px; opacity: .9; }
+
+.sessions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.session { padding: 8px 10px; border: 1px solid var(--vscode-panel-border, currentColor); border-radius: 6px; }
+.session .row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.session .harness { font-weight: 600; }
+.session .title { margin-top: 2px; }
+.session .summary { margin-top: 2px; color: var(--vscode-descriptionForeground); font-size: 12px; }
+
+.ft { padding: 8px 14px 14px; }
+button { font: inherit; color: var(--vscode-foreground); background: transparent; border: 1px solid var(--vscode-button-border, var(--vscode-panel-border, currentColor)); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+button:hover { background: var(--vscode-toolbar-hoverBackground); }
+button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+
+@media (max-width: 220px) {
+	.hd, .hub, .list, .ft { padding-left: 10px; padding-right: 10px; }
+	.empty { padding: 10px; }
+	.hd h1 { letter-spacing: .05em; }
+}

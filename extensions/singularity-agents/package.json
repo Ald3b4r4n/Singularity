@@ -1,0 +1,68 @@
+{
+  "name": "singularity-agents",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "singularity",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "singularityAgents",
+          "title": "%container.title%",
+          "icon": "media/agents.svg"
+        }
+      ]
+    },
+    "views": {
+      "singularityAgents": [
+        {
+          "type": "webview",
+          "id": "singularity.agents.sessions",
+          "name": "%view.name%",
+          "icon": "media/agents.svg",
+          "contextualTitle": "%container.title%"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "singularity.agents.open",
+        "title": "%command.open%",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.agents.openSettings",
+        "title": "%command.openSettings%",
+        "category": "Singularity"
+      }
+    ],
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "singularity.agents.showStatusBarItem": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.showStatusBarItem%"
+        }
+      }
+    }
+  }
+}
