@@ -1,0 +1,108 @@
+{
+  "mode": "packaged",
+  "started": "2026-11-03T18:40:51.855Z",
+  "steps": [
+    {
+      "name": "temporary workspace with a git repository",
+      "ok": true,
+      "ms": 441,
+      "detail": {
+        "workspace": "C:\\Users\\ANTONI~1\\AppData\\Local\\Temp\\singularity-e2e-oz9Kuu\\ws"
+      }
+    },
+    {
+      "name": "launch, opening plays and leaves, window comes to the front",
+      "ok": true,
+      "ms": 11424,
+      "detail": {
+        "editorRestoredMs": 1558,
+        "overlayEndMs": 4633,
+        "title": "ws - Singularity IDE"
+      }
+    },
+    {
+      "name": "open a file with Ctrl+P and type into it",
+      "ok": true,
+      "ms": 30589,
+      "detail": {
+        "bytes": 39
+      }
+    },
+    {
+      "name": "switch to Event Minimal Light and back to Dark",
+      "ok": true,
+      "ms": 40087,
+      "detail": {
+        "switched": true
+      }
+    },
+    {
+      "name": "terminal runs a command",
+      "ok": true,
+      "ms": 29864,
+      "detail": {
+        "gitStatus": "M notes.txt"
+      }
+    },
+    {
+      "name": "Source Control view shows the change",
+      "ok": true,
+      "ms": 18734
+    },
+    {
+      "name": "Command Palette lists Singularity commands",
+      "ok": true,
+      "ms": 16754
+    },
+    {
+      "name": "built-in extensions are present",
+      "ok": true,
+      "ms": 23836
+    },
+    {
+      "name": "Singularity Agents panel opens",
+      "ok": true,
+      "ms": 24546,
+      "detail": {
+        "hub": {
+          "running": true,
+          "pid": 40724,
+          "port": 56866,
+          "instanceId": "bde393c9-b12f-4661-9b6d-60a379512cda",
+          "sessions": 0
+        },
+        "hubImage": "d:\\dev\\VSCode-win32-x64\\resources\\app\\singularity-hub\\runtime\\node.exe"
+      }
+    },
+    {
+      "name": "close the window like a user",
+      "ok": true,
+      "ms": 6292,
+      "detail": {
+        "forced": 0,
+        "hubAlive": true
+      }
+    },
+    {
+      "name": "reopen: workspace and the edited file are restored",
+      "ok": true,
+      "ms": 8265,
+      "detail": {
+        "sameHub": true,
+        "title": "notes.txt - ws - Singularity IDE"
+      }
+    },
+    {
+      "name": "explicit Hub shutdown releases its files",
+      "ok": true,
+      "ms": 19413
+    },
+    {
+      "name": "final close and cleanup",
+      "ok": true,
+      "ms": 5325
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-03T18:44:47.429Z"
+}

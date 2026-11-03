@@ -40,6 +40,24 @@ O que continua: o `@github/copilot-sdk` (licença MIT) e seu runtime de platafor
 
 ## Limitações
 
-- O Hub ainda não é copiado para o pacote (próxima task).
 - Não há instalador (Inno Setup), assinatura de código nem atualização automática.
 - Local apenas: nenhum binário foi publicado.
+
+## O Hub no pacote
+
+`scripts/package-win32.cjs` já chama `scripts/package-hub.cjs --dest <pasta>` (`--no-hub` pula). Layout, ao lado das extensões (a extensão acha o Hub em `../../singularity-hub`, igual ao checkout):
+
+```
+resources/app/singularity-hub/
+  dist/              Hub compilado (sem testes, sem source maps)
+  node_modules/ws/   só as dependências de produção (npm ci --omit=dev)
+  runtime/node.exe   Node.js 24.22.1 oficial, sem modificações (K1)
+  LICENSES/          node-LICENSE.txt, ws-LICENSE.txt, THIRD-PARTY.md
+  package.json       sem scripts nem devDependencies
+```
+
+Escolha do Node (`launch.ts`): `SINGULARITY_NODE_PATH` (escolha explícita), depois o runtime embutido; o PATH do usuário só é consultado em checkouts de desenvolvimento, nunca quando `runtime/node.exe` existe. O script verifica a cópia executando-a com o runtime embutido e PATH vazio.
+
+Validado com entrada real de mouse e teclado (`scripts/e2e/run.cjs --exe ... --hub --no-system-node`, com o IDE iniciado com um PATH sem `node.exe`): o painel abre o Hub, que roda a partir de `resources\app\singularity-hub\runtime\node.exe`; "Hub conectado" com 0 sessões; fechar a janela não encerra o Hub; reabrir reconecta à mesma instância; "Singularity: Encerrar o Hub" libera os arquivos. Captura: `branding/event-minimal/packaged/07-hub-conectado-pacote.png`.
+
+Licenças: o Node.js vai sem modificação com o `LICENSE` da distribuição oficial (MIT, mais as licenças de suas dependências embutidas, listadas no mesmo arquivo). O `ws` é MIT. Nenhum componente com licença restritiva é incluído.

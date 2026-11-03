@@ -162,7 +162,12 @@ async function launchAndWait(files) {
 			const text = await page.evaluate("document.body.innerText");
 			assert(/Singularity Agents/.test(text), 'Singularity Agents panel not visible');
 			await page.screenshot(path.join(outDir, '05-agents.png'));
-			if (withHub) { const st = hubCli(); assert(st.running && st.sessions === 0, 'Hub is not running with 0 sessions: ' + JSON.stringify(st)); return { hub: st }; }
+			if (withHub) {
+				const st = hubCli(); assert(st.running && st.sessions === 0, 'Hub is not running with 0 sessions: ' + JSON.stringify(st));
+				const image = lib.ps(`(Get-Process -Id ${st.pid}).Path`);
+				if (exe) { assert(image.toLowerCase() === path.join(path.dirname(exe), 'resources', 'app', 'singularity-hub', 'runtime', 'node.exe').toLowerCase(), 'the Hub is not running on the bundled Node.js: ' + image); }
+				return { hub: st, hubImage: image };
+			}
 		});
 
 		let before;

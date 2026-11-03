@@ -2,10 +2,29 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-/** A real Node.js: SINGULARITY_NODE_PATH, else node(.exe) from PATH. (The IDE's own Electron binary is not a Node.) */
-export function findNode(env: NodeJS.ProcessEnv = process.env): string | undefined {
+/** Root of the Hub package: the folder that holds dist/ (and, in a distribution, runtime/). */
+export const HUB_ROOT = path.resolve(__dirname, '..');
+
+/** The Node.js shipped with the Hub in a distribution: <hub root>/runtime/node(.exe). */
+export function bundledNode(root: string = HUB_ROOT): string | undefined {
+	const candidate = path.join(root, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node');
+	return fs.existsSync(candidate) ? candidate : undefined;
+}
+
+/**
+ * The Node.js that runs the Hub.
+ *  1. SINGULARITY_NODE_PATH, when set (an explicit choice);
+ *  2. the bundled runtime, when this is a distribution: the user's PATH is never consulted then;
+ *  3. node(.exe) from PATH, for development checkouts only.
+ * (The IDE's own Electron binary is not a Node.)
+ */
+export function findNode(env: NodeJS.ProcessEnv = process.env, root: string = HUB_ROOT): string | undefined {
 	if (env.SINGULARITY_NODE_PATH && fs.existsSync(env.SINGULARITY_NODE_PATH)) {
 		return env.SINGULARITY_NODE_PATH;
+	}
+	const bundled = bundledNode(root);
+	if (bundled) {
+		return bundled;
 	}
 	const names = process.platform === 'win32' ? ['node.exe'] : ['node'];
 	for (const dir of (env.PATH ?? env.Path ?? '').split(path.delimiter)) {

@@ -65,6 +65,10 @@ Mensagem recebida: 64 KiB (excedeu: fecha com 1009). 50 mensagens/s com rajada d
 
 `HubServer.publish()` já sequencia e distribui eventos. Adapters entrarão como módulos que chamam `publish()` e alteram a lista de sessões, sem mexer no editor.
 
+## Distribuição
+
+No pacote do Windows o Hub fica em `resources/app/singularity-hub` com um Node.js próprio em `runtime/node.exe`. `findNode()` usa, nesta ordem: `SINGULARITY_NODE_PATH`, o runtime embutido e, só em checkouts de desenvolvimento, o PATH. Montagem e verificação: `scripts/package-hub.cjs`. Ver `docs/local-packaged-build.md`.
+
 ## Limitações conhecidas
 
 - A remoção de uma trava velha tem uma janela mínima entre ler e apagar (o `nonce` é conferido antes de apagar). Duas tentativas simultâneas de remover a mesma trava velha são tratadas, mas não há exclusão mútua do sistema operacional.

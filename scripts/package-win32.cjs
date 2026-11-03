@@ -38,6 +38,12 @@ if (!skipGulp) {
 	if (r.status !== 0) { fail(`the gulp pipeline exited with ${r.status}`); }
 }
 
+// ---- the Singularity Hub (compiled, production dependencies, bundled Node.js, licenses) ----
+if (!process.argv.includes('--no-hub')) {
+	console.log('adding the Singularity Hub');
+	execFileSync(process.execPath, [path.join(__dirname, 'package-hub.cjs'), '--dest', dest], { stdio: 'inherit' });
+}
+
 // ---- checks on the result ----
 const app = path.join(dest, 'resources', 'app');
 const product = JSON.parse(fs.readFileSync(path.join(repo, 'product.json'), 'utf8'));
@@ -52,6 +58,13 @@ for (const e of ['singularity-theme', 'singularity-welcome', 'singularity-agents
 check('the Copilot extension is not shipped (product.json: singularityBuild.shipBuiltInCopilot)', !fs.existsSync(path.join(app, 'extensions', 'copilot')));
 check('no bin/copilot-shim', !fs.existsSync(path.join(dest, 'bin', 'copilot-shim')));
 check('compiled workbench bootstrap with the opening', fs.readFileSync(path.join(app, 'out', 'vs', 'code', 'electron-browser', 'workbench', 'workbench.js'), 'utf8').includes('singularity-intro'));
+if (!process.argv.includes('--no-hub')) {
+	const hubDir = path.join(app, 'singularity-hub');
+	for (const f of ['dist/main.js', 'dist/index.js', 'dist/cli.js', 'node_modules/ws/package.json', 'runtime/node.exe', 'LICENSES/node-LICENSE.txt', 'LICENSES/ws-LICENSE.txt', 'LICENSES/THIRD-PARTY.md']) {
+		check(`hub file ${f}`, fs.existsSync(path.join(hubDir, f)));
+	}
+	check('hub tests are not shipped', !fs.existsSync(path.join(hubDir, 'dist', 'test')));
+}
 const rg = fs.readdirSync(path.join(app, 'node_modules.asar.unpacked'), { recursive: true }).find(f => /rg\.exe$/.test(String(f)));
 if (rg) {
 	const info = execFileSync('pwsh', ['-NoProfile', '-Command', `(Get-Item '${path.join(app, 'node_modules.asar.unpacked', String(rg))}').VersionInfo.CompanyName`], { encoding: 'utf8' }).trim();
