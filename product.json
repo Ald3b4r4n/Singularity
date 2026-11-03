@@ -1,6 +1,7 @@
 {
 	"nameShort": "Singularity IDE",
 	"nameLong": "Singularity IDE",
+	"openToWelcomeMainPage": true,
 	"applicationName": "singularity-ide",
 	"dataFolderName": ".singularity-ide",
 	"sharedDataFolderName": ".singularity-ide-shared",

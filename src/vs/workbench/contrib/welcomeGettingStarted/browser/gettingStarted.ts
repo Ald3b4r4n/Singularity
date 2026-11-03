@@ -941,7 +941,7 @@ export class GettingStartedPage extends EditorPane {
 
 		const header = $('.header', {},
 			$('h1.product-name.caption', {}, this.productService.nameLong),
-			$('p.subtitle.description', {}, localize({ key: 'gettingStarted.editingEvolved', comment: ['Shown as subtitle on the Welcome page.'] }, "Editing evolved"))
+			$('p.subtitle.description', {}, localize({ key: 'gettingStarted.editingEvolved', comment: ['Shown as subtitle on the Welcome page.'] }, "Open source code editor")) // Singularity: replaces the VS Code tagline
 		);
 
 		const leftColumn = $('.categories-column.categories-column-left', {},);
@@ -1710,6 +1710,7 @@ export class GettingStartedPage extends EditorPane {
 	}
 
 	private buildTelemetryFooter(parent: HTMLElement) {
+		if (!this.productService.enableTelemetry) { return; } // Singularity: build ships no telemetry, so do not claim it collects usage data
 		const privacyStatementCopy = localize('privacy statement', "privacy statement");
 		const privacyStatementButton = `[${privacyStatementCopy}](command:workbench.action.openPrivacyStatementUrl)`;
 

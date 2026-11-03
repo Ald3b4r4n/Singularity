@@ -1,0 +1,70 @@
+{
+  "name": "singularity-welcome",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "singularity",
+  "license": "MIT",
+  "engines": {
+    "vscode": "*"
+  },
+  "contributes": {
+    "walkthroughs": [
+      {
+        "id": "singularity.start",
+        "title": "%walkthrough.title%",
+        "description": "%walkthrough.description%",
+        "steps": [
+          {
+            "id": "singularity.start.folder",
+            "title": "%step.folder.title%",
+            "description": "%step.folder.description%",
+            "media": { "markdown": "walkthrough/folder.md" },
+            "completionEvents": ["onCommand:workbench.action.files.openFolder"]
+          },
+          {
+            "id": "singularity.start.commands",
+            "title": "%step.commands.title%",
+            "description": "%step.commands.description%",
+            "media": { "markdown": "walkthrough/commands.md" },
+            "completionEvents": ["onCommand:workbench.action.showCommands"]
+          },
+          {
+            "id": "singularity.start.terminal",
+            "title": "%step.terminal.title%",
+            "description": "%step.terminal.description%",
+            "media": { "markdown": "walkthrough/terminal.md" },
+            "completionEvents": ["onCommand:workbench.action.terminal.toggleTerminal"]
+          },
+          {
+            "id": "singularity.start.git",
+            "title": "%step.git.title%",
+            "description": "%step.git.description%",
+            "media": { "markdown": "walkthrough/git.md" },
+            "completionEvents": ["onView:workbench.scm"]
+          },
+          {
+            "id": "singularity.start.theme",
+            "title": "%step.theme.title%",
+            "description": "%step.theme.description%",
+            "media": { "markdown": "walkthrough/theme.md" },
+            "completionEvents": ["onSettingChanged:workbench.colorTheme", "onCommand:workbench.action.selectTheme"]
+          },
+          {
+            "id": "singularity.start.extensions",
+            "title": "%step.extensions.title%",
+            "description": "%step.extensions.description%",
+            "media": { "markdown": "walkthrough/extensions.md" },
+            "completionEvents": ["onView:workbench.view.extensions"]
+          },
+          {
+            "id": "singularity.start.agents",
+            "title": "%step.agents.title%",
+            "description": "%step.agents.description%",
+            "media": { "markdown": "walkthrough/agents.md" }
+          }
+        ]
+      }
+    ]
+  }
+}

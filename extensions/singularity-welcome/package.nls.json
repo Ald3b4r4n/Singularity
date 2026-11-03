@@ -1,0 +1,20 @@
+{
+  "displayName": "Singularity Welcome",
+  "description": "First-run experience of the Singularity IDE.",
+  "walkthrough.title": "Primeiros passos no Singularity",
+  "walkthrough.description": "Abra um projeto e conheça a IDE. Nenhum login é necessário.",
+  "step.folder.title": "Abra uma pasta",
+  "step.folder.description": "Comece por um projeto que você já tem.\n[Abrir pasta](command:workbench.action.files.openFolder)",
+  "step.commands.title": "Use a paleta de comandos",
+  "step.commands.description": "Tudo o que a IDE faz está a uma busca de distância (Ctrl+Shift+P).\n[Abrir a paleta](command:workbench.action.showCommands)",
+  "step.terminal.title": "Terminal integrado",
+  "step.terminal.description": "Rode comandos sem sair do editor (Ctrl+`).\n[Alternar o terminal](command:workbench.action.terminal.toggleTerminal)",
+  "step.git.title": "Controle de versão",
+  "step.git.description": "Veja alterações, faça commits e acompanhe o histórico com Git.\n[Abrir o Controle de Código-Fonte](command:workbench.view.scm)",
+  "step.theme.title": "Escolha o tema",
+  "step.theme.description": "Event Minimal Dark é o padrão. Event Minimal Light também está disponível.\n[Escolher o tema](command:workbench.action.selectTheme)",
+  "step.extensions.title": "Extensões",
+  "step.extensions.description": "A IDE mantém o suporte às extensões do Code - OSS.\n[Abrir extensões](command:workbench.view.extensions)",
+  "step.agents.title": "Agentes (em desenvolvimento)",
+  "step.agents.description": "O Singularity Hub, que vai reunir vários agentes de código num só painel, ainda não está disponível nesta versão. Nada aqui exige login."
+}

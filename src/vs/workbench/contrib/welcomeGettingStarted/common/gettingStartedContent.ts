@@ -256,7 +256,7 @@ export const walkthroughs: GettingStartedWalkthroughContent = [
 		description: localize('gettingStarted.setup.description', "Customize your editor, learn the basics, and start coding"),
 		isFeatured: true,
 		icon: setupIcon,
-		when: '!isWeb',
+		when: 'false', // Singularity: replaced by the singularity-welcome walkthrough (the upstream one asks for a Copilot sign-in)
 		walkthroughPageTitle: localize('gettingStarted.setup.walkthroughPageTitle', 'Setup VS Code'),
 		next: 'Beginner',
 		content: {
