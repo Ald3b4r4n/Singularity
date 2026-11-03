@@ -47,7 +47,7 @@ export const allDiscoverySources = Object.keys({
  */
 export const defaultDiscoverySourceEnablement: Readonly<Record<ExternalDiscoverySource, boolean>> = {
 	[ExternalDiscoverySource.ClaudeDesktop]: false,
-	[ExternalDiscoverySource.Copilot]: true,
+	[ExternalDiscoverySource.Copilot]: false, // Singularity: no automatic discovery of MCP servers from other tools
 	[ExternalDiscoverySource.Windsurf]: false,
 	[ExternalDiscoverySource.CursorGlobal]: false,
 	[ExternalDiscoverySource.CursorWorkspace]: false,
