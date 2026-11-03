@@ -52,7 +52,12 @@ Mediana de 4 execuções por modo; `code/didRestoreEditors` (editor restaurado, 
 Carregamento (`didLoadWorkbenchMain`) ficou entre 709 e 748 ms nos quatro modos. Portanto:
 
 - **Tempo de carregamento:** a abertura soma de 0 a cerca de 65 ms até o editor ficar utilizável.
-- **Tempo de exibição do overlay:** em `full` o overlay fica 2,4 s além do ponto em que a IDE já está utilizável (3,6 s de mínimo menos cerca de 1,0 s de carregamento, mais o fade). Nesse intervalo os cliques passam pelo overlay e `Esc` o encerra. Em `quick` ele sai cerca de 0,4 s depois.
+- **Tempo de exibição do overlay.** Quatro valores diferentes, todos medidos em ms desde o início do renderer:
+  - *tempo mínimo* da variante, contado desde o início do overlay: 3600 (full), 650 (quick), 350 (static);
+  - *fade de saída*: cerca de 880 (full), 370 (quick) e 300 (static), já incluindo a folga de 80 ms do temporizador de remoção;
+  - *editor restaurado* (IDE utilizável): 1017 (full), 993 (quick), 949 (static);
+  - *overlay terminado*: 4648 (full), 1403 (quick), 1325 (static).
+  Em `full`, a IDE fica utilizável em 1017 ms e o overlay termina em 4648 ms: **3631 ms depois**. Desses, cerca de 2,7 s são a espera até o tempo mínimo (o overlay começou em 150 ms, então o fade só começa em cerca de 3750 ms) e cerca de 0,9 s o fade. Durante todo esse intervalo os cliques passam pelo overlay e `Esc` o encerra. Em `quick` o overlay termina 410 ms depois do editor restaurado; em `static`, 376 ms.
 - Na primeira execução do build empacotado, a sequência completa foi registrada a 51 quadros por segundo (250 quadros em 4,9 s).
 
 Medições feitas com a janela real, via DevTools (marks de performance), sem instalador. O build foi gerado só para teste local e não foi publicado.
