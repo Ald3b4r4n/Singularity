@@ -13,7 +13,8 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:singularity.agents.editor"
   ],
   "capabilities": {
     "untrustedWorkspaces": {

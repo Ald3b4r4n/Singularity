@@ -10,15 +10,15 @@ const test = (name, fn) => { fn(); n++; console.log('  ok  ' + name); };
 const text = html => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 // --- manifest ---
-test('contributes a secondary side bar container with a webview view, both named "Agentes"', () => {
+test('contributes a secondary side bar container with a webview view, both named "Sessões"', () => {
 	const container = pkg.contributes.viewsContainers.secondarySidebar[0];
 	assert.strictEqual(container.id, 'singularityAgents');
 	assert.ok(fs.existsSync(path.join(root, container.icon)), 'container icon exists');
 	const view = pkg.contributes.views[container.id][0];
 	assert.strictEqual(view.type, 'webview');
 	assert.ok(read('extension.js').includes(`'${view.id}'`), 'view id is registered in extension.js');
-	assert.strictEqual(nls['container.title'], 'Agentes');
-	assert.strictEqual(nls['view.name'], 'Agentes');
+	assert.strictEqual(nls['container.title'], 'Sessões');
+	assert.strictEqual(nls['view.name'], 'Sessões');
 });
 
 test('every contributed command is registered, and every %key% exists in package.nls.json', () => {
@@ -29,9 +29,9 @@ test('every contributed command is registered, and every %key% exists in package
 	for (const k of keys) { assert.ok(k in nls, `missing nls key ${k}`); }
 });
 
-test('the command palette entry reads "Singularity: Abrir painel de agentes"', () => {
+test('the command palette entry reads "Singularity: Abrir Agentes"', () => {
 	const open = pkg.contributes.commands.find(c => c.command === 'singularity.agents.open');
-	assert.strictEqual(`${open.category}: ${nls['command.open']}`, 'Singularity: Abrir painel de agentes');
+	assert.strictEqual(`${open.category}: ${nls['command.open']}`, 'Singularity: Abrir Agentes');
 });
 
 test('no network code, no remote URLs and a strict CSP', () => {
@@ -247,7 +247,8 @@ test('the page keeps what is typed: the composer is drawn once and sessions are 
 	assert.ok(/app\.innerHTML = R\.shell\(\)/.test(main));
 	assert.ok(!/composer\.innerHTML|prompt\.innerHTML|prompt\.value = ''(?![\s\S]*'sent')/.test(main) || /data\.type === 'sent'/.test(main));
 	assert.ok(/el\.sessions\.innerHTML = /.test(main), 'only the sessions are redrawn');
-	assert.ok(!/getState\(|setState\(/.test(main), 'the webview never restores remembered state, so a stale "connected" cannot be shown');
+	assert.match(main, /setState\(\{ targetId, draft: el.prompt.value \}\)/);
+	assert.match(main, /let state = \{ hub: \{ status: 'disconnected' \}/);
 });
 
 test('the session in use survives an update that does not list it yet, and a send never creates a session silently', () => {
@@ -255,6 +256,14 @@ test('the session in use survives an update that does not list it yet, and a sen
 	assert.ok(main.includes('targetSeen') && main.includes('targetSeen && connected()'), 'the session in use is dropped only if it was seen and the Hub is connected');
 	const ext = read('extension.js');
 	assert.ok(ext.includes('if (id && !existing)') && ext.includes('não existe mais no Hub'), 'a missing session in use is an error, never a new session');
+});
+
+test('the right view only navigates; the central editor shows the selected result', () => {
+	const state = { sessions: [{ id: 's1', harness: 'opencode', status: 'done', workspace: 'C:/demo', result: 'first result' }, { id: 's2', harness: 'opencode', status: 'idle', result: 'other result' }] };
+	assert.match(R.renderNavigation(state, catalog, 's1', 'C:/demo'), /aria-current="true"/);
+	assert.doesNotMatch(R.renderNavigation(state, catalog, 's1', 'C:/demo'), /textarea|first result|other result/);
+	assert.match(R.renderTarget(state, catalog, 's1'), /first result/);
+	assert.doesNotMatch(R.renderTarget(state, catalog, 's1'), /other result/);
 });
 
 test('the page never touches settings, headers or keys', () => {

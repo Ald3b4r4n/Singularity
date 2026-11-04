@@ -1,9 +1,9 @@
 {
   "displayName": "Singularity Agents",
   "description": "Central de agentes do Singularity: serviço, provedor, modelo e esforço, um único compositor de tarefas e as sessões do Singularity Hub.",
-  "container.title": "Agentes",
-  "view.name": "Agentes",
-  "command.open": "Abrir painel de agentes",
+  "container.title": "Sessões",
+  "view.name": "Sessões",
+  "command.open": "Abrir Agentes",
   "command.openSettings": "Configurações do painel de agentes",
   "configuration.title": "Singularity Agents",
   "configuration.showStatusBarItem": "Mostra o item Singularity Agents na barra de status.",

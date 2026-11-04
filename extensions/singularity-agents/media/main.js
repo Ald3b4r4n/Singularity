@@ -18,7 +18,8 @@
 	let requested = false;
 	let prefs = {};
 	let workspace = '';
-	let targetId;
+	let targetId = vscode.getState()?.targetId;
+	el.prompt.value = vscode.getState()?.draft || '';
 	let targetSeen = false; // the session in use has been seen in the Hub state at least once
 	let sending = false;
 	let message = '';
@@ -89,7 +90,8 @@
 	}
 
 	function drawSessions() {
-		el.sessions.innerHTML = R.renderSessions(state, catalog, targetId);
+		el.sessions.innerHTML = R.renderTarget(state, catalog, targetId);
+		vscode.setState({ targetId, draft: el.prompt.value });
 	}
 
 	function remember() {
@@ -106,9 +108,18 @@
 			// arrives before the session shows up (or while the connection is being re-established) must not turn the next
 			// send into a new session.
 			if (targetId && target()) { targetSeen = true; }
-			else if (targetId && targetSeen && connected()) { targetId = undefined; targetSeen = false; }
+			else if (targetId && targetSeen && connected()) { targetId = undefined; targetSeen = false; vscode.postMessage({ type: 'target' }); }
 			if (connected() && !requested) { requestCatalog(false); }
 			if (!connected()) { requested = false; }
+			drawSessions(); drawComposer();
+		} else if (data.type === 'created') {
+			targetId = data.id; targetSeen = !!target();
+			drawSessions(); drawComposer();
+		} else if (data.type === 'use') {
+			targetId = data.id;
+			targetSeen = !!target();
+			const model = target()?.model;
+			if (model) { prefs = { service: 'opencode', providerID: model.providerID, modelID: model.modelID, variant: model.variant || '' }; }
 			drawSessions(); drawComposer();
 		} else if (data.type === 'catalog') {
 			loading = false; catalog = data.catalog; catalogError = data.error;
@@ -136,7 +147,7 @@
 	el.model.addEventListener('change', () => { prefs = { ...prefs, modelID: el.model.value, variant: '' }; message = ''; remember(); drawComposer(); });
 	el.effort.addEventListener('change', () => { prefs = { ...prefs, variant: el.effort.value }; message = ''; remember(); drawComposer(); });
 	el.filter.addEventListener('input', () => drawComposer());
-	el.prompt.addEventListener('input', () => { message = ''; drawComposer(); });
+	el.prompt.addEventListener('input', () => { message = ''; vscode.setState({ targetId, draft: el.prompt.value }); drawComposer(); });
 	el.prompt.addEventListener('keydown', event => {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !el.send.disabled) { event.preventDefault(); el.composer.requestSubmit(); }
 	});
@@ -155,13 +166,10 @@
 		const button = event.target instanceof Element ? event.target.closest('button[data-action]') : null;
 		if (!button || button.disabled) { return; }
 		const { action, id } = button.dataset;
-		if (action === 'use') {
-			targetId = id; targetSeen = true;
-			const session = target();
-			if (session && session.model) { prefs = { service: 'opencode', providerID: session.model.providerID, modelID: session.model.modelID, variant: session.model.variant || '' }; remember(); }
+		if (action === 'new') {
+			targetId = undefined; targetSeen = false;
+			vscode.postMessage({ type: 'target' });
 			drawSessions(); drawComposer();
-		} else if (action === 'new') {
-			targetId = undefined; targetSeen = false; drawSessions(); drawComposer();
 		} else if (action === 'cancel') {
 			if (targetId) { vscode.postMessage({ type: 'interrupt', id: targetId }); }
 		} else if (action === 'interrupt' || action === 'stop') {

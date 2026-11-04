@@ -128,6 +128,27 @@
 		}).join('') + '</ul>';
 	}
 
+	function renderNavigation(state, catalog, targetId, workspace) {
+		return (workspace ? '<p class="nav-workspace">' + esc(folderName(workspace)) + '</p>' : '') +
+			'<h2 class="nav-heading">Sessões recentes</h2>' +
+			(!state.sessions.length ? '<div class="empty"><p class="lead">Nenhuma sessão</p><p>As sessões dos agentes serão exibidas aqui.</p></div>' :
+				'<ul class="sessions">' + state.sessions.map(function (s) {
+					var id = esc(s.id);
+					return '<li class="session" data-id="' + id + '"><button type="button" class="session-link" data-action="use" data-id="' + id +
+						'"' + (s.id === targetId ? ' aria-current="true"' : '') + '><strong>' + esc(serviceName(catalog, s.harness)) + '</strong>' +
+						'<span>' + esc(modelLabel(catalog, s.model)) + '</span><span>' + esc(folderName(s.workspace)) + '</span>' +
+						'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + esc(SESSION_LABEL[s.status] || s.status) + '</span></button>' +
+						'<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button></li>';
+				}).join('') + '</ul>');
+	}
+
+	function renderTarget(state, catalog, targetId) {
+		var session = state.sessions.find(function (s) { return s.id === targetId; });
+		if (!session) { return '<div class="empty"><p class="lead">Crie uma tarefa para um agente</p><p>Uma sessão será criada ao enviar a tarefa.</p></div>'; }
+		var events = (state.events || []).filter(function (event) { return event.sessionId === targetId; });
+		return '<ul class="sessions">' + renderSession(session, events, catalog, true) + '</ul>';
+	}
+
 	function hubLine(state) {
 		var status = state && state.hub && HUB_LABEL[state.hub.status] ? state.hub.status : 'disconnected';
 		return '<span class="state state-' + status + '">' + statusGlyph(status) + '</span><span class="k">Hub</span><span class="v">' + HUB_LABEL[status] + '</span>';
@@ -159,7 +180,7 @@
 	}
 
 	var api = {
-		shell: shell, render: render, renderSessions: renderSessions, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
+		renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, render: render, renderSessions: renderSessions, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
 		modelLabel: modelLabel, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE
 	};
 	if (typeof module !== 'undefined' && module.exports) { module.exports = api; } else { root.SingularityAgentsRender = api; }

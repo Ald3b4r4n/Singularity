@@ -5,7 +5,7 @@ const { RealHubClient } = require('./hubClient.js');
 const { selectionOf, same, text } = require('./selection.js');
 
 const VIEW_ID = 'singularity.agents.sessions';
-const CONTAINER_ID = 'singularityAgents';
+const EDITOR_ID = 'singularity.agents.editor';
 const PREFS_KEY = 'singularity.agents.prefs';
 const WORKSPACE_KEY = 'singularity.agents.workspace';
 
@@ -23,30 +23,79 @@ class AgentsViewProvider {
 		this._view = undefined;
 	}
 
-	resolveWebviewView(view) {
-		this._view = view;
-		view.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')] };
-		view.webview.html = this._html(view.webview);
+	open() {
+		if (this._view) {
+			this._view.reveal();
+			return;
+		}
+		this.attachEditor(vscode.window.createWebviewPanel(EDITOR_ID, 'Agentes', vscode.ViewColumn.Active, {
+			retainContextWhenHidden: true
+		}));
+	}
 
-		const stop = this._hub.onDidChange(() => this._post());
-		view.onDidDispose(() => { stop(); this._view = undefined; });
-		view.onDidChangeVisibility(() => { if (view.visible) { this._onVisible(); this._post(); } });
+	resolveWebviewView(view) {
+		this._sessions = view;
+		view.webview.options = this._options();
+		view.webview.html = this._html(view.webview, 'sessions.js');
+		view.onDidDispose(() => { this._sessions = undefined; });
+		view.webview.onDidReceiveMessage(async message => {
+			if (message?.type === 'ready') {
+				this._postSessions();
+			} else if (message?.type === 'use' && this._hub.getState().sessions.some(session => session.id === message.id)) {
+				this._targetId = message.id;
+				this.open();
+				this._view.webview.postMessage({ type: 'use', id: message.id });
+				this._postSessions();
+			} else if (message?.type === 'stop') {
+				try {
+					await this._stop(message.id);
+				} catch (error) {
+					vscode.window.showErrorMessage(error.message);
+				}
+			}
+		});
+	}
+
+	_options() {
+		return { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')] };
+	}
+
+	attachEditor(view, saved) {
+		this._view = view;
+		this._targetId ??= saved?.targetId;
+		view.iconPath = vscode.Uri.joinPath(this._extensionUri, 'media', 'agents.svg');
+		view.webview.options = this._options();
+		view.webview.html = this._html(view.webview, 'main.js');
+		view.onDidDispose(() => { this._view = undefined; });
+		view.onDidChangeViewState(() => { if (view.visible) { this._onVisible(); this._post(); } });
 		this._onVisible();
 		view.webview.onDidReceiveMessage(async message => {
-			if (message && message.type === 'ready') {
-				this._post();
+			if (message?.type === 'ready') {
 				this._postPrefs();
-			} else if (message && message.type === 'openSettings') {
+				this._post();
+				if (this._targetId) { view.webview.postMessage({ type: 'use', id: this._targetId }); }
+			} else if (message?.type === 'target') {
+				this._targetId = message.id;
+				this._postSessions();
+			} else if (message?.type === 'openSettings') {
 				await vscode.commands.executeCommand('singularity.agents.openSettings');
 			} else {
 				try {
 					await this._operate(message);
 				} catch (error) {
 					const reason = error instanceof Error ? error.message : 'A operação falhou.';
-					this._view?.webview.postMessage({ type: 'failed', message: reason });
+					view.webview.postMessage({ type: 'failed', message: reason });
 				}
 			}
 		});
+	}
+
+	async _stop(id) {
+		if (typeof id !== 'string') { return; }
+		const choice = await vscode.window.showWarningMessage('Encerrar a sessão de agente?', { modal: true }, 'Encerrar');
+		if (choice === 'Encerrar') {
+			await this._hub.sessionRequest('session.stop', { id });
+		}
 	}
 
 	// ---------- workspace and preferences ----------
@@ -77,6 +126,7 @@ class AgentsViewProvider {
 		if (uri?.scheme === 'file') {
 			await this._context.globalState.update(WORKSPACE_KEY, uri.fsPath);
 			this._postPrefs();
+			this._postSessions();
 			return uri.fsPath;
 		}
 		return undefined;
@@ -107,6 +157,8 @@ class AgentsViewProvider {
 		if (message?.type === 'catalog') {
 			try {
 				const catalog = await this._hub.catalog({ service: 'opencode', workspace: this._workspace(), refresh: message.refresh === true });
+				this._catalog = catalog;
+				this._postSessions();
 				post({ type: 'catalog', catalog });
 			} catch (error) {
 				post({ type: 'catalog', error: error instanceof Error ? error.message : 'Não foi possível ler o catálogo.' });
@@ -126,7 +178,7 @@ class AgentsViewProvider {
 				await vscode.window.showInformationMessage('O OpenCode não encontrou uma execução ativa para cancelar.');
 			}
 		} else if (message.type === 'stop') {
-			await this._hub.sessionRequest('session.stop', { id: message.id });
+			await this._stop(message.id);
 		}
 	}
 
@@ -165,17 +217,29 @@ class AgentsViewProvider {
 			const created = await this._hub.sessionRequest('session.create', { workspace, model: selection });
 			id = created.id;
 		}
+		this._targetId = id;
+		this._postSessions();
+		if (!existing) { this._view?.webview.postMessage({ type: 'created', id }); }
 		await this._hub.sessionRequest('session.prompt', { id, text: body });
 		this._view?.webview.postMessage({ type: 'sent', sessionId: id });
 	}
 
 	_post() {
+		this._postSessions();
 		if (this._view) {
 			this._view.webview.postMessage({ type: 'state', state: this._hub.getState() });
 		}
 	}
 
-	_html(webview) {
+	_postSessions() {
+		const { hub, sessions } = this._hub.getState();
+		const entries = sessions.map(({ id, harness, status, workspace, model }) => ({ id, harness, status, workspace, model }));
+		this._sessions?.webview.postMessage({
+			type: 'sessions', state: { hub, sessions: entries }, catalog: this._catalog, targetId: this._targetId, workspace: this._workspace()
+		});
+	}
+
+	_html(webview, script) {
 		const media = name => webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', name));
 		const nonce = Array.from({ length: 24 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
 		// No remote content at all: only local script and style, and nothing else is allowed to load.
@@ -192,7 +256,7 @@ class AgentsViewProvider {
 <body>
 <div id="app"></div>
 <script nonce="${nonce}" src="${media('render.js')}"></script>
-<script nonce="${nonce}" src="${media('main.js')}"></script>
+<script nonce="${nonce}" src="${media(script)}"></script>
 </body>
 </html>`;
 	}
@@ -207,7 +271,12 @@ function activate(context) {
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),
-		vscode.commands.registerCommand('singularity.agents.open', () => vscode.commands.executeCommand(`workbench.view.extension.${CONTAINER_ID}`)),
+		vscode.window.registerWebviewPanelSerializer(EDITOR_ID, { deserializeWebviewPanel: async (view, saved) => provider.attachEditor(view, saved) }),
+		{ dispose: hub.onDidChange(() => provider._post()) },
+		vscode.commands.registerCommand('singularity.agents.open', () => {
+			provider.open();
+			return vscode.commands.executeCommand('workbench.view.extension.singularityAgents', { preserveFocus: true });
+		}),
 		vscode.commands.registerCommand('singularity.hub.updateState', async () => {
 			await hub.start(false);
 			return hub.getState().hub.status;
