@@ -188,9 +188,20 @@ class ClaudeRun {
 		this.done = new Promise<void>(resolve => {
 			const timer = setTimeout(() => { this.timedOut = true; void this.stop().catch(() => undefined); }, runTimeoutMs);
 			timer.unref();
-			const end = () => { clearTimeout(timer); this.finish(); resolve(); };
+			let ended = false;
+			const end = () => {
+				if (ended) { return; }
+				ended = true;
+				clearTimeout(timer);
+				// Whatever still holds the pipes (a grandchild that escaped the job) must not keep the session `running` for ever.
+				this.child.stdout?.destroy();
+				this.child.stderr?.destroy();
+				resolve();
+			};
 			this.child.once('error', end);
 			this.child.once('close', end);
+			// `close` waits for every stdio pipe to end; `exit` is the process itself. Give the last output a moment, then settle.
+			this.child.once('exit', () => { setTimeout(end, 750).unref(); });
 		});
 		this.child.stdin.on('error', () => { /* the process may end before it reads the prompt */ });
 		this.child.stdout.setEncoding('utf8');
@@ -281,7 +292,8 @@ class ClaudeRun {
 		}
 	}
 
-	private finish(): void {
+	/** Publishes how the run ended. Called by the session once it is no longer busy, so a `done` session always accepts the next prompt. */
+	apply(): void {
 		if (this.outcome) { this.update(this.outcome.patch); this.emit(this.outcome.name); return; }
 		if (this.cancelling) { this.update({ status: 'idle', summary: 'Execução interrompida.' }); this.emit('session.interrupted'); return; }
 		if (this.timedOut) { this.update({ status: 'failed', summary: 'O Claude Code excedeu o tempo limite e foi encerrado.' }); return; }
@@ -382,6 +394,9 @@ export class ClaudeCodeSessions {
 			item.run = run;
 			run.write(text);
 			await run.done;
+			item.busy = false;
+			item.run = undefined;
+			run.apply();
 		} catch (error) {
 			Object.assign(item.view, { status: 'failed', summary: error instanceof ClaudeCodeError ? error.message : 'A execução do Claude Code não pôde ser confirmada.', updatedAt: Date.now() });
 			this.publish({ type: 'session.changed', sessionId: item.view.id, data: { ...item.view } });

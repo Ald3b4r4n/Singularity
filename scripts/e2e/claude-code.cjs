@@ -138,6 +138,10 @@ async function main() {
 		}
 		console.log(JSON.stringify({ passed: report.checks.length, claudeVersion: (await client.request('sessions.list')).find(s => s.id === created.id)?.version }));
 		console.log('Claude Code E2E PASSED');
+	} catch (error) {
+		// Report the failure first: releasing the Hub can take a while when a run is still active.
+		console.error('Codex CLI E2E FAILED:'.replace('Codex CLI', 'Claude Code') , error.message);
+		process.exitCode = 1;
 	} finally {
 		client.close();
 		await hub.release().catch(() => undefined);

@@ -5,6 +5,7 @@ import { bearerToken, FailureLimiter, identityProof, isNonce, newId, RateBucket,
 import { EventLog } from './eventlog';
 import { CatalogError, parseSelection, serviceList } from './catalog';
 import { ClaudeCodeError, ClaudeCodeSessions, claudeRunnable, parsePermissionMode } from './claude';
+import { CodexError, CodexSessions, codexRunnable, parseCodexPermissionMode } from './codex';
 import { OpenCodeError, OpenCodeSessions, openCodeRunnable } from './opencode';
 import { Logger } from './logger';
 import {
@@ -64,6 +65,7 @@ export class HubServer {
 	readonly events = new EventLog();
 	private readonly opencode: OpenCodeSessions;
 	private readonly claude: ClaudeCodeSessions;
+	private readonly codex: CodexSessions;
 	private readonly limits: ServerLimits;
 	private readonly authFailures = new FailureLimiter();
 	private readonly identityFailures = new FailureLimiter(30, 60_000, 10_000);
@@ -77,6 +79,7 @@ export class HubServer {
 	constructor(private readonly opts: ServerOptions) {
 		this.opencode = new OpenCodeSessions(event => this.publish(event), opts.recoveryDir, opts.historyDir);
 		this.claude = new ClaudeCodeSessions(event => this.publish(event), opts.historyDir);
+		this.codex = new CodexSessions(event => this.publish(event), opts.historyDir);
 		this.limits = { ...DEFAULT_LIMITS, ...opts.limits };
 		this.http = http.createServer((req, res) => this.onHttp(req, res));
 		this.wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxPayloadBytes, perMessageDeflate: false });
@@ -97,6 +100,7 @@ export class HubServer {
 	async listen(): Promise<number> {
 		await this.opencode.recover();
 		this.claude.recover();
+		this.codex.recover();
 		return new Promise((resolve, reject) => {
 			this.http.once('error', reject);
 			// Loopback only, never 0.0.0.0 or ::
@@ -128,7 +132,7 @@ export class HubServer {
 			return;
 		}
 		this.closed = true;
-		await Promise.all([this.opencode.close(), this.claude.close()]);
+		await Promise.all([this.opencode.close(), this.claude.close(), this.codex.close()]);
 		if (this.pingTimer) {
 			clearInterval(this.pingTimer);
 		}
@@ -299,7 +303,7 @@ export class HubServer {
 		}
 		switch (method) {
 			case 'sessions.list':
-				return [...this.opencode.list(), ...this.claude.list()];
+				return [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()];
 			case 'catalog.get':
 				return this.catalog(request.params);
 			case 'session.create':
@@ -323,17 +327,20 @@ export class HubServer {
 	/** catalog.get { service?, workspace?, refresh? }: what can be run here, read from the service itself. */
 	private async catalog(params: unknown): Promise<unknown> {
 		const p = (params ?? {}) as { service?: unknown; workspace?: unknown; refresh?: unknown };
-		if ((p.service !== undefined && p.service !== 'opencode' && p.service !== 'claude-code') || (p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) || (p.refresh !== undefined && typeof p.refresh !== 'boolean')) {
+		if ((p.service !== undefined && p.service !== 'opencode' && p.service !== 'claude-code' && p.service !== 'codex-cli') || (p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) || (p.refresh !== undefined && typeof p.refresh !== 'boolean')) {
 			throw new RpcError(ErrorCode.InvalidParams, 'Invalid catalog parameters');
 		}
 		try {
-			const services = serviceList(openCodeRunnable(), await claudeRunnable());
+			const services = serviceList(openCodeRunnable(), await claudeRunnable(), await codexRunnable());
 			if (p.service === 'claude-code') {
 				return { ...(await this.claude.catalog()), services };
 			}
+			if (p.service === 'codex-cli') {
+				return { ...(await this.codex.catalog()), services };
+			}
 			return { ...(await this.opencode.catalog(p.workspace as string | undefined, p.refresh === true)), services };
 		} catch (error) {
-			if (error instanceof OpenCodeError || error instanceof ClaudeCodeError) {
+			if (error instanceof OpenCodeError || error instanceof ClaudeCodeError || error instanceof CodexError) {
 				throw new RpcError(-32006, error.message);
 			}
 			throw error;
@@ -349,19 +356,22 @@ export class HubServer {
 				if (service === 'claude-code') {
 					return await this.claude.create(p.workspace, selection, parsePermissionMode(p.permissionMode));
 				}
+				if (service === 'codex-cli') {
+					return await this.codex.create(p.workspace, selection, parseCodexPermissionMode(p.permissionMode));
+				}
 				return await this.opencode.create(p.workspace, selection);
 			}
 			if (typeof p?.id === 'string' && typeof p.workspace === 'string') {
-				const owner = this.claude.owns(p.id) ? this.claude : this.opencode;
+				const owner = this.claude.owns(p.id) ? this.claude : this.codex.owns(p.id) ? this.codex : this.opencode;
 				if (method === 'session.history') { return await owner.historyFor(p.id, p.workspace); }
 				if (method === 'session.deleteHistory') { return await owner.deleteHistory(p.id, p.workspace); }
 				if (method === 'session.reopen') {
-					if (!this.claude.owns(p.id)) { throw new RpcError(ErrorCode.InvalidParams, 'Only Claude Code sessions can be reopened'); }
-					return await this.claude.reopen(p.id, p.workspace);
+					if (owner === this.opencode) { throw new RpcError(ErrorCode.InvalidParams, 'Only Claude Code and Codex CLI sessions can be reopened'); }
+					return await (owner as ClaudeCodeSessions | CodexSessions).reopen(p.id, p.workspace);
 				}
 			}
 			if (method !== 'session.create' && method !== 'session.reopen' && typeof p?.id === 'string') {
-				const owner = this.claude.has(p.id) ? this.claude : this.opencode.has(p.id) ? this.opencode : undefined;
+				const owner = this.claude.has(p.id) ? this.claude : this.codex.has(p.id) ? this.codex : this.opencode.has(p.id) ? this.opencode : undefined;
 				if (!owner) {
 					throw new RpcError(ErrorCode.SessionNotFound, 'Session not found');
 				}
@@ -384,7 +394,7 @@ export class HubServer {
 				}
 			}
 		} catch (error) {
-			if (error instanceof OpenCodeError || error instanceof ClaudeCodeError || error instanceof CatalogError) {
+			if (error instanceof OpenCodeError || error instanceof ClaudeCodeError || error instanceof CodexError || error instanceof CatalogError) {
 				throw new RpcError(-32006, error.message);
 			}
 			throw error;
@@ -406,7 +416,7 @@ export class HubServer {
 		return {
 			protocol: version,
 			hub: { name: HUB_NAME, version: HUB_VERSION, instanceId: this.opts.instanceId, pid: process.pid, startedAt: this.opts.startedAt },
-			capabilities: ['opencode.v2', 'claude-code.v1', 'catalog.v1', 'session.model.v1'],
+			capabilities: ['opencode.v2', 'claude-code.v1', 'codex-cli.v1', 'catalog.v1', 'session.model.v1'],
 			seq: this.events.seq,
 		};
 	}
@@ -416,7 +426,7 @@ export class HubServer {
 		if ((p.sessionId !== undefined && typeof p.sessionId !== 'string') || (p.fromSeq !== undefined && (!Number.isInteger(p.fromSeq) || p.fromSeq < 0))) {
 			throw new RpcError(ErrorCode.InvalidParams, 'Invalid params');
 		}
-		if (p.sessionId !== undefined && !this.opencode.has(p.sessionId) && !this.claude.has(p.sessionId)) {
+		if (p.sessionId !== undefined && !this.opencode.has(p.sessionId) && !this.claude.has(p.sessionId) && !this.codex.has(p.sessionId)) {
 			throw new RpcError(ErrorCode.SessionNotFound, 'Session not found');
 		}
 		let replayed = 0;

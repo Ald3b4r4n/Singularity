@@ -24,11 +24,11 @@ describe('catalog and model requests are validated by the Hub', () => {
 	it('announces the new capabilities', () => {
 		assert.ok(c.hello.capabilities.includes('catalog.v1'));
 		assert.ok(c.hello.capabilities.includes('claude-code.v1'));
+		assert.ok(c.hello.capabilities.includes('codex-cli.v1'));
 		assert.ok(c.hello.capabilities.includes('session.model.v1'));
 	});
 
 	it('catalog.get refuses a service without an adapter and malformed parameters', async () => {
-		assert.equal(await code('catalog.get', { service: 'codex-cli' }), ErrorCode.InvalidParams);
 		assert.equal(await code('catalog.get', { service: 'gemini-cli' }), ErrorCode.InvalidParams);
 		assert.equal(await code('catalog.get', { service: 5 }), ErrorCode.InvalidParams);
 		assert.equal(await code('catalog.get', { workspace: 5 }), ErrorCode.InvalidParams);
@@ -42,7 +42,15 @@ describe('catalog and model requests are validated by the Hub', () => {
 		const entry = result.services.find(service => service.id === 'claude-code');
 		assert.ok(entry && (entry.status === 'available' || entry.status === 'unavailable'));
 		assert.equal(result.providers.length > 0, entry.status === 'available');
-		assert.equal(result.services.find(service => service.id === 'codex-cli')?.status, 'planned');
+		assert.equal(result.services.find(service => service.id === 'gemini-cli')?.status, 'planned');
+	});
+
+	it('catalog.get answers for Codex CLI with its real state, never an invented one', async () => {
+		const result = await c.request<{ service: string; services: Array<{ id: string; status: string }>; providers: unknown[] }>('catalog.get', { service: 'codex-cli' }, 60000);
+		assert.equal(result.service, 'codex-cli');
+		const entry = result.services.find(service => service.id === 'codex-cli');
+		assert.ok(entry && (entry.status === 'available' || entry.status === 'unavailable'));
+		assert.equal(result.providers.length > 0, entry.status === 'available');
 	});
 
 	it('catalog.get refuses a relative or missing workspace', async () => {
@@ -59,6 +67,9 @@ describe('catalog and model requests are validated by the Hub', () => {
 	it('session.create for Claude Code refuses a permission bypass and unknown modes before starting anything', async () => {
 		for (const permissionMode of ['bypassPermissions', 'auto', 'manual', 'anything', 5]) {
 			assert.equal(await code('session.create', { workspace: 'C:\\', service: 'claude-code', permissionMode }), -32006, String(permissionMode));
+		}
+		for (const permissionMode of ['danger-full-access', 'bypassPermissions', 'acceptEdits', 'anything', 5]) {
+			assert.equal(await code('session.create', { workspace: 'C:\\', service: 'codex-cli', permissionMode }), -32006, 'codex ' + String(permissionMode));
 		}
 	});
 
