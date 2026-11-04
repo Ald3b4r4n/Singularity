@@ -1,25 +1,23 @@
 'use strict';
-// Singularity updates from GitHub Releases of the official repository.
-//
-// What this module does (and only this):
-//   1. asks the official repository for its releases (fixed origin; no other URL is accepted in the product);
-//   2. chooses the newest release of the chosen channel that is newer than the installed version;
-//   3. checks that the release has exactly the expected installer and its checksum list, for this platform and channel;
-//   4. downloads the installer to a temporary folder, with progress, and accepts it only if its SHA-256 matches the
-//      official SHA256SUMS of that release, and the size matches the release metadata.
-//
-// What it does NOT do: it never runs the installer, never replaces a running file, and never sends the account token
-// (update requests are anonymous). Running a verified installer needs the Inno Setup installer and its migration tests,
-// which are not part of this change, so the IDE must not offer a button that installs.
 
-const crypto = require('crypto');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { Readable, Transform } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+const { verifyProvenance } = require('./provenance.js');
+const { parseVersion, compareVersions } = require('./version.js');
 
 const OFFICIAL_REPO = 'Ald3b4r4n/Singularity';
 const API_BASE = 'https://api.github.com';
 const CHANNELS = ['stable', 'preview'];
+const MANIFEST_ASSET = 'singularity-release.json';
+const CHECKSUM_ASSET = 'SHA256SUMS';
+const WORKFLOW = '.github/workflows/singularity-release.yml';
+const releaseOrigin = 'https://github.com';
+const downloadOrigin = 'https://release-assets.githubusercontent.com';
 
 class UpdateError extends Error {
 	constructor(code, message) {
@@ -28,143 +26,200 @@ class UpdateError extends Error {
 	}
 }
 
-/** Parses "1.2.3" or "1.2.3-preview.4". Returns [major, minor, patch, prerelease] or undefined. */
-function parseVersion(v) {
-	const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(String(v).trim());
-	if (!m) { return undefined; }
-	return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] || ''];
+function installerName(version, target = 'user') {
+	return `SingularityIDE-${version}-x64-${target}.exe`;
 }
 
-/** Semantic-version order: a prerelease is lower than the same version without one. Returns <0, 0 or >0. */
-function compareVersions(a, b) {
-	const x = parseVersion(a), y = parseVersion(b);
-	if (!x || !y) { throw new UpdateError('bad-version', `invalid version: ${!x ? a : b}`); }
-	for (let i = 0; i < 3; i++) { if (x[i] !== y[i]) { return x[i] - y[i]; } }
-	if (x[3] === y[3]) { return 0; }
-	if (x[3] === '') { return 1; }
-	if (y[3] === '') { return -1; }
-	return x[3] < y[3] ? -1 : 1; // lexical on prerelease tags is enough for "preview.N" sequences of one line
+function assetUrl(tag, name) {
+	return `${releaseOrigin}/${OFFICIAL_REPO}/releases/download/${tag}/${name}`;
 }
 
-/** The channel a release belongs to. Stable never includes prereleases; preview includes both. */
-function releaseChannel(release) {
-	return release.prerelease ? 'preview' : 'stable';
-}
-
-function isAllowedForChannel(release, channel) {
-	if (!CHANNELS.includes(channel)) { throw new UpdateError('bad-channel', `unknown channel ${channel}`); }
-	if (channel === 'stable') { return !release.prerelease; }
-	return true; // preview: prereleases and stable releases
-}
-
-/** Installer name for this platform and channel. Only Windows x64 is produced for now. */
-function installerName(version, platform = 'win32', arch = 'x64') {
-	return `Singularity-${version}-${platform}-${arch}-setup.exe`;
-}
-const CHECKSUM_ASSET = 'SHA256SUMS';
-
-/**
- * Picks the release to offer: newest, allowed on the channel, newer than the installed version, and complete (has the
- * installer and the checksum list). Incomplete releases are skipped with a reason, never offered.
- */
-function selectUpdate(releases, { installed, channel = 'stable', platform = 'win32', arch = 'x64', assetOrigin = 'https://github.com/' }) {
+function selectUpdate(releases, { installed, channel = 'stable', platform = 'win32', arch = 'x64', target = 'user' }) {
+	if (!parseVersion(installed)) {
+		throw new UpdateError('bad-version', 'installed version is unknown');
+	}
+	if (!CHANNELS.includes(channel)) {
+		throw new UpdateError('bad-channel', 'unknown update channel');
+	}
 	const skipped = [];
+	if (platform !== 'win32' || arch !== 'x64' || !['system', 'user'].includes(target)) {
+		return { skipped };
+	}
+
 	const candidates = [];
-	for (const r of releases) {
-		if (r.draft) { continue; }
-		const v = String(r.tag_name || '').replace(/^v/, '');
-		if (!parseVersion(v)) { skipped.push({ tag: r.tag_name, reason: 'not-a-version' }); continue; }
-		if (!isAllowedForChannel(r, channel)) { continue; }
-		if (compareVersions(v, installed) <= 0) { continue; }
-		const assets = Array.isArray(r.assets) ? r.assets : [];
-		const installer = assets.find(a => a.name === installerName(v, platform, arch));
-		const sums = assets.find(a => a.name === CHECKSUM_ASSET);
-		if (!installer || !sums) { skipped.push({ tag: r.tag_name, reason: installer ? 'no-checksums' : 'no-installer-for-platform' }); continue; }
-		if (!installer.browser_download_url.startsWith(assetOrigin) || !sums.browser_download_url.startsWith(assetOrigin)) {
-			skipped.push({ tag: r.tag_name, reason: 'asset-not-from-github' }); continue;
+	for (const release of releases) {
+		const tag = release?.tag_name;
+		if (release?.draft !== false || typeof tag !== 'string' || !tag.startsWith('v') || !parseVersion(tag)) {
+			continue;
 		}
-		candidates.push({ version: v, tag: r.tag_name, channel: releaseChannel(r), name: r.name || r.tag_name, notes: String(r.body || '').slice(0, 20000), publishedAt: r.published_at, installer: { name: installer.name, url: installer.browser_download_url, size: installer.size }, sums: { url: sums.browser_download_url } });
+		const version = tag.slice(1);
+		const isPreview = version.includes('-preview.');
+		if (release.prerelease !== isPreview || (channel === 'stable' && isPreview) || compareVersions(version, installed) <= 0) {
+			continue;
+		}
+		const assets = Array.isArray(release.assets) ? release.assets : [];
+		const names = [installerName(version, target), MANIFEST_ASSET, CHECKSUM_ASSET];
+		const selected = names.map(name => assets.filter(asset => asset?.name === name));
+		if (selected.some(matches => matches.length !== 1)) {
+			skipped.push({ tag, reason: 'missing-or-duplicate-assets' });
+			continue;
+		}
+		const [installer, manifest, sums] = selected.map(([asset]) => ({ name: asset.name, url: asset.browser_download_url, size: asset.size }));
+		if ([installer, manifest, sums].some(asset => asset.url !== assetUrl(tag, asset.name) || !Number.isSafeInteger(asset.size) || asset.size < 1)) {
+			skipped.push({ tag, reason: 'invalid-asset-metadata' });
+			continue;
+		}
+		candidates.push({
+			version, tag, channel: isPreview ? 'preview' : 'stable', target, arch,
+			notes: String(release.body || '').slice(0, 20000), installer, manifest, sums
+		});
 	}
 	candidates.sort((a, b) => compareVersions(b.version, a.version));
 	return { update: candidates[0], skipped };
 }
 
-/** Parses SHA256SUMS ("<hex>  <name>" lines). Returns Map name -> hex. Rejects duplicates and malformed lines. */
 function parseChecksums(text) {
 	const map = new Map();
-	for (const raw of String(text).split(/\r?\n/)) {
+	for (const raw of text.split(/\r?\n/)) {
 		const line = raw.trim();
-		if (!line) { continue; }
-		const m = /^([0-9a-fA-F]{64})\s+\*?(.+)$/.exec(line);
-		if (!m) { throw new UpdateError('bad-checksums', 'malformed line in SHA256SUMS'); }
-		const name = m[2].trim();
-		if (map.has(name)) { throw new UpdateError('bad-checksums', `duplicate entry for ${name}`); }
-		map.set(name, m[1].toLowerCase());
+		if (!line) {
+			continue;
+		}
+		const match = /^([0-9a-fA-F]{64})\s+\*?([^\s]+)$/.exec(line);
+		if (!match || map.has(match[2])) {
+			throw new UpdateError('bad-checksums', 'malformed or duplicate SHA256SUMS entry');
+		}
+		map.set(match[2], match[1].toLowerCase());
 	}
 	return map;
 }
 
-async function fetchJson(fetchFn, url) {
-	const res = await fetchFn(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'singularity-ide' } });
-	if (!res.ok) { throw new UpdateError('http', `GitHub answered HTTP ${res.status}`); }
-	try { return await res.json(); } catch { throw new UpdateError('bad-response', 'the release list is not valid JSON'); }
+async function listReleases({ fetchFn = fetch, signal = AbortSignal.timeout(15000) } = {}) {
+	const response = await fetchFn(`${API_BASE}/repos/${OFFICIAL_REPO}/releases?per_page=100`, {
+		signal, redirect: 'error', headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'singularity-ide' }
+	});
+	if (!response.ok) {
+		throw new UpdateError('http', `GitHub answered HTTP ${response.status}`);
+	}
+	const releases = await response.json();
+	if (!Array.isArray(releases)) {
+		throw new UpdateError('bad-response', 'invalid GitHub release list');
+	}
+	return releases;
 }
 
-/** Lists the official releases (first page is enough: the newest releases come first). */
-async function listReleases({ fetchFn, apiBase = API_BASE, repo = OFFICIAL_REPO }) {
-	return fetchJson(fetchFn, `${apiBase}/repos/${repo}/releases?per_page=30`);
+async function fetchAsset(fetchFn, update, asset, signal) {
+	let url = new URL(asset.url);
+	if (url.href !== assetUrl(update.tag, asset.name)) {
+		throw new UpdateError('origin', 'invalid GitHub release asset URL');
+	}
+	for (let redirects = 0; redirects < 4; redirects++) {
+		const response = await fetchFn(url.href, {
+			signal, redirect: 'manual', headers: { 'User-Agent': 'singularity-ide' }
+		});
+		if ([301, 302, 303, 307, 308].includes(response.status)) {
+			await response.body?.cancel();
+			const location = response.headers.get('location');
+			url = location ? new URL(location, url) : undefined;
+			if (!url || url.origin !== downloadOrigin || url.username || url.password || url.hash) {
+				throw new UpdateError('origin', 'untrusted GitHub asset redirect');
+			}
+			continue;
+		}
+		if (!response.ok || !response.body) {
+			await response.body?.cancel();
+			throw new UpdateError('http', `GitHub asset answered HTTP ${response.status}`);
+		}
+		return response;
+	}
+	throw new UpdateError('origin', 'too many asset redirects');
 }
 
-/**
- * Downloads the installer of `update` into `dir`, showing progress, and returns its path only when the SHA-256 equals the
- * official checksum and the byte count equals the release metadata. A file that fails either check is deleted.
- */
-async function downloadVerified({ fetchFn, update, dir = os.tmpdir(), onProgress = () => { } }) {
-	const sumsRes = await fetchFn(update.sums.url, { headers: { 'User-Agent': 'singularity-ide' } });
-	if (!sumsRes.ok) { throw new UpdateError('http', `checksums: HTTP ${sumsRes.status}`); }
-	const sums = parseChecksums(await sumsRes.text());
-	const expected = sums.get(update.installer.name);
-	if (!expected) { throw new UpdateError('no-checksum', `${update.installer.name} is not listed in SHA256SUMS`); }
-
-	const target = path.join(dir, update.installer.name);
-	const partial = target + '.part';
-	const res = await fetchFn(update.installer.url, { headers: { 'User-Agent': 'singularity-ide' } });
-	if (!res.ok || !res.body) { throw new UpdateError('http', `installer: HTTP ${res.status}`); }
-	const total = Number(res.headers && res.headers.get ? res.headers.get('content-length') : 0) || update.installer.size;
+async function transfer(fetchFn, update, asset, file, signal, onProgress) {
+	const response = await fetchAsset(fetchFn, update, asset, signal);
 	const hash = crypto.createHash('sha256');
 	let received = 0;
-	const out = fs.createWriteStream(partial);
-	try {
-		const reader = res.body.getReader();
-		for (; ;) {
-			const { done, value } = await reader.read();
-			if (done) { break; }
-			hash.update(value);
-			received += value.length;
-			out.write(value);
-			onProgress({ received, total });
+	await pipeline(Readable.fromWeb(response.body), new Transform({
+		transform(chunk, _encoding, callback) {
+			received += chunk.length;
+			if (received > asset.size) {
+				callback(new UpdateError('incomplete', 'asset exceeds its declared size'));
+				return;
+			}
+			try {
+				hash.update(chunk);
+				onProgress?.({ received, total: asset.size });
+				callback(null, chunk);
+			} catch (error) {
+				callback(error);
+			}
 		}
-		await new Promise((resolve, reject) => out.end(err => (err ? reject(err) : resolve())));
-	} catch (e) {
-		out.destroy();
-		fs.rmSync(partial, { force: true });
-		throw e;
+	}), fs.createWriteStream(file, { flags: 'wx', mode: 0o600 }), { signal });
+	if (received !== asset.size) {
+		throw new UpdateError('incomplete', 'asset size differs from release metadata');
 	}
-	const digest = hash.digest('hex');
-	if (received !== update.installer.size) {
-		fs.rmSync(partial, { force: true });
-		throw new UpdateError('incomplete', `downloaded ${received} bytes, the release says ${update.installer.size}`);
+	return hash.digest('hex');
+}
+
+function validateManifest(manifest, update) {
+	if (manifest?.repository !== OFFICIAL_REPO || manifest.tag !== update.tag || manifest.version !== update.version
+		|| manifest.channel !== update.channel || manifest.workflow !== WORKFLOW || manifest.build !== 'passed'
+		|| !/^[a-f0-9]{40}$/.test(manifest.commit) || !Array.isArray(manifest.assets)) {
+		throw new UpdateError('manifest', 'release manifest does not match this GitHub release');
 	}
-	if (digest !== expected) {
-		fs.rmSync(partial, { force: true });
-		throw new UpdateError('checksum-mismatch', 'the installer does not match the official SHA-256');
+	const selected = manifest.assets.filter(asset => asset?.name === update.installer.name);
+	if (selected.length !== 1 || selected[0].arch !== update.arch || selected[0].target !== update.target
+		|| selected[0].size !== update.installer.size || !/^[a-f0-9]{64}$/.test(selected[0].sha256)) {
+		throw new UpdateError('manifest', 'release manifest does not match this installer');
 	}
-	fs.renameSync(partial, target);
-	return { path: target, sha256: digest, bytes: received };
+	return selected[0].sha256;
+}
+
+async function downloadVerified({
+	fetchFn = fetch, update, dir = os.tmpdir(), onProgress, onVerifying, signal, verify = verifyProvenance
+}) {
+	const timeout = AbortSignal.timeout(20 * 60 * 1000);
+	signal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+	signal.throwIfAborted();
+	if (!parseVersion(update.tag) || update.tag !== `v${update.version}`
+		|| !['user', 'system'].includes(update.target) || update.arch !== 'x64'
+		|| update.installer.name !== installerName(update.version, update.target)
+		|| !Number.isSafeInteger(update.installer.size) || update.installer.size < 1
+		|| update.manifest.name !== MANIFEST_ASSET || update.sums.name !== CHECKSUM_ASSET
+		|| [update.manifest, update.sums].some(asset => !Number.isSafeInteger(asset.size) || asset.size < 1 || asset.size > 65536)) {
+		throw new UpdateError('manifest', 'invalid release asset descriptors');
+	}
+	const staging = await fsp.mkdtemp(path.join(dir, 'singularity-update-'));
+	try {
+		const manifestFile = path.join(staging, MANIFEST_ASSET);
+		const sumsFile = path.join(staging, CHECKSUM_ASSET);
+		await transfer(fetchFn, update, update.manifest, manifestFile, signal);
+		const manifest = JSON.parse(await fsp.readFile(manifestFile, 'utf8'));
+		const expected = validateManifest(manifest, update);
+		const provenance = { repo: OFFICIAL_REPO, tag: update.tag, commit: manifest.commit, workflow: WORKFLOW, signal };
+		await verify(manifestFile, provenance);
+		await transfer(fetchFn, update, update.sums, sumsFile, signal);
+		if (parseChecksums(await fsp.readFile(sumsFile, 'utf8')).get(update.installer.name) !== expected) {
+			throw new UpdateError('checksum-mismatch', 'SHA256SUMS does not match the attested manifest');
+		}
+		const final = path.join(staging, update.installer.name);
+		const partial = final + '.part';
+		const digest = await transfer(fetchFn, update, update.installer, partial, signal, onProgress);
+		if (digest !== expected) {
+			throw new UpdateError('checksum-mismatch', 'installer digest does not match the attested manifest');
+		}
+		onVerifying?.();
+		await verify(partial, provenance);
+		signal.throwIfAborted();
+		await fsp.rename(partial, final);
+		return { path: final, sha256: digest, bytes: update.installer.size };
+	} catch (error) {
+		await fsp.rm(staging, { recursive: true, force: true });
+		throw error;
+	}
 }
 
 module.exports = {
-	OFFICIAL_REPO, API_BASE, CHANNELS, CHECKSUM_ASSET, UpdateError,
-	parseVersion, compareVersions, releaseChannel, isAllowedForChannel, installerName,
-	selectUpdate, parseChecksums, listReleases, downloadVerified,
+	OFFICIAL_REPO, API_BASE, WORKFLOW, MANIFEST_ASSET, CHECKSUM_ASSET,
+	parseVersion, compareVersions, installerName, selectUpdate, parseChecksums, listReleases, downloadVerified
 };

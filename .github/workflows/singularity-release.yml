@@ -1,0 +1,53 @@
+name: Singularity Windows release build
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_artifacts:
+        description: Upload the installer archive as a workflow artifact
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'Ald3b4r4n/Singularity' && github.ref_type == 'tag'
+    runs-on: windows-2025
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.22.1
+      - name: Verify the selected tag
+        shell: pwsh
+        run: |
+          $product = Get-Content -Raw product.json | ConvertFrom-Json
+          if ($env:GITHUB_REF -cne "refs/tags/v$($product.singularityVersion)") { throw 'Tag must match product.json.' }
+      - run: npm ci
+      - run: npm ci --prefix singularity-hub
+      - run: node extensions/singularity-update/test/run.cjs
+      - run: node scripts/package-win32.cjs --installer
+      - run: node scripts/prepare-singularity-release.cjs
+      - name: Attest the manifest and both installers
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            .build/singularity-release/*.exe
+            .build/singularity-release/singularity-release.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: inputs.upload_artifacts
+        with:
+          name: singularity-windows-x64
+          path: .build/singularity-release/
+          include-hidden-files: true
+          if-no-files-found: error

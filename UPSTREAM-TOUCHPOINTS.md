@@ -44,3 +44,8 @@ Base atual: tag `1.144.0`, commit `2c33b50b16c472efe58357d1d2a8a5414bc23fbf`.
 - `build/gulpfile.vscode.win32.ts` and `build/win32/code.iss` use the Singularity product identity and separate existing AppIds for user and system installs. Setup and uninstall require the user to close the IDE, Hub and tunnels. Setup does not use Restart Manager to close or restart applications.
 - `scripts/package-win32.cjs --installer` builds and validates the Windows payload, stamps the main IDE executable and compiles the user and system installers. `product.json` supplies the Singularity release version. The upstream Code - OSS version remains available for extension compatibility.
 - The native About dialog displays the Singularity release version. Existing file associations, shell integration, and the upstream license and third-party notices are preserved.
+
+### Release e verificação de atualizações
+
+- `extensions/singularity-update` usa o `product.json` do aplicativo e verifica releases do repositório oficial. Atestações de manifesto e instalador são verificadas pelo GitHub CLI.
+- `.github/workflows/singularity-release.yml` e `scripts/prepare-singularity-release.cjs` preparam os instaladores, o manifesto e os hashes da tag.

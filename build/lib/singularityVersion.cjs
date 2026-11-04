@@ -1,13 +1,16 @@
 'use strict';
 
+const { parseVersion } = require('../../extensions/singularity-update/version.js');
+
 // Windows version resources need numeric components. The display version keeps
 // the complete SemVer, including any Preview identifier.
 function parseWindowsProductVersion(version) {
-	const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-preview\.(0|[1-9]\d*))?$/.exec(version);
-	if (!match || match.slice(1).some(component => component !== undefined && Number(component) > 65535)) {
+	const parsed = parseVersion(version);
+	if (!parsed || version.startsWith('v')) {
 		throw new Error(`Invalid Singularity product version: ${version}`);
 	}
-	return `${match[1]}.${match[2]}.${match[3]}.${match[4] ?? 0}`;
+	const [major, minor, patch, preview] = parsed;
+	return `${major}.${minor}.${patch}.${Number.isFinite(preview) ? preview : 0}`;
 }
 
 module.exports = { parseWindowsProductVersion };

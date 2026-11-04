@@ -1,34 +1,58 @@
-# Atualizações do Singularity (GitHub Releases)
+# Atualizações do Singularity
 
-## Estado
+A versão de distribuição vem de `singularityVersion` em `product.json`.
+A tag correspondente é `vX.Y.Z` para Stable ou `vX.Y.Z-preview.N` para
+Preview. Stable recebe somente releases estáveis. Preview pode receber uma
+release estável mais nova. Instalações Preview usam esse canal por padrão,
+com a escolha explícita em `singularity.update.channel` tendo precedência.
 
-Implementado e verificado:
+## Preparação de uma release
 
-- descoberta das releases da **origem oficial fixa** (`Ald3b4r4n/Singularity`), anônima, sem token;
-- escolha por canal (`stable` ou `preview`), com versão semântica; pré-releases nunca entram no canal estável;
-- release **incompleta** (sem o instalador da plataforma ou sem `SHA256SUMS`) é ignorada, com o motivo registrado;
-- assets só de `github.com`;
-- download com progresso real, aceito somente se o **SHA-256 bate com o `SHA256SUMS` oficial** e o tamanho bate com os metadados; arquivo adulterado, truncado ou com checksum errado é apagado;
-- comandos **Verificar atualizações** e **Baixar atualização** na IDE; o download termina com "Mostrar arquivo" (a pasta do instalador verificado).
+Use o workflow manual **Singularity Windows release build** com a tag da
+versão no repositório oficial `Ald3b4r4n/Singularity`. O job confirma a
+correspondência da tag com a versão do produto, executa os testes, empacota os
+instaladores x64 e prepara:
 
-**Não implementado, e por isso a IDE não oferece instalar:**
+- `SingularityIDE-<versão>-x64-user.exe` e `SingularityIDE-<versão>-x64-system.exe`
+- `singularity-release.json` com versão, canal, commit, workflow, resultado
+  do build, escopo, tamanho e SHA-256 de cada instalador
+- `SHA256SUMS` e `release-notes.md` a partir da tag
+- Atestações GitHub Actions do manifesto e dos dois EXEs
 
-- **Instalação.** Falta o instalador Inno Setup da versão e os testes de migração entre duas versões instaláveis (preservação de perfis, extensões, configurações e do Hub em execução). Até lá, o instalador baixado é aberto manualmente pelo usuário.
-- **Assinatura de procedência.** O SHA-256 vem da mesma origem que o arquivo (GitHub Releases). Isso protege contra download corrompido e contra troca do arquivo sem troca da lista, mas não contra um release malicioso publicado com a conta do projeto. A verificação de assinatura (chave própria, ou atestações do GitHub) depende de uma decisão de chaves do proprietário e ainda não existe.
-- **Fluxo de publicação de releases.** Ainda não há workflow que gere o instalador e o `SHA256SUMS`. Até lá, não há nenhuma release pública: a verificação real da API retorna zero releases.
-- **Reinício para atualizar.** Não existe, pelo motivo acima.
+O workflow deixa o envio de artefatos desligado por padrão. Após aprovação
+da distribuição, habilite-o no despacho, confira a evidência de procedência
+e anexe os dois EXEs, o manifesto e o arquivo de hashes à release da mesma
+tag. Use as notas da tag no corpo da release e marque Preview como
+pré-release.
 
-## Como uma release deve ser publicada (quando existir)
+## Verificação no cliente
 
-Para cada versão `X.Y.Z` (ou `X.Y.Z-preview.N`), um asset `Singularity-X.Y.Z-win32-x64-setup.exe` e um asset `SHA256SUMS` com uma linha por arquivo, no formato `sha256  nome`. A linha do `SHA256SUMS` é a referência: o instalador é recusado se não bater.
+O cliente seleciona apenas assets com o nome e a URL exatos da release
+oficial. Para o download, aceita redirecionamentos HTTPS ao CDN de assets
+do GitHub. O manifesto deve ser atestado e coerente com a release, canal,
+arquitetura e escopo da instalação. O instalador deve coincidir com o
+tamanho e SHA-256 do manifesto atestado e com o arquivo de hashes. A
+atestação do EXE deve corresponder ao mesmo repositório, workflow, tag e
+commit. Falhas e cancelamentos descartam os arquivos da tentativa. Uma
+nova tentativa baixa os assets em outro diretório.
 
-```powershell
-Get-FileHash .\Singularity-X.Y.Z-win32-x64-setup.exe -Algorithm SHA256
-```
+A verificação usa o GitHub CLI instalado no diretório padrão do Windows
+(`Program Files\GitHub CLI`). Configure a autenticação do CLI conforme
+necessário para consultar atestações. As consultas de release e asset do
+Singularity são anônimas e não usam a sessão OAuth da IDE.
 
-A versão instalada vem de `extensions/singularity-update/package.json`. Ela deve ser atualizada junto com a release.
+A atestação vincula os bytes ao build do GitHub Actions. Authenticode
+assina o executável para a verificação do Windows. O SmartScreen usa
+reputação e outros sinais do sistema. Os instaladores locais desta etapa
+ainda não têm assinatura Authenticode.
 
-## Limites da verificação
+- [Verificar atestações com GitHub CLI](https://cli.github.com/manual/gh_attestation_verify)
+- [Atestações de artefatos no GitHub Actions](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
 
-- Verificado: a lógica (13 testes com um servidor local que imita a API do GitHub), o download com as três falhas (adulterado, checksum errado, truncado), a consulta real à API oficial e o comando na IDE real.
-- Não verificado: uma release real com instalador (não existe ainda), e o comportamento da rede do usuário final (proxies, firewalls, sem conexão por muito tempo).
+## Testes locais
+
+`node extensions/singularity-update/test/run.cjs` testa a seleção e o
+download com respostas controladas, inclusive rejeições de integridade e
+procedência. O caminho positivo do teste usa um verificador simulado. O
+primeiro build atestado do Singularity precisa ser conferido com os
+artefatos gerados pelo workflow.
