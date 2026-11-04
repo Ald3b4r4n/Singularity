@@ -8,14 +8,14 @@
 AppId={#AppId}
 AppName={#NameLong}
 AppVerName={#NameVersion}
-AppPublisher=Microsoft Corporation
-AppPublisherURL=https://code.visualstudio.com/
-AppSupportURL=https://code.visualstudio.com/
-AppUpdatesURL=https://code.visualstudio.com/
+AppPublisher={#Publisher}
+AppPublisherURL={#Repository}
+AppSupportURL={#Repository}/issues
+AppUpdatesURL={#Repository}/releases
 DefaultGroupName={#NameLong}
 AllowNoIcons=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=VSCodeSetup
+OutputBaseFilename=SingularityIDE-{#Version}-{#Arch}-{#InstallTarget}
 Compression=lzma
 SolidCompression=yes
 AppMutex={code:GetAppMutex}
@@ -30,15 +30,16 @@ MinVersion=10.0
 SourceDir={#SourceDir}
 AppVersion={#Version}
 VersionInfoVersion={#RawVersion}
+VersionInfoProductTextVersion={#Version}
+VersionInfoCompany={#Publisher}
 ShowLanguageDialog=auto
 ArchitecturesAllowed={#ArchitecturesAllowed}
 ArchitecturesInstallIn64BitMode={#ArchitecturesInstallIn64BitMode}
 WizardStyle=modern
 
-// We've seen an uptick on broken installations from updates which were unable
-// to shutdown VS Code. We rely on the fact that the update signals
-// that VS Code is ready to be shutdown, so we're good to use `force` here.
-CloseApplications=force
+// The IDE and Hub must be closed by the user before replacing files.
+CloseApplications=no
+RestartApplications=no
 
 #ifdef Sign
 SignTool=esrp
@@ -106,7 +107,7 @@ Source: "bin\copilot-shim\copilot"; Flags: dontcopy noencryption
 Source: "*"; Excludes: "\CodeSignSummary*.md,\tools,\tools\*,\policies,\policies\*,\appx,\appx\*,\{#ProductJsonRelativePath},\{#ExeBasename}.exe,\{#ExeBasename}.VisualElementsManifest.xml,\bin,\bin\*"; DestDir: "{code:GetDestDir}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#ExeBasename}.exe"; DestDir: "{code:GetDestDir}"; DestName: "{code:GetExeBasename}"; Flags: ignoreversion
 Source: "{#ExeBasename}.VisualElementsManifest.xml"; DestDir: "{code:GetDestDir}"; DestName: "{code:GetVisualElementsManifest}"; Flags: ignoreversion
-Source: "tools\*"; DestDir: "{app}\{#VersionedResourcesFolder}\tools"; Flags: ignoreversion
+Source: "tools\*"; DestDir: "{app}\{#VersionedResourcesFolder}\tools"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "policies\*"; DestDir: "{code:GetDestDir}\{#VersionedResourcesFolder}\policies"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "bin\{#TunnelApplicationName}.exe"; DestDir: "{code:GetDestDir}\bin"; DestName: "{code:GetBinDirTunnelApplicationFilename}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "bin\{#ApplicationName}.cmd"; DestDir: "{code:GetDestDir}\bin"; DestName: "{code:GetBinDirApplicationCmdFilename}"; Flags: ignoreversion
@@ -1386,11 +1387,15 @@ var
   ThisArch: String;
   AltArch: String;
 begin
-  Result := True;
+  Result := not IsBackgroundUpdate();
+  if not Result then begin
+    SuppressibleMsgBox('Use the interactive Singularity installer to update.', mbError, MB_OK, IDOK);
+    Exit;
+  end;
 
   #if "user" == InstallTarget
     if not WizardSilent() and IsAdmin() then begin
-      if MsgBox('This User Installer is not meant to be run as an Administrator. If you would like to install VS Code for all users in this system, download the System Installer instead from https://code.visualstudio.com. Are you sure you want to continue?', mbError, MB_OKCANCEL) = IDCANCEL then begin
+      if MsgBox('This User Installer is not meant to be run as an Administrator. If you would like to install {#NameShort} for all users on this system, use the System Installer from {#Repository}/releases. Are you sure you want to continue?', mbError, MB_OKCANCEL) = IDCANCEL then begin
         Result := False;
       end;
     end;
@@ -1453,72 +1458,45 @@ begin
   end;
 end;
 
-var
-	ShouldRestartTunnelService: Boolean;
+// An active executable image cannot be opened for write on Windows.
+function OpenExecutableForWrite(FileName: String; Access, Share, Security,
+  Creation, Flags: LongWord; Template: THandle): THandle;
+  external 'CreateFileW@kernel32.dll stdcall';
+function CloseExecutableHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
 
-function StopTunnelOtherProcesses(): Boolean;
+function ExecutableIsLocked(FileName: String): Boolean;
 var
-	WaitCounter: Integer;
-	TaskKilled: Integer;
+  Handle: THandle;
 begin
-	Log('Stopping all tunnel services (at ' + ExpandConstant('"{app}\bin\{#TunnelApplicationName}.exe"') + ')');
-	ShellExec('', 'powershell.exe', '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -eq ' + ExpandConstant('''{app}\bin\{#TunnelApplicationName}.exe''') + ' } | Select @{Name=''Id''; Expression={$_.ProcessId}} | Stop-Process -Force"', '', SW_HIDE, ewWaitUntilTerminated, TaskKilled)
-
-	WaitCounter := 10;
-	while (WaitCounter > 0) and CheckForMutexes('{#TunnelMutex}') do
-	begin
-		Log('Tunnel process is is still running, waiting');
-		Sleep(500);
-		WaitCounter := WaitCounter - 1
-	end;
-
-	if CheckForMutexes('{#TunnelMutex}') then
-		begin
-			Log('Unable to stop tunnel processes');
-			Result := False;
-		end
-	else
-		Result := True;
+  Result := False;
+  if not FileExists(FileName) then
+    Exit;
+  Handle := OpenExecutableForWrite(FileName, $40000000, 0, 0, 3, $80, 0);
+  Result := Handle = THandle(-1);
+  if not Result then
+    CloseExecutableHandle(Handle);
 end;
 
-procedure StopTunnelServiceIfNeeded();
-var
-	StopServiceResultCode: Integer;
-	WaitCounter: Integer;
-begin
-  ShouldRestartTunnelService := False;
- 	if CheckForMutexes('{#TunnelServiceMutex}') then begin
-		// stop the tunnel service
-		Log('Stopping the tunnel service using ' + ExpandConstant('"{app}\bin\{#ApplicationName}.cmd"'));
-		ShellExec('', ExpandConstant('"{app}\bin\{#ApplicationName}.cmd"'), 'tunnel service uninstall', '', SW_HIDE, ewWaitUntilTerminated, StopServiceResultCode);
-
-		Log('Stopping the tunnel service completed with result code ' + IntToStr(StopServiceResultCode));
-
-		WaitCounter := 10;
-		while (WaitCounter > 0) and CheckForMutexes('{#TunnelServiceMutex}') do
-		begin
-			Log('Tunnel service is still running, waiting');
-			Sleep(500);
-			WaitCounter := WaitCounter - 1
-		end;
-		if CheckForMutexes('{#TunnelServiceMutex}') then
-			Log('Unable to stop tunnel service')
-		else
-			ShouldRestartTunnelService := True;
-	end
-end;
-
-
-// called before the wizard checks for running application
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  if IsNotBackgroundUpdate() then
-    StopTunnelServiceIfNeeded();
+  Result := '';
+  if CheckForMutexes('{#AppMutex},{#TunnelMutex},{#TunnelServiceMutex}') or
+    ExecutableIsLocked(ExpandConstant('{app}\{#ExeBasename}.exe')) or
+    ExecutableIsLocked(ExpandConstant('{app}\bin\{#TunnelApplicationName}.exe')) or
+    ExecutableIsLocked(ExpandConstant('{app}\{#VersionedResourcesFolder}\resources\app\singularity-hub\runtime\node.exe')) then
+    Result := 'Save your work and close all Singularity IDE windows. Stop the Hub and any active agents or tunnels before retrying. You can cancel and run setup later.';
+end;
 
-  if IsNotBackgroundUpdate() and not StopTunnelOtherProcesses() then
-     Result := '{#NameShort} is still running a tunnel process. Please stop the tunnel before installing.'
-  else
-  	Result := '';
+function InitializeUninstall(): Boolean;
+var
+  NeedsRestart: Boolean;
+  BlockReason: String;
+begin
+  BlockReason := PrepareToInstall(NeedsRestart);
+  Result := BlockReason = '';
+  if not Result then
+    SuppressibleMsgBox(BlockReason, mbError, MB_OK, IDOK);
 end;
 
 // VS Code will create a flag file before the update starts (/update=C:\foo\bar)
@@ -1820,7 +1798,6 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   UpdateResultCode: Integer;
-	StartServiceResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -1859,7 +1836,6 @@ begin
       Log('Application appears not to be running.');
 
       if not SessionEndFileExists() and not CancelFileExists() then begin
-        StopTunnelServiceIfNeeded();
         Log('Invoking inno_updater for background update');
         Exec(ExpandConstant('{app}\{#VersionedResourcesFolder}\tools\inno_updater.exe'), ExpandConstant('"{app}\{#ExeBasename}.exe" ' + BoolToStr(LockFileExists()) + ' "{cm:UpdatingVisualStudioCode}"'), '', SW_SHOW, ewWaitUntilTerminated, UpdateResultCode);
         DeleteFile(ExpandConstant('{app}\updating_version'));
@@ -1882,15 +1858,6 @@ begin
         Exec(ExpandConstant('{app}\{#VersionedResourcesFolder}\tools\inno_updater.exe'), ExpandConstant('"--gc" "{app}\{#ExeBasename}.exe" "{#VersionedResourcesFolder}" "{#ExeBasename}.exe"'), '', SW_SHOW, ewWaitUntilTerminated, UpdateResultCode);
         Log('inno_updater completed gc successfully');
       end;
-    end;
-
-    if ShouldRestartTunnelService then
-    begin
-      // start the tunnel service
-      Log('Restarting the tunnel service...');
-      ShellExec('', ExpandConstant('"{app}\bin\{#ApplicationName}.cmd"'), 'tunnel service install', '', SW_HIDE, ewWaitUntilTerminated, StartServiceResultCode);
-      Log('Starting the tunnel service completed with result code ' + IntToStr(StartServiceResultCode));
-      ShouldRestartTunnelService := False
     end;
 
 #ifdef CopilotShim

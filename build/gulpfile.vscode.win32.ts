@@ -9,11 +9,12 @@ import { gulp } from './lib/gulp/facade.ts';
 import * as path from 'path';
 import rcedit from 'rcedit';
 import vfs from 'vinyl-fs';
-import pkg from '../package.json' with { type: 'json' };
 import product from '../product.json' with { type: 'json' };
 import { getVersion } from './lib/getVersion.ts';
 import * as task from './lib/gulp/task.ts';
 import * as util from './lib/util.ts';
+
+import { parseWindowsProductVersion } from './lib/singularityVersion.cjs';
 
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -79,16 +80,25 @@ function buildWin32Setup(arch: string, target: string): task.CallbackTask {
 		const originalProductJsonPath = path.join(sourcePath, productJsonRelativePath);
 		const productJsonPath = path.join(outputPath, 'product.json');
 		const productJson = JSON.parse(fs.readFileSync(originalProductJsonPath, 'utf8'));
+		if (productJson.commit !== commit || productJson.singularityVersion !== product.singularityVersion) {
+			throw new Error('The Windows payload is stale. Run node scripts/package-win32.cjs first.');
+		}
+		const bundledHubNode = path.join(path.dirname(originalProductJsonPath), 'singularity-hub', 'runtime', 'node.exe');
+		if (arch === 'x64' && !fs.existsSync(bundledHubNode)) {
+			throw new Error('The Windows x64 installer requires the bundled Hub. Run node scripts/package-win32.cjs first.');
+		}
 		productJson['target'] = target;
 
 		const definitions: Record<string, unknown> = {
 			NameLong: product.nameLong,
 			NameShort: product.nameShort,
 			DirName: product.win32DirName,
-			Version: pkg.version,
-			RawVersion: pkg.version.replace(/-\w+$/, ''),
+			Version: product.singularityVersion,
+			RawVersion: parseWindowsProductVersion(product.singularityVersion),
+			Publisher: product.singularityPublisher,
+			Repository: product.singularityRepository,
 			Commit: commit,
-			NameVersion: product.win32NameVersion + (target === 'user' ? ' (User)' : ''),
+			NameVersion: product.win32NameVersion + ' ' + product.singularityVersion + (target === 'user' ? ' (User)' : ''),
 			ExeBasename: product.nameShort,
 			RegValueName: product.win32RegValueName,
 			ShellNameShort: product.win32ShellNameShort,

@@ -38,3 +38,9 @@ Base atual: tag `1.144.0`, commit `2c33b50b16c472efe58357d1d2a8a5414bc23fbf`.
 *   Inclusão da extensão `extensions/singularity-theme` no build empacotado: em desenvolvimento ela é carregada sem alterar nenhum arquivo do upstream; o pacote final ainda precisa ser conferido.
 *   A extensão `extensions/singularity-agents` (painel de agentes na barra lateral secundária) não editou nenhum arquivo do upstream: usa o ponto de extensão público `viewsContainers.secondarySidebar`.
 *   O módulo `singularity-hub/` (processo do Hub, TypeScript) e a ligação em `extensions/singularity-agents` não editaram nenhum arquivo do upstream. Em desenvolvimento a extensão procura `../../singularity-hub/dist`; empacotar o Hub no build da IDE ainda não foi feito.
+
+### Windows installer
+
+- `build/gulpfile.vscode.win32.ts` and `build/win32/code.iss` use the Singularity product identity and separate existing AppIds for user and system installs. Setup and uninstall require the user to close the IDE, Hub and tunnels. Setup does not use Restart Manager to close or restart applications.
+- `scripts/package-win32.cjs --installer` builds and validates the Windows payload, stamps the main IDE executable and compiles the user and system installers. `product.json` supplies the Singularity release version. The upstream Code - OSS version remains available for extension compatibility.
+- The native About dialog displays the Singularity release version. Existing file associations, shell integration, and the upstream license and third-party notices are preserved.
