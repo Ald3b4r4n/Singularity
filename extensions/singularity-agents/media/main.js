@@ -7,7 +7,7 @@
 	const $ = id => document.getElementById(id);
 	const el = {
 		hub: $('hub'), sessions: $('sessions'), composer: $('composer'), target: $('target'), newSession: $('new'), ws: $('ws'),
-		service: $('service'), model: $('model'), effort: $('effort'), note: $('note'),
+		service: $('service'), model: $('model'), effort: $('effort'), permission: $('permission'), permissionField: $('permission-field'), note: $('note'),
 		prompt: $('prompt'), send: $('send')
 	};
 
@@ -63,10 +63,10 @@
 		select.value = value ?? '';
 	}
 
-	function requestCatalog(refresh) {
+	function requestCatalog(refresh, service) {
 		if (!connected()) { return; }
 		loading = true; requested = true; catalogError = undefined;
-		vscode.postMessage({ type: 'catalog', refresh: !!refresh });
+		vscode.postMessage({ type: 'catalog', refresh: !!refresh, service: service || prefs.service });
 		drawComposer();
 	}
 
@@ -87,7 +87,15 @@
 		const effortOptions = [{ value: '', label: 'Padrão do modelo' }, ...sel.efforts.map(e => ({ value: e, label: R.effortLabel(e) }))];
 		fill(el.effort, effortOptions, sel.effort);
 
+		// Permissions are chosen when a Claude Code or Codex CLI session is created and then stay fixed for it.
+		const choices = R.permissionOptions(sel.service);
+		el.permissionField.hidden = !choices.length;
+		const fixed = target();
+		const shown = fixed && fixed.harness === sel.service ? (fixed.permissionMode === 'read-only' ? '' : fixed.permissionMode || '') : R.validPermission(sel.service, prefs.permissionMode);
+		fill(el.permission, choices, shown);
+
 		const online = connected();
+		el.permission.disabled = !online || !!fixed;
 		el.service.disabled = !online || loading;
 		el.model.disabled = !online || loading || !sel.canSend;
 		el.effort.disabled = !online || loading || !sel.efforts.length;
@@ -96,7 +104,9 @@
 		el.target.textContent = current ? 'Sessão: ' + R.serviceName(catalog, current.harness) + ' · ' + R.modelLabel(catalog, current.model) : '';
 		el.newSession.hidden = !targetId;
 		const running = busy();
-		el.send.disabled = current?.historical || current?.recovery === 'unrecoverable' || !online || (running ? interrupting : sending || !sel.canSend || !el.prompt.value.trim());
+		// A session belongs to one provider for its whole life: another provider needs a new session, never a silent switch.
+		const crossed = !!current && !!sel.service && current.harness !== sel.service && !running;
+		el.send.disabled = current?.historical || current?.recovery === 'unrecoverable' || crossed || !online || (running ? interrupting : sending || !sel.canSend || !el.prompt.value.trim());
 		el.send.classList.toggle('interrupt', running);
 		el.send.title = running ? 'Parar execução' : 'Enviar (Ctrl+Enter)';
 		const label = running ? (interrupting ? 'Parando…' : 'Parar') : 'Enviar';
@@ -116,6 +126,7 @@
 		let note = message;
 		if (!note) {
 			if (!online) { note = 'Conecte o Singularity Hub para escolher modelos.'; }
+			else if (crossed) { note = 'A sessão em uso é do ' + R.serviceName(catalog, current.harness) + '. Use "Nova sessão" para trocar de provedor.'; }
 			else if (loading) { note = 'Lendo serviços, provedores e modelos…'; }
 			else if (catalogError) { note = catalogError; }
 			else if (catalog && catalog.unavailable) { note = catalog.unavailable; }
@@ -146,7 +157,7 @@
 
 	function remember() {
 		const sel = R.resolve(catalog, prefs);
-		prefs = { service: sel.service, providerID: sel.model?.providerID, modelID: sel.model && sel.model.id, variant: sel.effort };
+		prefs = { service: sel.service, providerID: sel.model?.providerID, modelID: sel.model && sel.model.id, variant: sel.effort, permissionMode: prefs.permissionMode || '' };
 		vscode.postMessage({ type: 'prefs', prefs });
 	}
 
@@ -177,11 +188,16 @@
 			interrupting = false;
 			targetSeen = !!target();
 			const model = target()?.model;
-			if (model) { prefs = { service: 'opencode', providerID: model.providerID, modelID: model.modelID, variant: model.variant || '' }; }
+			const used = target();
+			if (model && used) { prefs = { ...prefs, service: used.harness, providerID: model.providerID, modelID: model.modelID, variant: model.variant || '' }; }
+			if (used && catalog && catalog.service !== used.harness) { requestCatalog(false, used.harness); }
 			drawSessions(); drawComposer();
 			if (data.focusComposer) { el.prompt.focus(); }
 		} else if (data.type === 'catalog') {
 			loading = false; catalog = data.catalog; catalogError = data.error;
+			// The remembered provider may not be usable here (not logged in, not installed): follow the one that is.
+			const chosen = R.resolve(catalog, prefs).service;
+			if (catalog && chosen && catalog.service !== chosen) { requestCatalog(false, chosen); }
 			drawSessions(); drawComposer();
 		} else if (data.type === 'prefs') {
 			const changedWorkspace = data.workspace !== undefined && data.workspace !== workspace;
@@ -204,13 +220,14 @@
 	});
 
 	// Each selector changes only what depends on it; the text being typed is never touched.
-	el.service.addEventListener('change', () => { prefs = { service: el.service.value }; message = ''; remember(); requestCatalog(false); });
+	el.service.addEventListener('change', () => { prefs = { service: el.service.value, permissionMode: R.validPermission(el.service.value, prefs.permissionMode) }; message = ''; remember(); requestCatalog(false, el.service.value); });
 	el.model.addEventListener('change', () => {
 		const model = R.resolve(catalog, prefs).models.find(m => m.key === el.model.value);
 		if (!model) { return; }
 		prefs = { ...prefs, providerID: model.providerID, modelID: model.id, variant: '' };
 		message = ''; remember(); drawComposer();
 	});
+	el.permission.addEventListener('change', () => { prefs = { ...prefs, permissionMode: el.permission.value }; message = ''; remember(); drawComposer(); });
 	el.effort.addEventListener('change', () => { prefs = { ...prefs, variant: el.effort.value }; message = ''; remember(); drawComposer(); });
 	el.prompt.addEventListener('input', () => { message = ''; saveDraft(); drawComposer(); });
 	el.prompt.addEventListener('keydown', event => {
@@ -231,7 +248,10 @@
 		if (el.send.disabled || !text || !sel.canSend) { return; }
 		submittedDraft = el.prompt.value;
 		sending = true; message = '';
-		vscode.postMessage({ type: 'send', text, sessionId: targetId, selection: { providerID: sel.model.providerID, modelID: sel.model.id, variant: sel.effort || undefined } });
+		vscode.postMessage({
+			type: 'send', text, sessionId: targetId, service: sel.service, permissionMode: R.validPermission(sel.service, prefs.permissionMode),
+			selection: { providerID: sel.model.providerID, modelID: sel.model.id, variant: sel.effort || undefined }
+		});
 		drawComposer();
 	});
 

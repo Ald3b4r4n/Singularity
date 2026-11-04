@@ -12,8 +12,8 @@ O compositor oferece três seletores:
 
 | Seletor | Origem |
 |---|---|
-| **Provedor** | Integrações do Hub. OpenCode está operacional. |
-| **Modelo** | Catálogo real do OpenCode. A escolha mantém o ID do provedor de inferência e do modelo. |
+| **Provedor** | Integrações do Hub. OpenCode, Claude Code e Codex CLI estão operacionais; Gemini CLI aparece como "em breve". |
+| **Modelo** | Catálogo real do provedor escolhido (OpenCode: da API dele; Claude Code: aliases documentados pelo CLI; Codex CLI: catálogo do `codex debug models`). A escolha mantém o ID do provedor de inferência e do modelo. Trocar o provedor troca modelos e esforço. |
 | **Esforço** | Variantes informadas pelo modelo. Padrão do modelo usa a configuração do provedor. |
 
 Use **Ctrl+Enter** ou **Enviar** para iniciar uma sessão ou continuar a atual. O modelo e o esforço podem mudar entre tarefas da mesma sessão. O editor mostra o último prompt e a resposta em balões separados, com blocos de código formatados. Durante a execução, **Enviar** vira **Parar**. O menu do cartão na lateral permite encerrar a sessão.
@@ -46,18 +46,26 @@ O **login GitHub do Singularity** (barra de título) é outra coisa e não muda:
 
 ## Limitações
 
-- Só o OpenCode executa tarefas. Os outros serviços aparecem como "em breve" e não têm adapter.
+- OpenCode, Claude Code e Codex CLI executam tarefas (veja `claude-code-adapter.md` e `codex-cli-adapter.md`). Gemini CLI aparece como "em breve" e não tem adapter.
+- Cada sessão pertence a um provedor durante toda a vida: trocar de provedor exige "Nova sessão". Sessões de provedores diferentes convivem, inclusive no mesmo workspace, sem misturar resultados nem histórico (cada adapter só lê os próprios registros protegidos).
+- Claude Code e Codex CLI: as permissões são escolhidas ao criar a sessão e nunca incluem bypass (Claude Code: Padrão, Somente planejar, Aceitar edições; Codex CLI: Somente leitura, Escrever no workspace). Uma sessão arquivada de qualquer um dos dois pode ser reaberta ("Reabrir"); o próximo prompt retoma a conversa do CLI.
+- Codex CLI: o fluxo do CLI não informa o modelo em uso (a sessão mostra o solicitado) e entrega eventos por item, não por token.
 - O esforço só existe quando o OpenCode informa variantes para o modelo. O catálogo não diz qual o esforço *padrão* de um modelo; por isso "Padrão do modelo" não envia nada.
 - O modelo mostrado vem da sessão no OpenCode. Para uma sessão criada sem escolha, o OpenCode só informa o modelo depois da primeira tarefa; o painel diz "modelo padrão do serviço" até lá.
-- Permissões de execução são as do OpenCode (a configuração dele); o painel ainda não as edita.
+- Permissões de execução do OpenCode são as da configuração dele; o painel não as edita.
 - O editor e a lateral são registrados pela extensão embutida `singularity-agents`.
 
 ## Testes
 
 ```bash
 node extensions/singularity-agents/test/run.cjs                  # catálogo, renderização e mensagens da webview
-cd singularity-hub && npm test                                    # 65 testes, incluindo catálogo (lista de permissão) e validação de RPC
+cd singularity-hub && npm test                                    # 90 testes, incluindo catálogo (lista de permissão), validação de RPC e os adapters do Claude Code e do Codex CLI
 node scripts/e2e/agents-check.cjs --out <pasta> [--exe <exe>]     # IDE real, OpenCode real, teclado e mouse reais
+node scripts/e2e/agents-providers-check.cjs --out <pasta> --exe <exe> # IDE empacotada, OpenCode, Claude Code e Codex CLI reais, lado a lado
+node scripts/e2e/claude-code.cjs                                 # Hub + Claude Code real em workspace sintético
+node scripts/e2e/claude-code-crash.cjs                           # morte do Hub no meio de uma execução do Claude Code
+node scripts/e2e/codex-cli.cjs                                   # Hub + Codex CLI real em workspace sintético
+node scripts/e2e/codex-cli-crash.cjs                             # morte do Hub no meio de uma execução do Codex CLI
 node scripts/e2e/chat-compat-check.cjs --out <pasta> [--exe <exe>] # compatibilidade do Chat para extensões de terceiros
 ```
 

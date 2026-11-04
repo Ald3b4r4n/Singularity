@@ -108,7 +108,14 @@ function shot(file) {
 	const w = lib.appWindows(profile)[0];
 	lib.ps(`Add-Type -AssemblyName System.Drawing; $r=New-Object SG.W+RECT; [void][SG.W]::GetWindowRect([IntPtr]${w.hwnd},[ref]$r); $b=New-Object System.Drawing.Bitmap ($r.R-$r.L),($r.B-$r.T); $g=[System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($r.L,$r.T,0,0,$b.Size); $b.Save('${file}')`);
 }
-const snap = async name => { await front(); await sleep(500); shot(path.join(outDir, name)); log('screenshot', name); };
+// Bringing the window to the front and capturing it go through PowerShell and the OS focus; another application taking the focus at that
+// moment is a harness problem, not a product one, so the capture is retried before it is reported.
+const snap = async name => {
+	for (let attempt = 1; ; attempt++) {
+		try { await front(); await sleep(500); shot(path.join(outDir, name)); break; } catch (error) { if (attempt >= 3) { throw error; } log('screenshot retry', name, String(error.message).slice(0, 120).replace(/\s+/g, ' ')); await sleep(1500); }
+	}
+	log('screenshot', name);
+};
 
 function setTheme(theme) {
 	const f = path.join(profile, 'data', 'User', 'settings.json');

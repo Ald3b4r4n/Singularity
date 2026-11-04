@@ -269,6 +269,130 @@ test('the right view only navigates; the central editor shows the selected resul
 	assert.doesNotMatch(R.renderTarget(state, catalog, 's1'), /other result/);
 });
 
+// --- Claude Code as a second provider ---
+const claudeCatalog = {
+	services: [
+		{ id: 'opencode', name: 'OpenCode', status: 'available' },
+		{ id: 'claude-code', name: 'Claude Code', status: 'available' },
+		{ id: 'codex-cli', name: 'Codex CLI', status: 'planned' },
+		{ id: 'gemini-cli', name: 'Gemini CLI', status: 'planned' },
+	],
+	service: 'claude-code',
+	providers: [{ id: 'claude-code', name: 'Claude Code', models: ['fable', 'opus', 'sonnet'].map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), efforts: ['low', 'medium', 'high', 'xhigh', 'max'] })) }],
+	default: { providerID: 'claude-code', modelID: 'sonnet' },
+	hiddenModels: 0,
+};
+
+test('Claude Code is selectable when the Hub says it is available; Codex CLI and Gemini CLI stay "em breve"', () => {
+	const sel = R.resolve(claudeCatalog, { service: 'claude-code' });
+	assert.strictEqual(sel.service, 'claude-code');
+	assert.deepStrictEqual(sel.services.map(s => [s.id, s.status]), [['opencode', 'available'], ['claude-code', 'available'], ['codex-cli', 'planned'], ['gemini-cli', 'planned']]);
+	assert.strictEqual(R.SERVICE_NOTE.planned, ' (em breve)');
+	assert.deepStrictEqual(sel.models.map(m => m.id), ['fable', 'opus', 'sonnet']);
+	assert.strictEqual(sel.model.id, 'sonnet');
+	assert.deepStrictEqual(sel.efforts, ['low', 'medium', 'high', 'xhigh', 'max']);
+	assert.strictEqual(sel.canSend, true);
+});
+
+test('switching provider shows the models and efforts of that provider only', () => {
+	assert.deepStrictEqual(R.resolve({ ...catalog, services: claudeCatalog.services }, { service: 'opencode' }).models.map(m => m.id), ['plain', 'thinker', 'alpha', 'beta']);
+	// the catalog on hand belongs to the other provider: nothing is offered until the Hub answers for the chosen one
+	const waiting = R.resolve({ ...catalog, services: claudeCatalog.services }, { service: 'claude-code' });
+	assert.strictEqual(waiting.service, 'claude-code');
+	assert.deepStrictEqual(waiting.models, []);
+	assert.strictEqual(waiting.canSend, false);
+});
+
+test('a Claude Code session is labelled with its provider, its real model and its permissions', () => {
+	const state = { hub: { status: 'connected' }, sessions: [{ id: 'c1', harness: 'claude-code', status: 'done', workspace: 'C:/w', permissionMode: 'acceptEdits', model: { providerID: 'claude-code', modelID: 'claude-sonnet-5-5', variant: 'low' } }] };
+	const html = text(R.renderTarget(state, claudeCatalog, 'c1'));
+	assert.match(html, /Claude Code/);
+	assert.match(html, /claude-sonnet-5-5/);
+	assert.match(html, /Baixo/);
+	assert.match(html, /Permissões: Aceitar edições de arquivos/);
+	// the other provider's catalog is the one on hand: names still resolve
+	assert.match(text(R.modelLabel(catalog, state.sessions[0].model)), /Claude Code · claude-sonnet-5-5/);
+	assert.doesNotMatch(R.renderTarget({ ...state, sessions: [{ ...state.sessions[0], harness: 'opencode' }] }, catalog, 'c1'), /Permissões/);
+});
+
+test('an archived Claude Code session can be reopened; an OpenCode one cannot, and neither can one that never started', () => {
+	const archived = { id: 'a1', harness: 'claude-code', status: 'idle', historical: true, resumable: true, workspace: 'C:/w' };
+	assert.match(R.renderNavigation([archived], claudeCatalog, undefined, 'C:/w'), /data-action="reopen" data-id="a1"/);
+	assert.doesNotMatch(R.renderNavigation([{ ...archived, harness: 'opencode' }], claudeCatalog), /reopen/);
+	assert.doesNotMatch(R.renderNavigation([{ ...archived, resumable: false }], claudeCatalog), /reopen/);
+	assert.doesNotMatch(R.renderNavigation([{ ...archived, historical: false }], claudeCatalog), /reopen/);
+});
+
+test('the composer offers permissions only where the provider has them, never a bypass, and a session never changes provider', () => {
+	assert.match(R.shell(), /id="permission-field" hidden/);
+	assert.deepStrictEqual(R.PERMISSIONS.map(p => p.value), ['', 'plan', 'acceptEdits']);
+	assert.ok(!R.PERMISSIONS.some(p => /bypass|auto|dontAsk|skip/i.test(p.value + p.label)));
+	const ext = read('extension.js');
+	assert.ok(ext.includes('existing.harness !== service') && ext.includes('outro provedor'), 'a send never moves a session to another provider');
+	assert.ok(ext.includes("value === 'plan' || value === 'acceptEdits'"), 'only the two safe modes can be requested from the panel');
+	const main = read('media/main.js');
+	assert.ok(main.includes('crossed'), 'the composer blocks a send to a session of another provider');
+});
+
+// --- Codex CLI as the third provider ---
+const codexCatalog = {
+	services: [
+		{ id: 'opencode', name: 'OpenCode', status: 'available' },
+		{ id: 'claude-code', name: 'Claude Code', status: 'available' },
+		{ id: 'codex-cli', name: 'Codex CLI', status: 'available' },
+		{ id: 'gemini-cli', name: 'Gemini CLI', status: 'planned' },
+	],
+	service: 'codex-cli',
+	providers: [{ id: 'codex-cli', name: 'Codex CLI', models: [
+		{ id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+		{ id: 'gpt-6-luna', name: 'GPT-6-Luna', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+	] }],
+	default: { providerID: 'codex-cli', modelID: 'gpt-6.1-sol' },
+	hiddenModels: 0,
+};
+
+test('Codex CLI is selectable when the Hub says it is available; only Gemini CLI stays "em breve"', () => {
+	const sel = R.resolve(codexCatalog, { service: 'codex-cli' });
+	assert.strictEqual(sel.service, 'codex-cli');
+	assert.deepStrictEqual(sel.services.map(s => [s.id, s.status]), [['opencode', 'available'], ['claude-code', 'available'], ['codex-cli', 'available'], ['gemini-cli', 'planned']]);
+	assert.deepStrictEqual(sel.models.map(m => m.id), ['gpt-6.1-sol', 'gpt-6-luna']);
+	assert.deepStrictEqual(sel.efforts, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], "the efforts are the model own levels, down to the last one");
+	assert.strictEqual(R.resolve(codexCatalog, { providerID: 'codex-cli', modelID: 'gpt-6-luna' }).efforts.includes('ultra'), false);
+	assert.strictEqual(R.effortLabel('ultra'), 'Ultra');
+});
+
+test('each provider has its own permission choices, none with a bypass; a stale choice falls back to the default', () => {
+	assert.deepStrictEqual(R.permissionOptions('codex-cli').map(p => p.value), ['', 'workspace-write']);
+	assert.deepStrictEqual(R.permissionOptions('claude-code').map(p => p.value), ['', 'plan', 'acceptEdits']);
+	assert.deepStrictEqual(R.permissionOptions('opencode'), []);
+	for (const service of ['codex-cli', 'claude-code']) {
+		assert.ok(!R.permissionOptions(service).some(p => /bypass|danger|full-access|dontAsk|auto/i.test(p.value + p.label)));
+	}
+	assert.strictEqual(R.validPermission('codex-cli', 'acceptEdits'), '');
+	assert.strictEqual(R.validPermission('claude-code', 'workspace-write'), '');
+	assert.strictEqual(R.validPermission('codex-cli', 'workspace-write'), 'workspace-write');
+	const ext = read('extension.js');
+	assert.ok(ext.includes("service === 'codex-cli' && value === 'workspace-write'"), 'only the one safe Codex mode can be requested from the panel');
+	assert.ok(!/danger-full-access|bypass/i.test(ext.replace(/\/\/.*$/gm, '')), 'the panel never names a bypass');
+});
+
+test('a Codex CLI session is labelled with its provider, the requested model, the effort and its sandbox', () => {
+	const state = { hub: { status: 'connected' }, sessions: [
+		{ id: 'x1', harness: 'codex-cli', status: 'done', workspace: 'C:/w', permissionMode: 'workspace-write', model: { providerID: 'codex-cli', modelID: 'gpt-6-luna', variant: 'low' } },
+		{ id: 'x2', harness: 'codex-cli', status: 'idle', workspace: 'C:/w', permissionMode: 'read-only', model: { providerID: 'codex-cli', modelID: 'gpt-6-luna' } },
+	] };
+	assert.match(text(R.renderTarget(state, codexCatalog, 'x1')), /Codex CLI · GPT-6-Luna/);
+	assert.match(text(R.renderTarget(state, codexCatalog, 'x1')), /Permissões: Escrever no workspace/);
+	assert.match(text(R.renderTarget(state, codexCatalog, 'x2')), /Permissões: Somente leitura/);
+	assert.match(R.modelLabel(catalog, { providerID: 'codex-cli', modelID: 'gpt-x' }), /Codex CLI · gpt-x/);
+});
+
+test('an archived Codex CLI session can be reopened when its conversation exists', () => {
+	const archived = { id: 'k1', harness: 'codex-cli', status: 'idle', historical: true, resumable: true, workspace: 'C:/w' };
+	assert.match(R.renderNavigation([archived], codexCatalog, undefined, 'C:/w'), /data-action="reopen" data-id="k1"/);
+	assert.doesNotMatch(R.renderNavigation([{ ...archived, resumable: false }], codexCatalog), /reopen/);
+});
+
 test('the page never touches settings, headers or keys', () => {
 	const code = (read('media/main.js') + read('media/render.js') + read('extension.js')).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 	assert.ok(!/\.settings\b|\.headers\b|apiKey|api_key|secret/i.test(code));

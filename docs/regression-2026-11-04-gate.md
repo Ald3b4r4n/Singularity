@@ -58,3 +58,17 @@ foram lidos, copiados nem incluídos: o pacote e os commits vêm só do worktree
 - `agents-check.cjs` 9a ("janela estreita"): a janela não fica abaixo de 690 px neste monitor (critério `<= 620`), com
   `overflow: 0` e controles utilizáveis. Critério dependente da tela.
 - `titlebar-account-check.cjs`: a parte que exige aprovar o código no GitHub não foi exercitada nesta regressão.
+
+## Segunda rodada: pendências esclarecidas (pacote com os três provedores)
+
+| Pendência | Conclusão | Evidência |
+|---|---|---|
+| `agents-check` 8a (a IDE fecha normalmente) e 9a (janela estreita) | Instabilidade do ambiente: não reproduziu em nenhuma das quatro execuções seguintes (`forced: 0`) | quatro execuções, 8a e 9a aprovados |
+| `agents-check` 10c ("Target page closed") | Defeito do harness, não do produto: depois de mover o editor Agentes para outro grupo, o Playwright perdia o handle da página (o screenshot seguinte mostra o editor movido e a IDE íntegra). O teste agora reconecta pelo DevTools. O passo 10d esperava a tela de boas-vindas, mas o editor reaberto pode restaurar a sessão em uso; passou a exigir o compositor | duas execuções aprovadas |
+| `agents-check` 11b/11c (Browser e terminal pela paleta) | O foco do teclado ficava dentro de um webview depois dessas ações e a paleta falhava. Browser, terminal e Git são cobertos por `browser-check.cjs` e `run.cjs` no mesmo pacote, ambos aprovados; os passos duplicados saíram do `agents-check` | `run.cjs` aprovado; `browser-check` aprovado, inclusive os passos 12a–12c |
+| `browser-check` passo final | Erro do `pwsh` do harness ao trazer a janela à frente e capturá-la (foco do sistema operacional). A captura agora tenta três vezes antes de reportar | execução completa aprovada |
+| E2E completo com OpenCode e Claude Code na IDE empacotada | Aprovado, agora com o Codex CLI como terceiro provedor | `agents-providers-check`: 50 checagens aprovadas |
+
+Defeito de produto encontrado e corrigido nesta rodada (não era do harness): cancelar uma execução retomada do Codex CLI cerca de
+4 s depois do início deixava a sessão em `running` para sempre, porque o evento `close` do Node não disparava. Os adapters do
+Claude Code e do Codex agora concluem na saída do processo. Detalhes em `codex-cli-adapter.md`.

@@ -11,6 +11,11 @@ const FIRST_OPEN_KEY = 'singularity.agents.firstOpen';
 const PREFS_KEY = 'singularity.agents.prefs';
 const WORKSPACE_KEY = 'singularity.agents.workspace';
 
+// The integrations a session can run on, and the permission modes the panel may ask for. The Hub validates both again.
+const serviceOf = value => (value === 'claude-code' || value === 'codex-cli' ? value : 'opencode');
+const permissionOf = (service, value) => (service === 'claude-code' && (value === 'plan' || value === 'acceptEdits')) || (service === 'codex-cli' && value === 'workspace-write') ? value : undefined;
+const SERVICE_PHRASE = { 'claude-code': 'o Claude Code', 'codex-cli': 'o Codex CLI', opencode: 'o OpenCode' };
+
 class AgentsViewProvider {
 	/**
 	 * @param {vscode.ExtensionContext} context
@@ -57,6 +62,12 @@ class AgentsViewProvider {
 					const workspace = this._workspace();
 					if (!workspace || await vscode.window.showWarningMessage('Excluir o histórico desta sessão?', { modal: true }, 'Excluir') !== 'Excluir') { return; }
 					await this._hub.sessionRequest('session.deleteHistory', { id: message.id, workspace });
+				} catch (error) {
+					vscode.window.showErrorMessage(error.message);
+				}
+			} else if (message?.type === 'reopen') {
+				try {
+					await this._reopen(message.id);
 				} catch (error) {
 					vscode.window.showErrorMessage(error.message);
 				}
@@ -108,6 +119,16 @@ class AgentsViewProvider {
 		});
 	}
 
+	/** Brings an archived Claude Code session back. Nothing runs: the next task resumes the CLI conversation. */
+	async _reopen(id) {
+		const workspace = this._workspace();
+		if (typeof id !== 'string' || !workspace) { return; }
+		await this._hub.sessionRequest('session.reopen', { id, workspace });
+		this._targetId = id;
+		this._postSessions();
+		this._view?.webview.postMessage({ type: 'use', id });
+	}
+
 	async _stop(id) {
 		if (typeof id !== 'string') { return; }
 		const choice = await vscode.window.showWarningMessage('Encerrar a sessão de agente?', { modal: true }, 'Encerrar');
@@ -154,6 +175,10 @@ class AgentsViewProvider {
 
 	async _operate(message) {
 		const post = payload => this._view?.webview.postMessage(payload);
+		if (message?.type === 'reopen') {
+			await this._reopen(message.id);
+			return;
+		}
 		if (message?.type === 'reconnect') {
 			await this._hub.start(true);
 			return;
@@ -163,7 +188,8 @@ class AgentsViewProvider {
 			if (prefs && typeof prefs === 'object') {
 				await this._context.globalState.update(PREFS_KEY, {
 					service: text(prefs.service, 40), providerID: text(prefs.providerID, 160), modelID: text(prefs.modelID, 160),
-					variant: typeof prefs.variant === 'string' && prefs.variant.length <= 24 ? prefs.variant : ''
+					variant: typeof prefs.variant === 'string' && prefs.variant.length <= 24 ? prefs.variant : '',
+					permissionMode: typeof prefs.permissionMode === 'string' && /^[A-Za-z-]{0,24}$/.test(prefs.permissionMode) ? prefs.permissionMode : ''
 				});
 			}
 			return;
@@ -186,7 +212,7 @@ class AgentsViewProvider {
 		}
 		if (message?.type === 'catalog') {
 			try {
-				const catalog = await this._hub.catalog({ service: 'opencode', workspace: this._workspace(), refresh: message.refresh === true });
+				const catalog = await this._hub.catalog({ service: serviceOf(message.service), workspace: this._workspace(), refresh: message.refresh === true });
 				this._catalog = catalog;
 				this._postSessions();
 				post({ type: 'catalog', catalog });
@@ -207,7 +233,7 @@ class AgentsViewProvider {
 		if (message.type === 'interrupt') {
 			const result = await this._hub.sessionRequest('session.interrupt', { id: message.id });
 			if (!result.interrupted) {
-				await vscode.window.showInformationMessage('O OpenCode não encontrou uma execução ativa para cancelar.');
+				await vscode.window.showInformationMessage('O agente não encontrou uma execução ativa para cancelar.');
 			}
 			this._view?.webview.postMessage({ type: 'interruptComplete' });
 		}
@@ -226,11 +252,15 @@ class AgentsViewProvider {
 		if (!vscode.workspace.isTrusted) {
 			throw new Error('Confie no workspace antes de iniciar o agente.');
 		}
+		const service = serviceOf(message.service);
 		let id = typeof message.sessionId === 'string' ? message.sessionId : undefined;
 		const existing = id ? this._visibleState().sessions.find(session => session.id === id) : undefined;
 		if (id && (!existing || existing.historical || existing.recovery)) {
 			// a session was asked for and is not there: never create another one silently
 			throw new Error('A sessão em uso não existe mais no Hub. Escolha "Nova sessão" e envie de novo.');
+		}
+		if (existing && existing.harness !== service) {
+			throw new Error('A sessão em uso é de outro provedor. Escolha "Nova sessão" para usar ' + SERVICE_PHRASE[service] + '.');
 		}
 		if (existing) {
 			const current = existing.model ? { providerID: existing.model.providerID, modelID: existing.model.modelID, variant: existing.model.variant } : undefined;
@@ -245,7 +275,9 @@ class AgentsViewProvider {
 			if (!workspace) {
 				throw new Error('Escolha o workspace em que o agente poderá trabalhar.');
 			}
-			const created = await this._hub.sessionRequest('session.create', { workspace, model: selection });
+			const created = await this._hub.sessionRequest('session.create', {
+				workspace, service, model: selection, ...(permissionOf(service, message.permissionMode) ? { permissionMode: permissionOf(service, message.permissionMode) } : {})
+			});
 			id = created.id;
 		}
 		this._targetId = id;
@@ -281,8 +313,8 @@ class AgentsViewProvider {
 
 	_postSessions() {
 		const { hub, sessions } = this._visibleState();
-		const entries = sessions.map(({ id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt }) => ({
-			id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt
+		const entries = sessions.map(({ id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt, resumable }) => ({
+			id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt, resumable
 		}));
 		this._sessions?.webview.postMessage({
 			type: 'sessions', state: { hub, sessions: entries }, catalog: this._catalog, targetId: this._targetId, workspace: this._workspace()
