@@ -2,6 +2,8 @@
 
 // Real Windows smoke test. Uses the installed OpenCode provider and a new temporary workspace.
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const { isOwnerOnly } = require('../../singularity-hub/dist/secure.js');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -30,11 +32,31 @@ async function main() {
 	try {
 		client = await connect();
 		await client.request('session.subscribe', {});
-		const created = await client.request('session.create', { workspace }, 45000);
+		const modelID = process.env.SINGULARITY_E2E_OPENCODE_MODEL;
+		const model = modelID ? { providerID: 'opencode', modelID } : undefined;
+		const created = await client.request('session.create', { workspace, model }, 45000);
 		assert.equal(created.workspace.toLowerCase(), (await fs.realpath(workspace)).toLowerCase());
 		assert.equal(created.harness, 'opencode');
 		assert.match(created.version, /^v?2\./);
 		const id = created.id;
+		const recoveryDir = path.join(home, 'recovery');
+		const recordPath = path.join(recoveryDir, id + '.dpapi');
+		assert(isOwnerOnly(recoveryDir) && isOwnerOnly(recordPath), 'recovery record must be owner-only');
+		const ciphertext = Buffer.from(await fs.readFile(recordPath, 'utf8'), 'base64');
+		const helper = path.resolve(__dirname, '../../singularity-hub/dist/singularity-job.exe');
+		const unprotect = input => spawnSync(helper, ['unprotect-recovery'], { input, windowsHide: true });
+		const plain = unprotect(ciphertext);
+		try {
+			assert.equal(plain.status, 0);
+			const record = JSON.parse(plain.stdout);
+			assert.equal(record.sessionId, id);
+			assert(record.authorization.startsWith('Basic ') && /^[a-f0-9]{64}$/.test(record.control), 'both recovery credentials are present');
+			assert(!ciphertext.includes(record.authorization) && !ciphertext.includes(record.control), 'the record contains no plaintext credentials');
+		} finally {
+			plain.stdout?.fill(0);
+		}
+		ciphertext[Math.floor(ciphertext.length / 2)] ^= 0x80;
+		assert.notEqual(unprotect(ciphertext).status, 0, 'modified DPAPI record must be rejected');
 		await client.request('session.prompt', { id, text: 'Reply with exactly SINGULARITY_OK. Do not use tools or read or modify files.' });
 		const start = Date.now();
 		client.close();
@@ -59,7 +81,8 @@ async function main() {
 		const cancel = await client.request('session.interrupt', { id }, 15000);
 		await client.request('session.stop', { id }, 30000);
 		assert(!(await client.request('sessions.list')).some(session => session.id === id));
-		console.log(JSON.stringify({ version: created.version, terminal: terminal.status, diagnostic: terminal.summary, events: names, interrupted: cancel.interrupted, reconnect: true, jobTreeEmpty: true }, null, 2));
+		await assert.rejects(fs.stat(recordPath), { code: 'ENOENT' });
+		console.log(JSON.stringify({ version: created.version, model: terminal.model, terminal: terminal.status, diagnostic: terminal.summary, events: names, interrupted: cancel.interrupted, reconnect: true, jobTreeEmpty: true }, null, 2));
 	} finally {
 		client?.close();
 		await hub.release();

@@ -31,6 +31,7 @@ export const DEFAULT_LIMITS: ServerLimits = {
 };
 
 export interface ServerOptions {
+	recoveryDir?: string;
 	token: string;
 	instanceId: string;
 	startedAt: string;
@@ -59,7 +60,7 @@ class RpcError extends Error {
 
 export class HubServer {
 	readonly events = new EventLog();
-	private readonly sessions = new OpenCodeSessions(event => this.publish(event));
+	private readonly sessions: OpenCodeSessions;
 	private readonly limits: ServerLimits;
 	private readonly authFailures = new FailureLimiter();
 	private readonly identityFailures = new FailureLimiter(30, 60_000, 10_000);
@@ -71,6 +72,7 @@ export class HubServer {
 	private closed = false;
 
 	constructor(private readonly opts: ServerOptions) {
+		this.sessions = new OpenCodeSessions(event => this.publish(event), opts.recoveryDir);
 		this.limits = { ...DEFAULT_LIMITS, ...opts.limits };
 		this.http = http.createServer((req, res) => this.onHttp(req, res));
 		this.wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxPayloadBytes, perMessageDeflate: false });
@@ -88,7 +90,8 @@ export class HubServer {
 		return this.clients.size;
 	}
 
-	listen(): Promise<number> {
+	async listen(): Promise<number> {
+		await this.sessions.recover();
 		return new Promise((resolve, reject) => {
 			this.http.once('error', reject);
 			// Loopback only, never 0.0.0.0 or ::

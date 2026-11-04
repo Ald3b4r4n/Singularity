@@ -88,7 +88,7 @@
 	}
 
 	function renderSession(s, events, catalog) {
-		var label = SESSION_LABEL[s.status] || esc(s.status);
+		var label = s.recovery === 'unrecoverable' ? 'não recuperável' : SESSION_LABEL[s.status] || esc(s.status);
 		var id = esc(s.id);
 		var effort = s.model ? '<span class="effort">' + esc(s.model.variant ? effortLabel(s.model.variant) : 'Padrão do modelo') + '</span>' : '';
 		return '<li class="session target" data-id="' + id + '" data-status="' + esc(s.status) + '">' +
@@ -101,7 +101,7 @@
 			(s.result ? '<pre class="result" aria-label="Resultado">' + esc(s.result) + '</pre>' : '') +
 			(events.length ? '<ol class="events" aria-label="Eventos">' + events.slice(-3).map(function (e) { return '<li>' + esc(e.name) + '</li>'; }).join('') + '</ol>' : '') +
 			'<div class="session-actions">' +
-			'<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button></div>' +
+			(s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + '</div>' +
 			'</li>';
 	}
 
@@ -112,10 +112,10 @@
 				'<ul class="sessions">' + state.sessions.map(function (s) {
 					var id = esc(s.id);
 					return '<li class="session" data-id="' + id + '"><button type="button" class="session-link" data-action="use" data-id="' + id +
-						'"' + (s.id === targetId ? ' aria-current="true"' : '') + '><strong>' + esc(serviceName(catalog, s.harness)) + '</strong>' +
+						'"' + (s.id === targetId ? ' aria-current="true"' : '') + '><strong>' + (s.recovery === 'unrecoverable' ? 'Sessão não recuperável' : esc(serviceName(catalog, s.harness))) + '</strong>' +
 						'<span>' + esc(modelLabel(catalog, s.model)) + '</span><span>' + esc(folderName(s.workspace)) + '</span>' +
 						'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + esc(SESSION_LABEL[s.status] || s.status) + '</span></button>' +
-						'<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button></li>';
+						(s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + '</li>';
 				}).join('') + '</ul>');
 	}
 

@@ -80,7 +80,7 @@
 		el.target.textContent = current ? 'Sessão: ' + R.serviceName(catalog, current.harness) + ' · ' + R.modelLabel(catalog, current.model) : '';
 		el.newSession.hidden = !targetId;
 		const running = busy();
-		el.send.disabled = !online || sending || running || !sel.canSend || !el.prompt.value.trim();
+		el.send.disabled = current?.recovery === 'unrecoverable' || !online || sending || running || !sel.canSend || !el.prompt.value.trim();
 		el.cancel.hidden = !running;
 		el.newSession.disabled = sending;
 		el.prompt.disabled = false;

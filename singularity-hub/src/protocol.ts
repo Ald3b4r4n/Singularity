@@ -41,6 +41,7 @@ export interface Session {
 	model?: ModelInfo;
 	title?: string;
 	status: SessionStatus;
+	recovery?: 'unrecoverable';
 	summary?: string;
 	workspace?: string;
 	version?: string;

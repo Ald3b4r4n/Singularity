@@ -236,7 +236,7 @@ class AgentsViewProvider {
 
 	_postSessions() {
 		const { hub, sessions } = this._hub.getState();
-		const entries = sessions.map(({ id, harness, status, workspace, model }) => ({ id, harness, status, workspace, model }));
+		const entries = sessions.map(({ id, harness, status, workspace, model, recovery }) => ({ id, harness, status, workspace, model, recovery }));
 		this._sessions?.webview.postMessage({
 			type: 'sessions', state: { hub, sessions: entries }, catalog: this._catalog, targetId: this._targetId, workspace: this._workspace()
 		});

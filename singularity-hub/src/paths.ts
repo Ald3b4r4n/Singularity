@@ -6,6 +6,7 @@ export const FILES = {
 	token: 'hub.token',
 	lock: 'hub.lock',
 	log: 'hub.log',
+	recovery: 'recovery',
 } as const;
 
 /**

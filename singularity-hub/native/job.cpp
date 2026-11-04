@@ -1,11 +1,106 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
+#include <sddl.h>
+#include <wincrypt.h>
+#include <fcntl.h>
+#include <io.h>
+#include <array>
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "crypt32.lib")
 #include <string>
 
+// A bounded binary protocol on anonymous pipes keeps plaintext out of arguments and disk.
+static int protectRecord(bool decrypt) {
+    if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1) {
+        return 9;
+    }
+    std::array<BYTE, 16385> buffer{};
+    const size_t size = std::fread(buffer.data(), 1, buffer.size(), stdin);
+    if (!size || size == buffer.size() || std::ferror(stdin)) {
+        SecureZeroMemory(buffer.data(), buffer.size());
+        return 9;
+    }
+    DATA_BLOB input{static_cast<DWORD>(size), buffer.data()};
+    DATA_BLOB output{};
+    const BOOL ok = decrypt
+        ? CryptUnprotectData(&input, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output)
+        : CryptProtectData(&input, L"Singularity OpenCode recovery", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output);
+    SecureZeroMemory(buffer.data(), buffer.size());
+    if (!ok) {
+        return 9;
+    }
+    const bool written = std::fwrite(output.pbData, 1, output.cbData, stdout) == output.cbData && std::fflush(stdout) == 0;
+    SecureZeroMemory(output.pbData, output.cbData);
+    LocalFree(output.pbData);
+    return written ? 0 : 9;
+}
+
+static int inspectHelper(const wchar_t* id, const wchar_t* expectedPid, bool stop) {
+    const std::wstring name = L"\\\\.\\pipe\\singularity-job-" + std::wstring(id);
+    const HANDLE pipe = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (pipe == INVALID_HANDLE_VALUE) { return 10; }
+    ULONG pid = 0;
+    wchar_t actual[32768]{}, expected[32768]{};
+    DWORD length = ARRAYSIZE(actual);
+    const HANDLE process = GetNamedPipeServerProcessId(pipe, &pid) && std::to_wstring(pid) == expectedPid
+        ? OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) : nullptr;
+    const bool trusted = process && QueryFullProcessImageNameW(process, 0, actual, &length) &&
+        GetModuleFileNameW(nullptr, expected, ARRAYSIZE(expected)) && _wcsicmp(actual, expected) == 0;
+    if (process) { CloseHandle(process); }
+    std::array<char, 65> command{};
+    DWORD count = 0;
+    bool ok = false;
+    if (trusted && std::fread(command.data(), 1, 64, stdin) == 64) {
+        command[64] = stop ? 'x' : 'i';
+        ok = WriteFile(pipe, command.data(), static_cast<DWORD>(command.size()), &count, nullptr) && count == command.size();
+    }
+    SecureZeroMemory(command.data(), command.size());
+    char reply[256]{};
+    if (ok) {
+        ok = ReadFile(pipe, reply, sizeof(reply), &count, nullptr) && count > 0;
+    }
+    CloseHandle(pipe);
+    if (!ok) { return 10; }
+    return std::fwrite(reply, 1, count, stdout) == count ? 0 : 10;
+}
+
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 4 || std::wstring(argv[3]).find_first_not_of(L"0123456789") != std::wstring::npos) {
+    if (argc == 2 && std::wstring(argv[1]) == L"protect-recovery") {
+        return protectRecord(false);
+    }
+    if (argc == 2 && std::wstring(argv[1]) == L"unprotect-recovery") {
+        return protectRecord(true);
+    }
+    if (argc == 4 && (std::wstring(argv[1]) == L"inspect-job" || std::wstring(argv[1]) == L"stop-job")) {
+        return inspectHelper(argv[2], argv[3], std::wstring(argv[1]) == L"stop-job");
+    }
+    if (argc != 6 || std::wstring(argv[3]).find_first_not_of(L"0123456789") != std::wstring::npos) {
         return 2;
+    }
+    const std::wstring pipeName = L"\\\\.\\pipe\\singularity-job-" + std::wstring(argv[4]);
+    const std::wstring sid = argv[5];
+    if (std::wstring(argv[4]).find_first_not_of(L"0123456789abcdef-") != std::wstring::npos ||
+        sid.find_first_not_of(L"S0123456789-") != std::wstring::npos) {
+        return 2;
+    }
+    char control[65]{};
+    if (GetEnvironmentVariableA("SINGULARITY_JOB_CONTROL", control, sizeof(control)) != 64) {
+        return 2;
+    }
+    // The server process needs its HTTP credential, but does not inherit the job control capability.
+    SetEnvironmentVariableA("SINGULARITY_JOB_CONTROL", nullptr);
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const std::wstring acl = L"D:P(A;;GA;;;" + sid + L")";
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1, &descriptor, nullptr)) {
+        return 3;
+    }
+    SECURITY_ATTRIBUTES pipeAttributes{sizeof(pipeAttributes), descriptor, FALSE};
+    const HANDLE pipe = CreateNamedPipeW(pipeName.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 0, 256, 0, &pipeAttributes);
+    LocalFree(descriptor);
+    if (pipe == INVALID_HANDLE_VALUE) {
+        return 3;
     }
     HANDLE job = CreateJobObjectW(nullptr, nullptr);
     if (!job) {
@@ -45,12 +140,26 @@ int wmain(int argc, wchar_t** argv) {
         return 6;
     }
     CloseHandle(child.hThread);
+    FILETIME helperCreated{}, childCreated{}, exited{}, kernel{}, user{};
+    BOOL validTimes = GetProcessTimes(GetCurrentProcess(), &helperCreated, &exited, &kernel, &user) &&
+        GetProcessTimes(child.hProcess, &childCreated, &exited, &kernel, &user);
     CloseHandle(child.hProcess);
+    if (!validTimes) {
+        TerminateJobObject(job, 1);
+        return 6;
+    }
+    char identity[160]{};
+    std::snprintf(identity, sizeof(identity), "%lu:%lu:%lu:%lu:%lu", helperCreated.dwHighDateTime, helperCreated.dwLowDateTime,
+        child.dwProcessId, childCreated.dwHighDateTime, childCreated.dwLowDateTime);
     std::puts("ready");
     std::fflush(stdout);
 
-    // A disconnected Hub does not authorize killing a running session.
-    bool connected = true;
+    // Only a fresh connection presenting the capability can stop this job.
+    bool connected = false;
+    ULONGLONG connectedAt = 0;
+    std::array<char, 65> request{};
+    DWORD received = 0;
+    bool replied = false;
     bool stopping = false;
     for (;;) {
         JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info{};
@@ -59,22 +168,60 @@ int wmain(int argc, wchar_t** argv) {
             return 7;
         }
         if (info.ActiveProcesses == 0) {
+            if (stopping) {
+                DWORD written = 0;
+                WriteFile(pipe, "stopped", 7, &written, nullptr);
+                FlushFileBuffers(pipe);
+            }
             CloseHandle(job);
             return 0;
         }
-        DWORD available = 0;
-        if (connected && !PeekNamedPipe(input, nullptr, 0, nullptr, &available, nullptr)) {
+        if (!stopping && !connected) {
+            const BOOL accepted = ConnectNamedPipe(pipe, nullptr);
+            const DWORD error = accepted ? ERROR_SUCCESS : GetLastError();
+            connected = accepted || error == ERROR_PIPE_CONNECTED;
+            if (error == ERROR_NO_DATA) {
+                DisconnectNamedPipe(pipe);
+            }
+            if (connected) {
+                connectedAt = GetTickCount64();
+                received = 0;
+                replied = false;
+            }
+        }
+        if (connected && replied && GetTickCount64() - connectedAt > 250) {
+            DisconnectNamedPipe(pipe);
             connected = false;
         }
-        if (connected && !stopping && available) {
-            char commandByte{};
-            DWORD read = 0;
-            if (ReadFile(input, &commandByte, sizeof(commandByte), &read, nullptr) && read && commandByte == 'x') {
-                if (!TerminateJobObject(job, 0)) {
-                    CloseHandle(job);
-                    return 8;
+        if (connected && !stopping && !replied) {
+            DWORD count = 0;
+            const BOOL read = ReadFile(pipe, request.data() + received, static_cast<DWORD>(request.size()) - received, &count, nullptr);
+            const DWORD error = read ? ERROR_SUCCESS : GetLastError();
+            received += count;
+            if (received == request.size()) {
+                unsigned int difference = 0;
+                for (size_t i = 0; i < 64; ++i) {
+                    difference |= static_cast<unsigned char>(request[i] ^ control[i]);
                 }
-                stopping = true;
+                if (difference == 0 && request[64] == 'i') {
+                    DWORD written = 0;
+                    WriteFile(pipe, identity, static_cast<DWORD>(std::string(identity).size()), &written, nullptr);
+                    // Give the client time to read, then accept another connection.
+                    replied = true;
+                    continue;
+                } else if (difference == 0 && request[64] == 'x') {
+                    if (!TerminateJobObject(job, 0)) {
+                        CloseHandle(job);
+                        return 8;
+                    }
+                    stopping = true;
+                    continue;
+                }
+            }
+            if (received == request.size() || (error != ERROR_SUCCESS && error != ERROR_NO_DATA) ||
+                GetTickCount64() - connectedAt > 2000) {
+                DisconnectNamedPipe(pipe);
+                connected = false;
             }
         }
         Sleep(50);

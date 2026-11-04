@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { delimiter, isAbsolute, join } from 'node:path';
@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import { CatalogResult, ModelSelection, sanitizeCatalog, serviceList, validateSelection } from './catalog';
 import { HubEvent, ModelInfo, Session } from './protocol';
+import { currentWindowsUser, ensureSecureDir, readSecureFile, writeFileAtomic } from './secure';
 
 const methods = {
 	create: ['/api/session', 'POST', 'session.create'],
@@ -88,27 +89,90 @@ async function localPort(): Promise<number> {
 	});
 }
 
+interface RecoveryRecord {
+	version: 1;
+	sessionId: string;
+	remoteId: string;
+	workspace: string;
+	executable: string;
+	helperPid: number;
+	identity: string;
+	pipeId: string;
+	control: string;
+	authorization: string;
+	origin: string;
+}
+
+const recoveryId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+const loopbackOrigin = /^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/;
+
 class OpenCodeProcess {
-	private readonly child;
-	private readonly closed: Promise<number | null>;
 	private readonly stream = new AbortController();
 	private readonly authorization: string;
 	private readonly origin: string;
+	private readonly pipeId: string;
+	private readonly control: string;
+	private readonly helperPid: number;
 	private dead = false;
+	private exitCode: number | null = null;
 
-	constructor(exe: string, workspace: string, port: number) {
+	constructor(exe: string, workspace: string, port: number, record?: RecoveryRecord) {
+		if (record) {
+			this.authorization = record.authorization;
+			this.origin = record.origin;
+			this.pipeId = record.pipeId;
+			this.control = record.control;
+			this.helperPid = record.helperPid;
+			return;
+		}
 		const password = randomBytes(32).toString('hex');
 		this.authorization = 'Basic ' + Buffer.from('opencode:' + password).toString('base64');
 		this.origin = `http://127.0.0.1:${port}`;
-		this.child = spawn(helper, [exe, workspace, String(port)], {
-			env: { ...process.env, OPENCODE_PASSWORD: password },
-			windowsHide: true, stdio: ['pipe', 'ignore', 'ignore']
+		this.pipeId = randomUUID();
+		this.control = randomBytes(32).toString('hex');
+		const child = spawn(helper, [exe, workspace, String(port), this.pipeId, currentWindowsUser().sid], {
+			env: { ...process.env, OPENCODE_PASSWORD: password, SINGULARITY_JOB_CONTROL: this.control },
+			detached: true, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore']
 		});
-		this.child.stdin.on('error', () => {});
-		this.closed = new Promise(resolve => {
-			this.child.once('error', () => { this.dead = true; resolve(null); });
-			this.child.once('close', code => { this.dead = true; resolve(code); });
+		this.helperPid = child.pid ?? 0;
+		child.once('error', () => { this.dead = true; });
+		child.once('close', code => { this.dead = true; this.exitCode = code; });
+	}
+
+	private controlJob(operation: 'inspect-job' | 'stop-job'): string {
+		const result = spawnSync(helper, [operation, this.pipeId, String(this.helperPid)], {
+			input: this.control, windowsHide: true, timeout: 3000, maxBuffer: 1024
 		});
+		return result.status === 0 ? result.stdout.toString('ascii') : '';
+	}
+
+	identity(): string {
+		const identity = this.controlJob('inspect-job');
+		if (!/^\d+(?::\d+){4}$/.test(identity)) {
+			throw new OpenCodeError('O helper n�o confirmou a identidade do Job Object.');
+		}
+		return identity;
+	}
+
+	writeRecovery(directory: string, sessionId: string, remoteId: string, workspace: string, executable: string): void {
+		const helperPid = this.helperPid;
+		if (!helperPid || this.dead) {
+			throw new OpenCodeError('O helper encerrou antes de registrar a sess�o.');
+		}
+		const input = Buffer.from(JSON.stringify({
+			version: 1, sessionId, remoteId, workspace, executable, helperPid, identity: this.identity(),
+			pipeId: this.pipeId, control: this.control, authorization: this.authorization, origin: this.origin
+		}));
+		try {
+			const encrypted = spawnSync(helper, ['protect-recovery'], { input, windowsHide: true, timeout: 5000, maxBuffer: 32768 });
+			if (encrypted.status !== 0 || !encrypted.stdout?.length) {
+				throw new OpenCodeError('O Windows n�o protegeu os dados de recupera��o da sess�o.');
+			}
+			ensureSecureDir(directory);
+			writeFileAtomic(join(directory, sessionId + '.dpapi'), encrypted.stdout.toString('base64'));
+		} finally {
+			input.fill(0);
+		}
 	}
 
 	private fetch(route: string, method: string, body?: unknown, signal = AbortSignal.timeout(deadline), authenticate = true): Promise<Response> {
@@ -188,22 +252,15 @@ class OpenCodeProcess {
 
 	async stop(): Promise<void> {
 		this.stream.abort();
-		if (!this.dead) {
-			this.child.stdin.end('x');
-		}
-		const timer = new AbortController();
-		try {
-			const code = await Promise.race([
-				this.closed,
-				delay(10000, undefined, { signal: timer.signal }).then(() => null)
-			]);
-			if (code !== 0) {
-				throw new OpenCodeError('O helper não confirmou que a árvore de processos foi encerrada.');
-			}
-		} finally {
-			timer.abort();
-		}
+		if (this.dead && this.exitCode === 0) { return; }
+		const deadline = Date.now() + 10000;
+		do {
+			if (this.controlJob('stop-job') === 'stopped' || (this.dead && this.exitCode === 0)) { return; }
+			await delay(100);
+		} while (Date.now() < deadline);
+		throw new OpenCodeError('O helper n�o confirmou que a �rvore de processos foi encerrada.');
 	}
+
 }
 
 interface Managed {
@@ -216,14 +273,67 @@ interface Managed {
 
 export class OpenCodeSessions {
 	private readonly sessions = new Map<string, Managed>();
+	private readonly unrecoverable = new Map<string, Session>();
 	private creating = 0;
 	private closed = false;
 	private readonly catalogs = new Map<string, { at: number; result: Promise<CatalogResult> }>();
 
-	constructor(private readonly publish: (event: Omit<HubEvent, 'seq'>) => void) { }
+	constructor(private readonly publish: (event: Omit<HubEvent, 'seq'>) => void, private readonly recoveryDir?: string) { }
 
 	list(): Session[] {
-		return [...this.sessions.values()].map(item => ({ ...item.view }));
+		return [...[...this.sessions.values()].map(item => ({ ...item.view })), ...this.unrecoverable.values()];
+	}
+
+	async recover(): Promise<void> {
+		if (!this.recoveryDir || !existsSync(this.recoveryDir)) { return; }
+		const directory = this.recoveryDir;
+		const expectedExecutable = executable();
+		const files = readdirSync(directory).filter(name => name.endsWith('.dpapi') && recoveryId.test(name.slice(0, -6)));
+		await Promise.all(files.slice(0, maxSessions).map(async name => {
+			const id = name.slice(0, -6);
+			let record: RecoveryRecord | undefined;
+			let stage = 'registro protegido';
+			try {
+				const ciphertext = Buffer.from(readSecureFile(join(directory, name)), 'base64');
+				const decrypted = spawnSync(helper, ['unprotect-recovery'], { input: ciphertext, windowsHide: true, timeout: 5000, maxBuffer: 32768 });
+				try {
+					if (decrypted.status !== 0) { throw new Error('invalid record'); }
+					record = JSON.parse(decrypted.stdout.toString('utf8'));
+				} finally {
+					decrypted.stdout?.fill(0);
+				}
+				if (!record || record.version !== 1 || record.sessionId !== id || !recoveryId.test(record.pipeId) ||
+					!Number.isSafeInteger(record.helperPid) || record.helperPid <= 0 || !loopbackOrigin.test(record.origin) ||
+					!/^Basic [A-Za-z0-9+/]+=*$/.test(record.authorization) || !/^[a-f0-9]{64}$/.test(record.control) ||
+					typeof record.remoteId !== 'string' || !record.remoteId || typeof record.workspace !== 'string' ||
+					!isAbsolute(record.workspace) || record.executable !== expectedExecutable) {
+					throw new Error('invalid identity');
+				}
+				stage = 'identidade do helper';
+				const server = new OpenCodeProcess('', '', 0, record);
+				if (server.identity() !== record.identity) { throw new Error('different job'); }
+				stage = 'autentica��o HTTP';
+				const version = await server.ready();
+				stage = 'identidade da sess�o OpenCode';
+				const { data } = await server.request<{ data: { id: string; location: { directory: string }; outcome?: string; model?: RawModel; time: { busy?: number; idle?: number } } }>('state', record.remoteId);
+				if (data.id !== record.remoteId || (await realpath(data.location.directory)).toLowerCase() !== record.workspace.toLowerCase()) {
+					throw new Error('different session');
+				}
+				const active = (data.time.busy ?? 0) > (data.time.idle ?? 0);
+				const item: Managed = { server, remoteId: record.remoteId, view: {
+					id, harness: 'opencode', title: 'OpenCode', workspace: record.workspace, version,
+					model: modelOf(data.model), status: active ? 'running' : 'idle'
+				} };
+				stage = 'fluxo SSE';
+				await this.subscribe(item);
+				this.sessions.set(id, item);
+				this.update(item, {});
+				item.run = this.run(item).finally(() => { item.run = undefined; });
+			} catch {
+				this.unrecoverable.set(id, { id, harness: 'opencode', title: 'Sess�o n�o recuper�vel',
+					status: 'failed', recovery: 'unrecoverable', summary: `Sess�o n�o recuper�vel: falha ao validar ${stage}.` });
+			}
+		}));
 	}
 
 	has(id: string): boolean { return this.sessions.has(id); }
@@ -259,20 +369,12 @@ export class OpenCodeSessions {
 				server, remoteId,
 				view: { id: randomUUID(), harness: 'opencode', title: 'OpenCode', status: 'idle', workspace, version, model: modelOf(created.data.model) }
 			};
-			await server.events(event => {
-				if (event.data?.sessionID !== remoteId || !/^session\.[a-z.]+$/.test(event.type)) {
-					return;
-				}
-				this.publish({ type: 'opencode.event', sessionId: item.view.id, data: { name: event.type } });
-				if (event.type === 'session.execution.started') {
-					this.update(item, { status: 'running' });
-				} else if (event.type === 'session.text.delta' && typeof event.data.delta === 'string'
-					&& item.view.status === 'running' && (item.view.result?.length ?? 0) < outputLimit) {
-					this.update(item, { result: ((item.view.result ?? '') + event.data.delta).slice(0, outputLimit) });
-				}
-			}, () => this.update(item, { status: 'failed', summary: 'A conexão SSE com o OpenCode foi interrompida.' }));
+			await this.subscribe(item);
 			if (this.closed) {
 				throw new OpenCodeError('Hub is shutting down.');
+			}
+			if (this.recoveryDir) {
+				server.writeRecovery(this.recoveryDir, item.view.id, remoteId, workspace, exe);
 			}
 			this.sessions.set(item.view.id, item);
 			this.update(item, {});
@@ -283,6 +385,21 @@ export class OpenCodeSessions {
 		} finally {
 			this.creating--;
 		}
+	}
+
+	private async subscribe(item: Managed): Promise<void> {
+		await item.server.events(event => {
+				if (event.data?.sessionID !== item.remoteId || !/^session\.[a-z.]+$/.test(event.type)) {
+					return;
+				}
+				this.publish({ type: 'opencode.event', sessionId: item.view.id, data: { name: event.type } });
+				if (event.type === 'session.execution.started') {
+					this.update(item, { status: 'running' });
+				} else if (event.type === 'session.text.delta' && typeof event.data.delta === 'string'
+					&& item.view.status === 'running' && (item.view.result?.length ?? 0) < outputLimit) {
+					this.update(item, { result: ((item.view.result ?? '') + event.data.delta).slice(0, outputLimit) });
+				}
+			}, () => this.update(item, { status: 'failed', summary: 'A conexão SSE com o OpenCode foi interrompida.' }));
 	}
 
 	private item(id: string): Managed {
@@ -307,10 +424,10 @@ export class OpenCodeSessions {
 		item.run = this.run(item, text).finally(() => { item.run = undefined; });
 	}
 
-	private async run(item: Managed, text: string): Promise<void> {
+	private async run(item: Managed, text?: string): Promise<void> {
 		const { server, remoteId } = item;
 		try {
-			await server.request('prompt', remoteId, { text });
+			if (text !== undefined) { await server.request('prompt', remoteId, { text }); }
 			await server.request('wait', remoteId, undefined, AbortSignal.timeout(15 * 60 * 1000));
 			const { data } = await server.request<{ data: { outcome?: string; model?: RawModel } }>('state', remoteId);
 			const { data: messages } = await server.request<{ data: Array<{ type: string; error?: { status?: number }; content?: Array<{ type: string; text?: string }> }> }>('messages', remoteId);
@@ -319,8 +436,10 @@ export class OpenCodeSessions {
 				?.filter(part => part.type === 'text').map(part => part.text ?? '').join('').slice(0, outputLimit);
 			const providerStatus = messages[0]?.error?.status;
 			const http = Number.isInteger(providerStatus) && providerStatus! >= 400 && providerStatus! <= 599 ? ` (HTTP ${providerStatus})` : '';
-			const status = data.outcome === 'succeeded' ? 'done' : data.outcome === 'interrupted' ? 'idle' : 'failed';
-			this.update(item, { status, result, model: modelOf(data.model) ?? item.view.model, summary: data.outcome === 'interrupted' ? 'Execução interrompida.'
+			const status = data.outcome === 'succeeded' ? 'done' : !data.outcome || data.outcome === 'interrupted' ? 'idle' : 'failed';
+			const prompt = text === undefined && userIndex >= 0 ? messages[userIndex].content
+				?.filter(part => part.type === 'text').map(part => part.text ?? '').join('').slice(0, 16000) : undefined;
+			this.update(item, { ...(prompt ? { prompt } : {}), status, result, model: modelOf(data.model) ?? item.view.model, summary: data.outcome === 'interrupted' ? 'Execução interrompida.'
 				: status === 'failed' ? `O OpenCode informou falha${http}. Confira o modelo e a autenticação na sua configuração do OpenCode.` : undefined });
 		} catch (error) {
 			if (!item.closing) {
@@ -405,6 +524,9 @@ export class OpenCodeSessions {
 			await item.server.request('remove', item.remoteId, undefined, AbortSignal.timeout(3000)).catch(() => undefined);
 			await item.server.stop();
 			await item.run;
+			if (this.recoveryDir) {
+				rmSync(join(this.recoveryDir, id + '.dpapi'), { force: true });
+			}
 			this.sessions.delete(id);
 			this.publish({ type: 'session.removed', sessionId: id });
 		} catch (error) {
