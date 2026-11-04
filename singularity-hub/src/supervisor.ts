@@ -12,6 +12,7 @@ export type HubStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export interface PanelState {
 	hub: { status: HubStatus; detail?: string };
 	sessions: Session[];
+	events?: Array<{ sessionId: string; name: string; seq: number }>;
 }
 
 export interface SupervisorOptions {
@@ -75,6 +76,13 @@ export class HubSupervisor extends EventEmitter {
 				c.close();
 			}
 		}
+	}
+
+	async sessionRequest(method: 'session.create' | 'session.prompt' | 'session.interrupt' | 'session.stop', params: unknown): Promise<unknown> {
+		if (!this.connection) {
+			throw new Error('Connect to the Singularity Hub first.');
+		}
+		return this.connection.request(method, params, 45000);
 	}
 
 	dispose(): void {
@@ -142,13 +150,32 @@ export class HubSupervisor extends EventEmitter {
 			return false;
 		}
 		const connection = await HubConnection.connect({ home: this.home, clientName: this.options.clientName ?? 'singularity-ide', clientVersion: HUB_VERSION });
-		const sessions = await connection.request<Session[]>('sessions.list');
-		await connection.request('session.subscribe', {});
-		connection.on('notification', (method: string) => {
+		const buffered: Array<{ type: string; seq: number; sessionId?: string; data?: unknown }> = [];
+		let ready = false;
+		connection.on('notification', (method: string, payload: { event?: typeof buffered[number] }) => {
 			if (method === 'hub.shuttingDown') {
 				this.lastReason = 'O Hub foi encerrado.';
 			}
+			if (method === 'session.event' && payload?.event) {
+				if (ready) {
+					this.applyEvent(payload.event);
+				} else {
+					buffered.push(payload.event);
+				}
+			}
 		});
+		let sessions: Session[];
+		try {
+			await connection.request('session.subscribe', {});
+			sessions = await connection.request<Session[]>('sessions.list');
+		} catch (error) {
+			connection.close();
+			throw error;
+		}
+		if (connection.closed || this.disposed) {
+			connection.close();
+			return false;
+		}
 		connection.once('close', () => {
 			if (this.connection === connection) {
 				this.connection = undefined;
@@ -159,7 +186,35 @@ export class HubSupervisor extends EventEmitter {
 		this.connection = connection;
 		this.attempt = 0;
 		this.set({ hub: { status: 'connected' }, sessions });
+		ready = true;
+		for (const event of buffered) {
+			this.applyEvent(event);
+		}
 		return true;
+	}
+
+	private applyEvent(event: { type: string; seq: number; sessionId?: string; data?: unknown }): void {
+		const { type, sessionId, data } = event;
+		if (!sessionId) {
+			return;
+		}
+		if (type === 'session.changed') {
+			const session = data as Session;
+			const sessions = [...this.state.sessions];
+			const index = sessions.findIndex(item => item.id === sessionId);
+			if (index < 0) {
+				sessions.push(session);
+			} else {
+				sessions[index] = session;
+			}
+			this.set({ ...this.state, sessions });
+		} else if (type === 'session.removed') {
+			this.set({ ...this.state, sessions: this.state.sessions.filter(item => item.id !== sessionId),
+				events: this.state.events?.filter(item => item.sessionId !== sessionId) });
+		} else if (type === 'opencode.event') {
+			const { name } = data as { name: string };
+			this.set({ ...this.state, events: [...(this.state.events ?? []), { sessionId, name, seq: event.seq }].slice(-80) });
+		}
 	}
 
 	private fail(status: HubStatus, detail: string): void {

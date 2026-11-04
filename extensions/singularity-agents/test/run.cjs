@@ -73,7 +73,7 @@ test('empty state: header, hub status, explanation, and nothing invented', () =>
 	assert.ok(!/<li\b/.test(empty), 'no session items');
 	assert.ok(!/\d+\s?%/.test(empty), 'no progress percentages');
 	assert.ok(!/(Pausar|Parar|Aprovar|Recusar|Executar|Iniciar)/.test(empty), 'no simulated controls');
-	assert.strictEqual((empty.match(/<button/g) || []).length, 1, 'only the settings button');
+	assert.strictEqual((empty.match(/<button/g) || []).length, 2, 'settings and reconnect buttons');
 	assert.ok(!/state-connected|state-running/.test(empty), 'no "connected" look when disconnected');
 });
 
@@ -87,11 +87,23 @@ test('status is carried by shape and text, not only by color', () => {
 
 test('session data is rendered from state and escaped', () => {
 	const html = render({ hub: { status: 'connected' }, sessions: [{ id: '1', harness: 'opencode', title: '<img src=x onerror=alert(1)>', status: 'waiting' }] });
-	assert.ok(html.includes('opencode') && html.includes('aguardando aprovação'));
+	assert.ok(html.includes('OpenCode') && html.includes('aguardando'));
 	assert.ok(!html.includes('<img'), 'title is escaped');
 	assert.ok(html.includes('<span class="count">1</span>'));
 });
 
+test('OpenCode controls reflect the actual session, and output is escaped', () => {
+	const state = { hub: { status: 'connected' }, sessions: [{
+		id: 's1', harness: 'opencode', workspace: 'test <workspace>', status: 'running', result: '<script>unsafe</script>'
+	}], events: [{ sessionId: 's1', name: 'session.execution.started' }, { sessionId: 'other', name: 'unrelated' }] };
+	const html = render(state);
+	assert.match(html, /data-action="create"/);
+	assert.match(html, /data-action="prompt" data-id="s1" disabled/);
+	assert.match(html, /data-action="interrupt" data-id="s1">/);
+	assert.match(html, /data-action="stop" data-id="s1"/);
+	assert.match(html, /session.execution.started/);
+	assert.doesNotMatch(html, /unrelated|<script>|<workspace>/);
+});
 test('unknown hub status falls back to disconnected', () => {
 	assert.ok(render({ hub: { status: 'weird' }, sessions: [] }).includes('não conectado'));
 });

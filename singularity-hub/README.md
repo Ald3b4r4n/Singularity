@@ -94,3 +94,17 @@ O empacotamento Windows já compila e inclui o helper. Para testar com a
 configuração real do OpenCode, execute `node scripts/e2e/opencode-hub.cjs`.
 O teste usa um workspace temporário e registra somente nomes de eventos,
 estado final, diagnóstico sanitizado e resultado da limpeza.
+
+
+### Painel Singularity Agents
+
+Abra o painel, escolha **Criar sessão** e selecione a pasta do workspace.
+O modelo vem da configuração do OpenCode para essa pasta. Os eventos
+SSE da sessão atualizam o estado e o texto da resposta no painel. A
+reabertura da IDE consulta a sessão existente no Hub.
+
+O E2E do pacote Windows fica em `scripts/e2e/opencode-panel.cjs`.
+A variável `SINGULARITY_E2E_OPENCODE_MODEL` pode indicar um modelo
+disponível. Ela escreve a escolha somente no workspace sintético.
+A variável `SINGULARITY_E2E_POWERSHELL` aceita o caminho do PowerShell
+usado pelo teste de mouse e teclado.

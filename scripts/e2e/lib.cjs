@@ -30,7 +30,7 @@ Add-Type -Namespace SG -Name W -MemberDefinition @'
 `;
 
 function ps(code) {
-	return execFileSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', WIN32 + code], { encoding: 'utf8', windowsHide: true, timeout: 30000 }).trim();
+	return execFileSync(process.env.SINGULARITY_E2E_POWERSHELL || 'pwsh', ['-NoProfile', '-NonInteractive', '-Command', WIN32 + code], { encoding: 'utf8', windowsHide: true, timeout: 30000 }).trim();
 }
 
 // ---------- processes and windows ----------

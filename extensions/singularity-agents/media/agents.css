@@ -57,3 +57,13 @@ button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-off
 	.empty { padding: 10px; }
 	.hd h1 { letter-spacing: .05em; }
 }
+
+.launch { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 14px 0; }
+.workspace { font-size: 11px; color: var(--vscode-descriptionForeground); }
+.prompt-label { display: block; margin-top: 8px; }
+textarea { width: 100%; resize: vertical; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding: 5px; }
+textarea:focus { outline: 1px solid var(--vscode-focusBorder); }
+.session-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+button:disabled { opacity: .55; cursor: default; }
+.events { list-style: none; margin: 6px 0; padding: 0; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.result { margin: 6px 0; white-space: pre-wrap; font: inherit; }

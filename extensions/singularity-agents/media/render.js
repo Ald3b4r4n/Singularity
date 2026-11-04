@@ -7,7 +7,7 @@
 // }
 (function (root) {
 	var HUB_LABEL = { disconnected: 'não conectado', connecting: 'conectando', connected: 'conectado', error: 'com erro' };
-	var SESSION_LABEL = { running: 'em execução', waiting: 'aguardando aprovação', done: 'concluída', failed: 'falhou', idle: 'ociosa' };
+	var SESSION_LABEL = { running: 'em execução', waiting: 'aguardando', done: 'concluída', failed: 'falhou', idle: 'ociosa' };
 
 	function esc(value) {
 		return String(value === undefined || value === null ? '' : value)
@@ -34,13 +34,24 @@
 
 	var BRAND_MARK = '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.8" fill="none" stroke="currentColor" stroke-width="2"/><g transform="rotate(-14 12 12)"><ellipse cx="12" cy="12" rx="10.8" ry="1.5" fill="currentColor"/></g></svg>';
 
-	function renderSession(s) {
+	function renderSession(s, events) {
 		var label = SESSION_LABEL[s.status] || esc(s.status);
+		var id = esc(s.id);
+		var busy = s.status === 'running' || s.status === 'waiting';
 		return '<li class="session" data-status="' + esc(s.status) + '">' +
-			'<div class="row"><span class="harness">' + esc(s.harness) + '</span>' +
+			'<div class="row"><span class="harness">' + (s.harness === 'opencode' ? 'OpenCode' : esc(s.harness)) + '</span>' +
 			'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + '<span>' + label + '</span></span></div>' +
-			(s.title ? '<div class="title">' + esc(s.title) + '</div>' : '') +
-			(s.summary ? '<div class="summary">' + esc(s.summary) + '</div>' : '') +
+			(s.title && s.title !== 'OpenCode' ? '<div class="title">' + esc(s.title) + '</div>' : '') +
+			(s.workspace ? '<div class="workspace" title="' + esc(s.workspace) + '">' + esc(s.workspace) + '</div>' : '') +
+			(s.harness === 'opencode' && s.workspace ? '<label class="prompt-label" for="prompt-' + id + '">Prompt</label>' +
+				'<textarea id="prompt-' + id + '" data-session="' + id + '" maxlength="16000" rows="3"></textarea>' +
+				'<div class="session-actions"><button type="button" data-action="prompt" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Enviar</button>' +
+				'<button type="button" data-action="interrupt" data-id="' + id + '"' + (busy ? '' : ' disabled') + '>Cancelar tarefa</button>' +
+				'<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button></div>' : '') +
+			(s.summary ? '<div class="summary" role="status">' + esc(s.summary) + '</div>' : '') +
+			(s.result ? '<pre class="result" aria-label="Resultado">' + esc(s.result) + '</pre>' : '') +
+			(events.length ? '<ol class="events" aria-label="Eventos OpenCode">' +
+				events.slice(-8).map(event => '<li>' + esc(event.name) + '</li>').join('') + '</ol>' : '') +
 			'</li>';
 	}
 
@@ -57,11 +68,14 @@
 		var sessions = (state && state.sessions) || [];
 		var status = HUB_LABEL[hub.status] ? hub.status : 'disconnected';
 		var sessionsHtml = sessions.length
-			? '<ul class="sessions">' + sessions.map(renderSession).join('') + '</ul>'
+			? '<ul class="sessions">' + sessions.map(session => renderSession(session, (state.events ?? []).filter(event => event.sessionId === session.id))).join('') + '</ul>'
 			: (status === 'connected' ? '<div class="empty"><p class="lead">Nenhuma sessão</p><p>O Hub está conectado e não há sessões abertas.</p></div>' : renderEmpty(hub));
 		return '<header class="hd">' + BRAND_MARK + '<h1>SINGULARITY AGENTS</h1></header>' +
 			'<section class="hub" aria-live="polite"><span class="state state-' + status + '">' + statusGlyph(status) + '</span>' +
 			'<span class="k">Hub</span><span class="v">' + HUB_LABEL[status] + '</span></section>' +
+			'<section class="launch"><span>Harness: <strong>OpenCode</strong></span>' +
+			(status === 'connected' ? '<button type="button" data-action="create">Criar sessão</button>' :
+				'<button type="button" data-action="reconnect">Reconectar</button>') + '</section>' +
 			'<section class="list" aria-label="Sessões"><h2>SESSÕES <span class="count">' + sessions.length + '</span></h2>' + sessionsHtml + '</section>' +
 			'<footer class="ft"><button type="button" data-action="openSettings">Configurações</button></footer>';
 	}

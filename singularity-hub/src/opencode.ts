@@ -124,7 +124,7 @@ class OpenCodeProcess {
 		return (response.status === 204 ? undefined : await response.json()) as T;
 	}
 
-	async events(onEvent: (event: { type: string; data?: { sessionID?: string; error?: { type?: string } } }) => void, onClose: () => void): Promise<void> {
+	async events(onEvent: (event: { type: string; data?: { sessionID?: string; delta?: unknown } }) => void, onClose: () => void): Promise<void> {
 		const handshake = new AbortController();
 		const timeout = setTimeout(() => handshake.abort(), deadline);
 		let response: Response;
@@ -231,6 +231,9 @@ export class OpenCodeSessions {
 				this.publish({ type: 'opencode.event', sessionId: item.view.id, data: { name: event.type } });
 				if (event.type === 'session.execution.started') {
 					this.update(item, { status: 'running' });
+				} else if (event.type === 'session.text.delta' && typeof event.data.delta === 'string'
+					&& item.view.status === 'running' && (item.view.result?.length ?? 0) < outputLimit) {
+					this.update(item, { result: ((item.view.result ?? '') + event.data.delta).slice(0, outputLimit) });
 				}
 			}, () => this.update(item, { status: 'failed', summary: 'A conexão SSE com o OpenCode foi interrompida.' }));
 			if (this.closed) {

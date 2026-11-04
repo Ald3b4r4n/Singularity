@@ -5,7 +5,6 @@
 // of the state returned here, so it can never reach the webview.
 
 const path = require('path');
-const { DisconnectedHubClient } = require('./hub.js');
 
 // Development layout: <repo>/extensions/singularity-agents  and  <repo>/singularity-hub (built with `npm run build`).
 // Packaged builds will ship the same relative layout under resources/app.
@@ -16,7 +15,6 @@ class RealHubClient {
 	constructor(options = {}) {
 		this._listeners = new Set();
 		this._supervisor = undefined;
-		this._fallback = new DisconnectedHubClient();
 		this._unavailable = undefined;
 
 		try {
@@ -54,10 +52,12 @@ class RealHubClient {
 		await this._supervisor.stopHub();
 	}
 
-	async connect() { return this.start(true); }
-	async disconnect() { if (this._supervisor) { this._supervisor.dispose(); } }
-	async sendInstruction() { throw new Error('Not available yet: no agent adapters.'); }
-	async control() { throw new Error('Not available yet: no agent adapters.'); }
+	async sessionRequest(method, params) {
+		if (!this._supervisor) {
+			throw new Error(this._unavailable);
+		}
+		return this._supervisor.sessionRequest(method, params);
+	}
 
 	dispose() {
 		if (this._supervisor) {

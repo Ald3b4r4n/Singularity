@@ -28,13 +28,58 @@ class AgentsViewProvider {
 		view.onDidDispose(() => { stop(); this._view = undefined; });
 		view.onDidChangeVisibility(() => { if (view.visible) { this._onVisible(); this._post(); } });
 		this._onVisible();
-		view.webview.onDidReceiveMessage(message => {
+		view.webview.onDidReceiveMessage(async message => {
 			if (message && message.type === 'ready') {
 				this._post();
 			} else if (message && message.type === 'openSettings') {
-				vscode.commands.executeCommand('singularity.agents.openSettings');
+				await vscode.commands.executeCommand('singularity.agents.openSettings');
+			} else {
+				try {
+					await this._operate(message);
+				} catch (error) {
+					await vscode.window.showErrorMessage(error instanceof Error ? error.message : 'OpenCode operation failed.');
+				}
 			}
 		});
+	}
+
+	async _operate(message) {
+		if (message?.type === 'reconnect') {
+			await this._hub.start(true);
+			return;
+		}
+		if (message?.type === 'create') {
+			if (!vscode.workspace.isTrusted) {
+				throw new Error('Confie no workspace antes de iniciar o OpenCode.');
+			}
+			const folders = (vscode.workspace.workspaceFolders ?? [])
+				.filter(folder => folder.uri.scheme === 'file')
+				.map(folder => ({ label: folder.name, description: folder.uri.fsPath, uri: folder.uri }));
+			const picked = await vscode.window.showQuickPick([...folders, { label: 'Escolher outra pasta...' }], {
+				title: 'Workspace da sessão OpenCode', placeHolder: 'Selecione a pasta em que o OpenCode poderá trabalhar'
+			});
+			if (!picked) {
+				return;
+			}
+			const uri = picked.uri ?? (await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, openLabel: 'Usar como workspace' }))?.[0];
+			if (uri?.scheme === 'file') {
+				await this._hub.sessionRequest('session.create', { workspace: uri.fsPath });
+			}
+			return;
+		}
+		if (typeof message?.id !== 'string') {
+			return;
+		}
+		if (message.type === 'prompt' && typeof message.text === 'string') {
+			await this._hub.sessionRequest('session.prompt', { id: message.id, text: message.text });
+		} else if (message.type === 'interrupt') {
+			const result = await this._hub.sessionRequest('session.interrupt', { id: message.id });
+			if (!result.interrupted) {
+				await vscode.window.showInformationMessage('O OpenCode não encontrou uma execução ativa para cancelar.');
+			}
+		} else if (message.type === 'stop') {
+			await this._hub.sessionRequest('session.stop', { id: message.id });
+		}
 	}
 
 	_post() {
