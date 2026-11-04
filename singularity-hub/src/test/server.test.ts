@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
+import * as net from 'net';
+import * as os from 'os';
 import { after, before, describe, it } from 'node:test';
 import { WebSocket } from 'ws';
 import { HubConnection, RpcFailure } from '../client';
@@ -82,12 +84,25 @@ describe('authentication and request validation', () => {
 		} finally { await hub.release(); cleanup(home2); }
 	});
 
-	it('only listens on the loopback interface', async () => {
-		const out = await import('child_process').then(cp => cp.execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8' }));
-		const lines = out.split(/\r?\n/).filter(l => l.includes('LISTENING') && l.includes(`:${hubPort} `));
-		assert.ok(lines.length >= 1);
-		for (const l of lines) {
-			assert.match(l, /127\.0\.0\.1:/, l);
+	// Proven by behavior, not by parsing `netstat`: that output is localized and, in sandboxed environments, does not even show
+	// a listening socket opened by the test itself, which made this test pass or fail depending on the machine.
+	const connects = (host: string): Promise<boolean> => new Promise(resolve => {
+		const socket = net.connect({ host, port: hubPort, timeout: 1500 });
+		socket.once('connect', () => { socket.destroy(); resolve(true); });
+		socket.once('timeout', () => { socket.destroy(); resolve(false); });
+		socket.once('error', () => resolve(false));
+	});
+
+	it('only listens on the loopback interface', async t => {
+		assert.equal(await connects('127.0.0.1'), true, 'the Hub answers on the loopback address');
+		// A Hub bound to 0.0.0.0 would answer on every address of this machine: all the others must refuse.
+		const others = Object.values(os.networkInterfaces()).flatMap(list => list ?? []).filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
+		if (others.length === 0) {
+			t.skip('this machine has no non-loopback IPv4 address to probe; only the loopback half was checked');
+			return;
+		}
+		for (const address of others) {
+			assert.equal(await connects(address), false, `the Hub must not answer on ${address}`);
 		}
 	});
 });

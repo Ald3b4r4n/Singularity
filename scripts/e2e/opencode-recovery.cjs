@@ -66,7 +66,9 @@ async function main() {
 		const session = await client.request('session.create', { workspace, model: { providerID: 'opencode', modelID } }, 60000);
 		const task = 'Write a long numbered poem with 300 lines. Start immediately and do not use tools or touch files.';
 		await client.request('session.prompt', { id: session.id, text: task });
-		const end = Date.now() + 30000;
+		// A free model can take longer than 30 s to emit its first token at busy hours, which made this script fail for a reason
+		// that has nothing to do with the recovery; the wait is long by default and can be changed.
+		const end = Date.now() + (Number(process.env.SINGULARITY_E2E_STREAM_WAIT_MS) || 90000);
 		let active;
 		while (Date.now() < end) {
 			[active] = await client.request('sessions.list');
