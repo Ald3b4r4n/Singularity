@@ -36,7 +36,7 @@ export interface ModelInfo {
 
 export interface Session {
 	id: string;
-	/** Id of the agent service that runs the session (today only `opencode`). */
+	/** Id of the agent service that runs the session (`opencode` or `claude-code`). */
 	harness: string;
 	model?: ModelInfo;
 	title?: string;
@@ -50,6 +50,12 @@ export interface Session {
 	version?: string;
 	prompt?: string;
 	result?: string;
+	/** Claude Code: permission mode the session was created with (never a bypass mode). */
+	permissionMode?: string;
+	/** Claude Code: the CLI conversation exists, so the session can be resumed after it is archived. */
+	resumable?: boolean;
+	/** Claude Code: why the last run failed, when the CLI says so. */
+	failure?: 'authentication' | 'usage-limit' | 'model' | 'other';
 }
 
 export interface HelloParams {

@@ -11,6 +11,31 @@
 #pragma comment(lib, "crypt32.lib")
 #include <string>
 
+// Quotes one argument for CreateProcess so that the child's CommandLineToArgvW reads it back unchanged.
+static std::wstring quoteArgument(const std::wstring& value) {
+    if (!value.empty() && value.find_first_of(L" \t\n\v\"") == std::wstring::npos) {
+        return value;
+    }
+    std::wstring quoted = L"\"";
+    for (size_t i = 0;; ++i) {
+        size_t slashes = 0;
+        while (i < value.size() && value[i] == L'\\') { ++i; ++slashes; }
+        if (i == value.size()) {
+            quoted.append(slashes * 2, L'\\');
+            break;
+        }
+        if (value[i] == L'"') {
+            quoted.append(slashes * 2 + 1, L'\\');
+            quoted.push_back(L'"');
+        } else {
+            quoted.append(slashes, L'\\');
+            quoted.push_back(value[i]);
+        }
+    }
+    quoted.push_back(L'"');
+    return quoted;
+}
+
 // A bounded binary protocol on anonymous pipes keeps plaintext out of arguments and disk.
 static int protectRecord(bool decrypt) {
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1) {
@@ -76,14 +101,27 @@ int wmain(int argc, wchar_t** argv) {
     if (argc == 4 && (std::wstring(argv[1]) == L"inspect-job" || std::wstring(argv[1]) == L"stop-job")) {
         return inspectHelper(argv[2], argv[3], std::wstring(argv[1]) == L"stop-job");
     }
-    if (argc != 6 || std::wstring(argv[3]).find_first_not_of(L"0123456789") != std::wstring::npos) {
+    // `run-cli <hub pid> <pipe id> <sid> <workspace> <executable> [arguments...]` runs a one-shot command line tool (Claude Code)
+    // in a Job Object and gives it this process's stdin, stdout and stderr, so the Hub can read its structured output. When
+    // the Hub process ends, the job is terminated: a crashed Hub never leaves a running agent behind.
+    const bool runCli = argc >= 7 && std::wstring(argv[1]) == L"run-cli";
+    if (runCli ? std::wstring(argv[2]).find_first_not_of(L"0123456789") != std::wstring::npos
+               : (argc != 6 || std::wstring(argv[3]).find_first_not_of(L"0123456789") != std::wstring::npos)) {
         return 2;
     }
-    const std::wstring pipeName = L"\\\\.\\pipe\\singularity-job-" + std::wstring(argv[4]);
-    const std::wstring sid = argv[5];
-    if (std::wstring(argv[4]).find_first_not_of(L"0123456789abcdef-") != std::wstring::npos ||
+    const std::wstring pipeId = runCli ? argv[3] : argv[4];
+    const std::wstring pipeName = L"\\\\.\\pipe\\singularity-job-" + pipeId;
+    const std::wstring sid = runCli ? argv[4] : argv[5];
+    if (pipeId.find_first_not_of(L"0123456789abcdef-") != std::wstring::npos ||
         sid.find_first_not_of(L"S0123456789-") != std::wstring::npos) {
         return 2;
+    }
+    HANDLE parent = nullptr;
+    if (runCli) {
+        parent = OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(std::wcstoul(argv[2], nullptr, 10)));
+        if (!parent) {
+            return 2;
+        }
     }
     char control[65]{};
     if (GetEnvironmentVariableA("SINGULARITY_JOB_CONTROL", control, sizeof(control)) != 64) {
@@ -108,27 +146,50 @@ int wmain(int argc, wchar_t** argv) {
         return 3;
     }
 
-    // Only the NUL handle is inherited by OpenCode. Its output can contain credentials.
+    // OpenCode inherits only the NUL handle: its unstructured output can contain credentials. A `run-cli` tool instead gets this
+    // process's three standard handles, because its structured events are what the Hub reads.
     const HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
-    SetHandleInformation(input, HANDLE_FLAG_INHERIT, 0);
-    SetHandleInformation(GetStdHandle(STD_OUTPUT_HANDLE), HANDLE_FLAG_INHERIT, 0);
-    SetHandleInformation(GetStdHandle(STD_ERROR_HANDLE), HANDLE_FLAG_INHERIT, 0);
+    const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    const HANDLE errors = GetStdHandle(STD_ERROR_HANDLE);
+    const DWORD inherit = runCli ? HANDLE_FLAG_INHERIT : 0;
+    SetHandleInformation(input, HANDLE_FLAG_INHERIT, inherit);
+    SetHandleInformation(output, HANDLE_FLAG_INHERIT, inherit);
+    SetHandleInformation(errors, HANDLE_FLAG_INHERIT, inherit);
     SECURITY_ATTRIBUTES attributes{sizeof(attributes), nullptr, TRUE};
-    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-        &attributes, OPEN_EXISTING, 0, nullptr);
-    if (nul == INVALID_HANDLE_VALUE) {
-        CloseHandle(job);
-        return 4;
+    HANDLE nul = INVALID_HANDLE_VALUE;
+    if (!runCli) {
+        nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            &attributes, OPEN_EXISTING, 0, nullptr);
+        if (nul == INVALID_HANDLE_VALUE) {
+            CloseHandle(job);
+            return 4;
+        }
     }
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
-    startup.hStdInput = startup.hStdOutput = startup.hStdError = nul;
+    startup.hStdInput = runCli ? input : nul;
+    startup.hStdOutput = runCli ? output : nul;
+    startup.hStdError = runCli ? errors : nul;
     PROCESS_INFORMATION child{};
-    std::wstring command = L"\"" + std::wstring(argv[1]) + L"\" serve --hostname 127.0.0.1 --port " + argv[3];
-    const BOOL created = CreateProcessW(argv[1], command.data(), nullptr, nullptr, TRUE,
-        CREATE_SUSPENDED | CREATE_NO_WINDOW, nullptr, argv[2], &startup, &child);
-    CloseHandle(nul);
+    std::wstring command;
+    LPCWSTR application = argv[1];
+    LPCWSTR directory = argv[2];
+    if (runCli) {
+        application = argv[6];
+        directory = argv[5];
+        command = quoteArgument(argv[6]);
+        for (int i = 7; i < argc; ++i) {
+            command += L" " + quoteArgument(argv[i]);
+        }
+    } else {
+        command = L"\"" + std::wstring(argv[1]) + L"\" serve --hostname 127.0.0.1 --port " + argv[3];
+    }
+    const BOOL created = CreateProcessW(application, command.data(), nullptr, nullptr, TRUE,
+        CREATE_SUSPENDED | CREATE_NO_WINDOW, nullptr, directory, &startup, &child);
+    if (nul != INVALID_HANDLE_VALUE) {
+        CloseHandle(nul);
+    }
     if (!created) {
         CloseHandle(job);
         return 5;
@@ -162,6 +223,7 @@ int wmain(int argc, wchar_t** argv) {
     DWORD received = 0;
     bool replied = false;
     bool stopping = false;
+    bool orphaned = false;
     for (;;) {
         JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info{};
         if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &info, sizeof(info), nullptr)) {
@@ -176,6 +238,12 @@ int wmain(int argc, wchar_t** argv) {
             }
             CloseHandle(job);
             return 0;
+        }
+        if (parent && !orphaned && WaitForSingleObject(parent, 0) == WAIT_OBJECT_0) {
+            // The Hub is gone: nobody can read this agent's output or cancel it any more.
+            orphaned = true;
+            TerminateJobObject(job, 1);
+            continue;
         }
         if (!stopping && !connected) {
             const BOOL accepted = ConnectNamedPipe(pipe, nullptr);

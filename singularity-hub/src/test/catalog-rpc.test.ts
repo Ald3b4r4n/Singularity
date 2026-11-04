@@ -23,15 +23,26 @@ describe('catalog and model requests are validated by the Hub', () => {
 
 	it('announces the new capabilities', () => {
 		assert.ok(c.hello.capabilities.includes('catalog.v1'));
+		assert.ok(c.hello.capabilities.includes('claude-code.v1'));
 		assert.ok(c.hello.capabilities.includes('session.model.v1'));
 	});
 
 	it('catalog.get refuses a service without an adapter and malformed parameters', async () => {
-		assert.equal(await code('catalog.get', { service: 'claude-code' }), ErrorCode.InvalidParams);
+		assert.equal(await code('catalog.get', { service: 'codex-cli' }), ErrorCode.InvalidParams);
+		assert.equal(await code('catalog.get', { service: 'gemini-cli' }), ErrorCode.InvalidParams);
 		assert.equal(await code('catalog.get', { service: 5 }), ErrorCode.InvalidParams);
 		assert.equal(await code('catalog.get', { workspace: 5 }), ErrorCode.InvalidParams);
 		assert.equal(await code('catalog.get', { workspace: 'x'.repeat(2000) }), ErrorCode.InvalidParams);
 		assert.equal(await code('catalog.get', { refresh: 'yes' }), ErrorCode.InvalidParams);
+	});
+
+	it('catalog.get answers for Claude Code with its real state, never an invented one', async () => {
+		const result = await c.request<{ service: string; services: Array<{ id: string; status: string }>; providers: unknown[]; unavailable?: string }>('catalog.get', { service: 'claude-code' }, 60000);
+		assert.equal(result.service, 'claude-code');
+		const entry = result.services.find(service => service.id === 'claude-code');
+		assert.ok(entry && (entry.status === 'available' || entry.status === 'unavailable'));
+		assert.equal(result.providers.length > 0, entry.status === 'available');
+		assert.equal(result.services.find(service => service.id === 'codex-cli')?.status, 'planned');
 	});
 
 	it('catalog.get refuses a relative or missing workspace', async () => {
@@ -42,6 +53,12 @@ describe('catalog and model requests are validated by the Hub', () => {
 	it('session.create refuses a malformed model before starting anything', async () => {
 		for (const model of ['x', 5, [], {}, { providerID: 'a' }, { providerID: 'a', modelID: 'b', variant: 7 }, { providerID: 'a', modelID: 'b', variant: 'no space' }]) {
 			assert.equal(await code('session.create', { workspace: 'C:\\', model }), -32006, JSON.stringify(model));
+		}
+	});
+
+	it('session.create for Claude Code refuses a permission bypass and unknown modes before starting anything', async () => {
+		for (const permissionMode of ['bypassPermissions', 'auto', 'manual', 'anything', 5]) {
+			assert.equal(await code('session.create', { workspace: 'C:\\', service: 'claude-code', permissionMode }), -32006, String(permissionMode));
 		}
 	});
 

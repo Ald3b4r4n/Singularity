@@ -24,7 +24,8 @@ const archiveRetention = 30 * 24 * 60 * 60 * 1000;
 export class SessionHistory {
 	private readonly records = new Map<string, Record>();
 
-	constructor(private readonly directory: string, private readonly helper: string) { }
+	/** One directory can hold the records of several agent services; each adapter only ever reads and lists its own. */
+	constructor(private readonly directory: string, private readonly helper: string, private readonly harness = 'opencode') { }
 
 	load(): void {
 		if (!existsSync(this.directory)) { return; }
@@ -39,6 +40,7 @@ export class SessionHistory {
 					const record: Record = JSON.parse(decrypted.stdout.toString('utf8'));
 					if (record.version !== 1 || record.session?.id !== id || !Array.isArray(record.turns) || record.turns.length > maxTurns ||
 						!Number.isFinite(record.session.updatedAt)) { continue; }
+						if ((record.session.harness ?? 'opencode') !== this.harness) { continue; }
 					if (record.session.historical && Date.now() - record.session.updatedAt! > archiveRetention) {
 						rmSync(join(this.directory, file), { force: true });
 					} else {
