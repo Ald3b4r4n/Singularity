@@ -12,6 +12,7 @@ const { once } = require('node:events');
 const WebSocket = require(path.join(dist, '../node_modules/ws'));
 const ui = require('./lib.cjs');
 const exe = process.env.SINGULARITY_E2E_IDE;
+const dev = process.env.SINGULARITY_E2E_DEV;
 
 async function webview(port, selector, expression) {
 	for (const target of (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter(item => item.type === 'iframe')) {
@@ -41,7 +42,7 @@ async function waitFor(check) {
 }
 
 async function main() {
-	const root = await fs.mkdtemp(path.join(os.tmpdir(), 'singularity-history-'));
+	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'singularity-history-')));
 	const home = path.join(root, 'hub');
 	const workspaces = ['workspace-a', 'workspace-b'].map(name => path.join(root, name));
 	await Promise.all(workspaces.map(workspace => fs.mkdir(workspace)));
@@ -71,12 +72,12 @@ async function main() {
 		}
 		const [a, b, c] = sessions;
 		assert.equal(new Set([a.id, b.id, c.id]).size, 3);
-		if (exe) {
+		if (exe || dev) {
 			const basePort = 31000 + Math.floor(Math.random() * 8000);
 			for (let index = 0; index < 2; index++) {
 				const port = basePort + index;
 				const profile = path.join(root, 'profile-' + index);
-				ui.launch({ exe, profile, workspace: workspaces[index], port, env: { SINGULARITY_HUB_HOME: home },
+				ui.launch({ exe, dev, profile, workspace: workspaces[index], port, env: { SINGULARITY_HUB_HOME: home },
 					settings: { 'singularity.agents.hub.autoStart': false, 'singularity.update.checkAutomatically': false } });
 				windows.push({ port, profile, cdp: await ui.cdp(port) });
 			}
@@ -104,7 +105,7 @@ async function main() {
 		one = await HubConnection.connect({ home, clientName: 'history-restarted' });
 		assert.deepEqual(await one.request('session.history', params), turns);
 		assert((await one.request('sessions.list')).filter(item => item.historical).length === 3);
-		if (exe) {
+		if (exe || dev) {
 			const port = windows[0].port;
 			const id = JSON.stringify(a.id);
 			await waitFor(() => webview(port, '.nav-heading',

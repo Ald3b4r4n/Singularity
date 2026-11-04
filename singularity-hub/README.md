@@ -12,7 +12,7 @@ Processo local e independente que o Singularity IDE usa para orquestrar agentes.
 cd singularity-hub
 npm install
 npm run build
-npm test          # 41 testes (node:test)
+npm test          # 66 testes (node:test)
 node dist/cli.js start | status | stop
 ```
 

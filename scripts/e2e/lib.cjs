@@ -190,7 +190,7 @@ function tempProfile(label = 'e2e') {
 }
 
 function rmrf(p) {
-	fs.rmSync(p, { recursive: true, force: true });
+	fs.rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 module.exports = { sleep, ps, appProcesses, appWindows, foreground, bringToFront, guard, keys, paste, click, runCommand, pages, waitPage, cdp, launch, closeApp, tempProfile, rmrf, SEND_ESCAPES };
