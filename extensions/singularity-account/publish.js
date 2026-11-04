@@ -96,6 +96,8 @@ function decide(mode, state) {
 	if (!state.isRepo) { return { action: 'none', reason: 'not-a-repository' }; }
 	if (!state.hasUpstream) { return { action: 'report', reason: state.reason === 'no-upstream' ? 'no-upstream' : 'no-branch' }; }
 	if (state.ahead === 0) { return { action: 'none', reason: 'up-to-date' }; }
+	// the fetch failed (offline, no permission): the remote state is unknown, so nothing is pushed or offered on stale knowledge
+	if (state.fetchError && mode !== 'manual') { return { action: 'report', reason: 'fetch-failed' }; }
 	if (state.behind > 0) { return { action: 'report', reason: 'diverged' }; }
 	if (mode === 'manual') { return { action: 'none', reason: 'manual' }; }
 	if (mode === 'assisted') { return { action: 'ask', reason: 'ahead' }; }

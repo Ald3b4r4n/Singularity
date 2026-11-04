@@ -10,6 +10,8 @@ const PUBLISH_KEY = 'singularity.github.publishToken';
 const GITHUB_HTTPS = /^https:\/\/github\.com\//i;
 const askedFor = new Map(); // root -> head commit the user answered "not now" for
 const pushedThisSession = new Set();
+const reported = new Set(); // root|head|reason already told to the user
+const NEEDS_AUTHORIZATION = 'Publicar no GitHub exige a autorização de publicação. Use "Singularity: Gerenciar conta GitHub" → Autorizar publicação.';
 
 function settings() {
 	const c = vscode.workspace.getConfiguration('singularity.publish');
@@ -25,6 +27,20 @@ async function checkRepository(context, output, root, { explicit = false } = {})
 	const mode = pub.modeFor(root, { defaultMode, automaticRepositories });
 	const wantsNetwork = explicit || mode !== 'manual';
 	const token = wantsNetwork ? await context.secrets.get(PUBLISH_KEY) : undefined;
+	if (wantsNetwork && !token) {
+		// no publishing authorization: for a github.com remote nothing is fetched or pushed, so no other credential
+		// (the user's Git Credential Manager, a CLI login) can stand in for the Singularity authorization
+		const local = await pub.inspect(root);
+		if (local.hasUpstream && local.ahead > 0 && local.remoteUrl && GITHUB_HTTPS.test(local.remoteUrl)) {
+			output.appendLine(`${root}: needs publishing authorization`);
+			const key = `${root}|${local.head}|needs-authorization`;
+			if (explicit || !reported.has(key)) {
+				reported.add(key);
+				vscode.window.showWarningMessage(NEEDS_AUTHORIZATION);
+			}
+			return;
+		}
+	}
 	const state = await pub.inspect(root, { fetch: wantsNetwork, token });
 	if (state.fetchError) { output.appendLine(`fetch skipped for ${root}: ${state.fetchError}`); }
 	const decision = pub.decide(explicit ? 'automatic' : mode, state);
@@ -35,8 +51,14 @@ async function checkRepository(context, output, root, { explicit = false } = {})
 			'no-upstream': 'Este branch não tem upstream configurado. Nada foi publicado e nenhum remoto foi alterado.',
 			'no-branch': 'HEAD destacado ou repositório sem commits. Nada a publicar.',
 			diverged: 'O remoto tem commits que você não tem localmente. Nada foi enviado; resolva pelo Git (não há force-push).',
+			'fetch-failed': 'Não foi possível confirmar o estado do remoto (sem conexão ou sem permissão). Os commits continuam locais e nada foi enviado.',
 		}[decision.reason];
-		if (explicit || decision.reason === 'diverged') { vscode.window.showWarningMessage(text); }
+		// told once per commit and reason, so repeated Git events do not repeat the message
+		const reportKey = `${root}|${state.head}|${decision.reason}`;
+		if (explicit || ((decision.reason === 'diverged' || decision.reason === 'fetch-failed') && !reported.has(reportKey))) {
+			reported.add(reportKey);
+			vscode.window.showWarningMessage(text);
+		}
 		output.appendLine(`${root}: ${decision.reason}`);
 		return;
 	}

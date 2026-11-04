@@ -1,0 +1,255 @@
+{
+  "build": "packaged",
+  "repo": "Ald3b4r4n/singularity-push-e2e",
+  "visibility": "private",
+  "shas": {
+    "base": "5024330f3e",
+    "A": "3bbc0eb090",
+    "B1": "9faf431d97",
+    "B2": "d1acc7299e",
+    "C1": "76c784d94a",
+    "C2": "3275520a76",
+    "R1": "57f68a2004",
+    "E1": "ffb70942a4",
+    "F1": "98fa3d86aa",
+    "R2": "7a0c0040f0",
+    "F2": "50fe7509df",
+    "D1": "ede9ca7e05"
+  },
+  "results": [
+    {
+      "name": "P1. the test repository exists and is PRIVATE (checked by the GitHub API)",
+      "ok": true,
+      "detail": {
+        "repo": "Ald3b4r4n/singularity-push-e2e",
+        "private": true,
+        "visibility": "private"
+      }
+    },
+    {
+      "name": "P2. the repository belongs to the expected account",
+      "ok": true,
+      "detail": "Ald3b4r4n"
+    },
+    {
+      "name": "P3. the clone uses an HTTPS origin without embedded credentials",
+      "ok": true,
+      "detail": "https://github.com/Ald3b4r4n/singularity-push-e2e.git"
+    },
+    {
+      "name": "P4. the clone is in sync with the remote and has an upstream",
+      "ok": true,
+      "detail": {
+        "head": "5024330f3e"
+      }
+    },
+    {
+      "name": "P5. local Git config: no credential helper for this clone (the Singularity token is the only way in)",
+      "ok": true
+    },
+    {
+      "name": "S2. the title bar shows Ald3b4r4n",
+      "ok": true,
+      "detail": "Ald3b4r4n"
+    },
+    {
+      "name": "S3. publishing authorization (repo): device code issued and accepted",
+      "ok": true
+    },
+    {
+      "name": "S4. publishing is authorized (the OAuth credential with the repo scope)",
+      "ok": true,
+      "detail": "GitHub: Ald3b4r4n. Conectada. Publicação autorizada. Clique para gerenciar."
+    },
+    {
+      "name": "A1. manual mode: the Singularity does not push by itself",
+      "ok": true,
+      "detail": {
+        "remote": "5024330f3e",
+        "expected": "5024330f3e"
+      }
+    },
+    {
+      "name": "A2. the commit exists only locally (1 commit ahead)",
+      "ok": true,
+      "detail": 1
+    },
+    {
+      "name": "A3. \"Publish Commits Now\" publishes: the remote SHA equals the local commit",
+      "ok": true,
+      "detail": {
+        "local": "3bbc0eb090",
+        "remote": "3bbc0eb090"
+      }
+    },
+    {
+      "name": "A4. the commit is visible on GitHub and the history is preserved (parent = previous head)",
+      "ok": true
+    },
+    {
+      "name": "B1. assisted mode: the IDE asks before publishing",
+      "ok": true,
+      "detail": "Source: Singularity Account Publicar Agora não 1 commit(s) prontos para publicar em origin/main."
+    },
+    {
+      "name": "B2. \"Agora não\": nothing is pushed",
+      "ok": true,
+      "detail": {
+        "remote": "3bbc0eb090",
+        "expected": "3bbc0eb090"
+      }
+    },
+    {
+      "name": "B3. a new commit is offered again",
+      "ok": true,
+      "detail": "Source: Singularity Account Publicar Agora não 2 commit(s) prontos para publicar em origin/main."
+    },
+    {
+      "name": "B4. \"Publicar\": the correct SHA reaches GitHub",
+      "ok": true,
+      "detail": {
+        "local": "d1acc7299e",
+        "remote": "d1acc7299e"
+      }
+    },
+    {
+      "name": "B5. both commits of the batch are on the remote, in order",
+      "ok": true
+    },
+    {
+      "name": "C1. a commit is created from the IDE Git interface",
+      "ok": true,
+      "detail": "test(C1): commit made from the Source Control view"
+    },
+    {
+      "name": "C2. automatic mode publishes the commit made in the Git interface",
+      "ok": true,
+      "detail": {
+        "local": "76c784d94a",
+        "remote": "76c784d94a"
+      }
+    },
+    {
+      "name": "C3. a commit made by an external CLI is detected by the watcher and published",
+      "ok": true,
+      "detail": {
+        "local": "3275520a76",
+        "remote": "3275520a76"
+      }
+    },
+    {
+      "name": "C4. the remote chain is C2 -> C1 -> B2 (no rewrite)",
+      "ok": true
+    },
+    {
+      "name": "E0. (preparation, not the mechanism) a second clone advanced the remote",
+      "ok": true
+    },
+    {
+      "name": "E1. the divergence is identified and explained",
+      "ok": true,
+      "detail": "O remoto tem commits que você não tem localmente. Nada foi enviado; resolva pelo Git (não há force-push)."
+    },
+    {
+      "name": "E2. no force push: the remote head is still the other clone's commit",
+      "ok": true,
+      "detail": {
+        "remote": "57f68a2004"
+      }
+    },
+    {
+      "name": "E3. the remote history was not overwritten (R1 -> C2)",
+      "ok": true
+    },
+    {
+      "name": "F1. offline: the user is told the remote state cannot be confirmed",
+      "ok": true,
+      "detail": "Não foi possível confirmar o estado do remoto (sem conexão ou sem permissão). Os commits continuam locais e nada foi enviado."
+    },
+    {
+      "name": "F2. offline: the commit stays local (nothing reached the remote)",
+      "ok": true,
+      "detail": {
+        "remote": "57f68a2004"
+      }
+    },
+    {
+      "name": "F3. stale knowledge: with the remote ahead and the fetch failing, nothing is pushed or offered",
+      "ok": true,
+      "detail": {
+        "remote": "7a0c0040f0",
+        "toastsBefore": 0,
+        "warned": true
+      }
+    },
+    {
+      "name": "F4. back online, the explicit command sees the divergence and still pushes nothing",
+      "ok": true,
+      "detail": "O remoto tem commits que você não tem localmente. Nada foi enviado; resolva pelo Git (não há force-push)."
+    },
+    {
+      "name": "D1. the publishing authorization was removed from this profile",
+      "ok": true,
+      "detail": "GitHub: Ald3b4r4n. Conectada. Publicação não autorizada. Clique para gerenciar."
+    },
+    {
+      "name": "D2. the identity session (read:user) is kept",
+      "ok": true,
+      "detail": "Ald3b4r4n"
+    },
+    {
+      "name": "D3. a local commit does not push, and the user gets a clear instruction",
+      "ok": true,
+      "detail": "Publicar no GitHub exige a autorização de publicação. Use \"Singularity: Gerenciar conta GitHub\" → Autorizar publicação."
+    },
+    {
+      "name": "D4. nothing reached GitHub with the identity token or any other credential",
+      "ok": true,
+      "detail": {
+        "remote": "7a0c0040f0"
+      }
+    },
+    {
+      "name": "D5. control: a plain git push from this clone is refused too (no Credential Manager or CLI login can stand in)",
+      "ok": true,
+      "detail": "refused: no ambient credential"
+    },
+    {
+      "name": "D6. the explicit command gives the same instruction",
+      "ok": true
+    },
+    {
+      "name": "no GitHub token pattern in the profile (logs and state)",
+      "ok": true,
+      "detail": {
+        "files": "0"
+      }
+    }
+  ],
+  "extensionLog": [
+    "[info] <clone>: mode=manual automatic=[] ahead=0 behind=0 -> none (up-to-date)\r",
+    "[info] <clone>: mode=manual automatic=[] ahead=1 behind=0 -> none (manual)\r",
+    "[info] <clone>: mode=explicit automatic=[] ahead=1 behind=0 -> push (ahead)\r",
+    "[info] <clone>: pushed\r",
+    "[info] <clone>: mode=assisted automatic=[] ahead=1 behind=0 -> ask (ahead)\r",
+    "[info] <clone>: mode=assisted automatic=[] ahead=2 behind=0 -> ask (ahead)\r",
+    "[info] <clone>: pushed\r",
+    "[info] <clone>: mode=automatic automatic=[\"<path> Rafael\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\8b969f6ab09fb4a7\\\\1cdee106-9dc3-4cab-9945-ede87682fcd1\\\\scratchpad\\\\push-e2e\\\\repo\"] ahead=1 behind=0 -> push (ahead)\r",
+    "[info] <clone>: pushed\r",
+    "[info] <clone>: mode=automatic automatic=[\"<path> Rafael\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\8b969f6ab09fb4a7\\\\1cdee106-9dc3-4cab-9945-ede87682fcd1\\\\scratchpad\\\\push-e2e\\\\repo\"] ahead=1 behind=0 -> push (ahead)\r",
+    "[info] <clone>: pushed\r",
+    "[info] <clone>: mode=automatic automatic=[\"<path> Rafael\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\8b969f6ab09fb4a7\\\\1cdee106-9dc3-4cab-9945-ede87682fcd1\\\\scratchpad\\\\push-e2e\\\\repo\"] ahead=1 behind=1 -> report (diverged)\r",
+    "[info] <clone>: diverged\r",
+    "[info] fetch skipped for <clone>: offline\r",
+    "[info] <clone>: mode=automatic automatic=[\"<path> Rafael\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\8b969f6ab09fb4a7\\\\1cdee106-9dc3-4cab-9945-ede87682fcd1\\\\scratchpad\\\\push-e2e\\\\repo\"] ahead=1 behind=0 -> report (fetch-failed)\r",
+    "[info] fetch skipped for <clone>: offline\r",
+    "[info] <clone>: mode=automatic automatic=[\"<path> Rafael\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\8b969f6ab09fb4a7\\\\1cdee106-9dc3-4cab-9945-ede87682fcd1\\\\scratchpad\\\\push-e2e\\\\repo\"] ahead=2 behind=0 -> report (fetch-failed)\r",
+    "[info] <clone>: mode=explicit automatic=[\"<path> Rafael\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\8b969f6ab09fb4a7\\\\1cdee106-9dc3-4cab-9945-ede87682fcd1\\\\scratchpad\\\\push-e2e\\\\repo\"] ahead=2 behind=1 -> report (diverged)\r",
+    "[info] <clone>: diverged\r",
+    "[info] <clone>: mode=automatic automatic=[\"<path> Rafael\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\8b969f6ab09fb4a7\\\\1cdee106-9dc3-4cab-9945-ede87682fcd1\\\\scratchpad\\\\push-e2e\\\\repo\"] ahead=0 behind=0 -> none (up-to-date)\r",
+    "[info] <clone>: needs publishing authorization\r",
+    "[info] <clone>: needs publishing authorization\r"
+  ],
+  "ok": true,
+  "finished": "2026-11-04T04:35:41.116Z"
+}
