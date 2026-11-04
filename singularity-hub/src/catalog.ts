@@ -49,12 +49,14 @@ export interface CatalogResult {
 export class CatalogError extends Error { }
 
 /** The integrations the Singularity knows about. Only the ones with an adapter can be run. */
-export function serviceList(openCodeRunnable: { ok: boolean; reason?: string }): ServiceInfo[] {
+export function serviceList(openCodeRunnable: { ok: boolean; reason?: string }, claudeCodeRunnable?: { ok: boolean; reason?: string }): ServiceInfo[] {
 	return [
 		openCodeRunnable.ok
 			? { id: 'opencode', name: 'OpenCode', status: 'available' }
 			: { id: 'opencode', name: 'OpenCode', status: 'unavailable', reason: openCodeRunnable.reason },
-		{ id: 'claude-code', name: 'Claude Code', status: 'planned' },
+		!claudeCodeRunnable ? { id: 'claude-code', name: 'Claude Code', status: 'planned' }
+			: claudeCodeRunnable.ok ? { id: 'claude-code', name: 'Claude Code', status: 'available' }
+				: { id: 'claude-code', name: 'Claude Code', status: 'unavailable', reason: claudeCodeRunnable.reason },
 		{ id: 'codex-cli', name: 'Codex CLI', status: 'planned' },
 		{ id: 'gemini-cli', name: 'Gemini CLI', status: 'planned' },
 	];
