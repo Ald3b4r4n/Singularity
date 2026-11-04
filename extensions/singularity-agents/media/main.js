@@ -25,6 +25,20 @@
 	let submittedDraft;
 	let message = '';
 	let lastMarkup;
+	let transcript = [];
+	let historyKey;
+	const drafts = new Map(Object.entries(vscode.getState()?.drafts ?? {}));
+	function selectTarget(id) {
+		if (targetId === id) { return; }
+		drafts.delete(targetId || '');
+		drafts.set(targetId || '', el.prompt.value);
+		if (drafts.size > 16) { drafts.delete(drafts.keys().next().value); }
+		targetId = id;
+		el.prompt.value = drafts.get(id || '') || '';
+	}
+	function saveDraft() {
+		vscode.setState({ targetId, draft: el.prompt.value, drafts: Object.fromEntries(drafts) });
+	}
 
 	const target = () => state.sessions.find(s => s.id === targetId);
 	const connected = () => state.hub.status === 'connected';
@@ -80,7 +94,7 @@
 		el.target.textContent = current ? 'Sessão: ' + R.serviceName(catalog, current.harness) + ' · ' + R.modelLabel(catalog, current.model) : '';
 		el.newSession.hidden = !targetId;
 		const running = busy();
-		el.send.disabled = current?.recovery === 'unrecoverable' || !online || sending || running || !sel.canSend || !el.prompt.value.trim();
+		el.send.disabled = current?.historical || current?.recovery === 'unrecoverable' || !online || sending || running || !sel.canSend || !el.prompt.value.trim();
 		el.cancel.hidden = !running;
 		el.newSession.disabled = sending;
 		el.prompt.disabled = false;
@@ -98,13 +112,24 @@
 	}
 
 	function drawSessions() {
-		const markup = R.renderTarget(state, catalog, targetId);
+		const selected = target();
+		const key = selected && [selected.id, selected.updatedAt, selected.historical].join(':');
+		if (key !== historyKey) {
+			if (historyKey?.split(':')[0] !== selected?.id) { transcript = []; }
+			historyKey = key;
+			if (selected && !selected.recovery) { vscode.postMessage({ type: 'history', id: selected.id, key }); }
+		}
+		const markup = R.renderTarget(state, catalog, targetId, transcript);
 		if (markup !== lastMarkup) {
 			const action = el.sessions.contains(document.activeElement) ? document.activeElement.dataset.action : undefined;
+			const scroll = el.sessions.closest('.list');
+			const top = scroll.scrollTop;
+			const atBottom = scroll.scrollHeight - top - scroll.clientHeight < 4;
 			el.sessions.innerHTML = lastMarkup = markup;
+			scroll.scrollTop = atBottom ? scroll.scrollHeight : top;
 			if (action === 'stop') { el.sessions.querySelector('[data-action="stop"]')?.focus({ preventScroll: true }); }
 		}
-		vscode.setState({ targetId, draft: el.prompt.value });
+		saveDraft();
 	}
 
 	function remember() {
@@ -115,7 +140,9 @@
 
 	window.addEventListener('message', event => {
 		const data = event.data || {};
-		if (data.type === 'state') {
+		if (data.type === 'history') {
+			if (data.id === targetId && data.key === historyKey) { transcript = data.turns; drawSessions(); }
+		} else if (data.type === 'state') {
 			state = data.state;
 			// The session in use is dropped only when it was seen and is really gone while the Hub is connected: an update that
 			// arrives before the session shows up (or while the connection is being re-established) must not turn the next
@@ -130,7 +157,7 @@
 			drawSessions(); drawComposer();
 		} else if (data.type === 'use') {
 			if (sending) { return; }
-			targetId = data.id;
+			selectTarget(data.id);
 			targetSeen = !!target();
 			const model = target()?.model;
 			if (model) { prefs = { service: 'opencode', providerID: model.providerID, modelID: model.modelID, variant: model.variant || '' }; }
@@ -164,7 +191,7 @@
 		message = ''; remember(); drawComposer();
 	});
 	el.effort.addEventListener('change', () => { prefs = { ...prefs, variant: el.effort.value }; message = ''; remember(); drawComposer(); });
-	el.prompt.addEventListener('input', () => { message = ''; vscode.setState({ targetId, draft: el.prompt.value }); drawComposer(); });
+	el.prompt.addEventListener('input', () => { message = ''; saveDraft(); drawComposer(); });
 	el.prompt.addEventListener('keydown', event => {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !el.send.disabled) { event.preventDefault(); el.composer.requestSubmit(); }
 	});
@@ -192,7 +219,7 @@
 			el.prompt.focus();
 			el.prompt.setSelectionRange(el.prompt.value.length, el.prompt.value.length);
 		} else if (action === 'new') {
-			targetId = undefined; targetSeen = false;
+			selectTarget(undefined); targetSeen = false;
 			vscode.postMessage({ type: 'target' });
 			drawSessions(); drawComposer();
 		} else if (action === 'cancel') {

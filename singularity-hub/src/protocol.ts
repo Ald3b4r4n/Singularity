@@ -42,6 +42,9 @@ export interface Session {
 	title?: string;
 	status: SessionStatus;
 	recovery?: 'unrecoverable';
+	historical?: boolean;
+	createdAt?: number;
+	updatedAt?: number;
 	summary?: string;
 	workspace?: string;
 	version?: string;

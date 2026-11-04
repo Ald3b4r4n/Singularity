@@ -1,6 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { realpathSync } = require('node:fs');
 const { RealHubClient } = require('./hubClient.js');
 const { selectionOf, same, text } = require('./selection.js');
 
@@ -42,11 +43,19 @@ class AgentsViewProvider {
 		view.webview.onDidReceiveMessage(async message => {
 			if (message?.type === 'ready') {
 				this._postSessions();
-			} else if (message?.type === 'use' && !this._sending && this._hub.getState().sessions.some(session => session.id === message.id)) {
+			} else if (message?.type === 'use' && !this._sending && this._visibleState().sessions.some(session => session.id === message.id)) {
 				this._targetId = message.id;
 				this.open();
 				this._view.webview.postMessage({ type: 'use', id: message.id });
 				this._postSessions();
+			} else if (message?.type === 'deleteHistory') {
+				try {
+					const workspace = this._workspace();
+					if (!workspace || await vscode.window.showWarningMessage('Excluir o histórico desta sessão?', { modal: true }, 'Excluir') !== 'Excluir') { return; }
+					await this._hub.sessionRequest('session.deleteHistory', { id: message.id, workspace });
+				} catch (error) {
+					vscode.window.showErrorMessage(error.message);
+				}
 			} else if (message?.type === 'stop') {
 				try {
 					await this._stop(message.id);
@@ -106,7 +115,7 @@ class AgentsViewProvider {
 	}
 
 	_workspace() {
-		const saved = this._context.globalState.get(WORKSPACE_KEY);
+		const saved = this._context.workspaceState.get(WORKSPACE_KEY);
 		if (typeof saved === 'string' && saved) { return saved; }
 		return this._folders()[0]?.uri.fsPath;
 	}
@@ -125,9 +134,9 @@ class AgentsViewProvider {
 		}
 		const uri = picked.uri ?? (await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, openLabel: 'Usar como workspace' }))?.[0];
 		if (uri?.scheme === 'file') {
-			await this._context.globalState.update(WORKSPACE_KEY, uri.fsPath);
+			await this._context.workspaceState.update(WORKSPACE_KEY, uri.fsPath);
 			this._postPrefs();
-			this._postSessions();
+			this._post();
 			return uri.fsPath;
 		}
 		return undefined;
@@ -153,6 +162,18 @@ class AgentsViewProvider {
 		}
 		if (message?.type === 'pickWorkspace') {
 			await this._pickWorkspace();
+			return;
+		}
+		if (message?.type === 'history') {
+			const workspace = this._workspace();
+			if (workspace) {
+				try {
+					const turns = await this._hub.sessionRequest('session.history', { id: message.id, workspace });
+					post({ type: 'history', id: message.id, key: message.key, turns });
+				} catch {
+					post({ type: 'history', id: message.id, key: message.key, turns: [] });
+				}
+			}
 			return;
 		}
 		if (message?.type === 'catalog') {
@@ -199,8 +220,8 @@ class AgentsViewProvider {
 			throw new Error('Confie no workspace antes de iniciar o agente.');
 		}
 		let id = typeof message.sessionId === 'string' ? message.sessionId : undefined;
-		const existing = id ? this._hub.getState().sessions.find(session => session.id === id) : undefined;
-		if (id && !existing) {
+		const existing = id ? this._visibleState().sessions.find(session => session.id === id) : undefined;
+		if (id && (!existing || existing.historical || existing.recovery)) {
 			// a session was asked for and is not there: never create another one silently
 			throw new Error('A sessão em uso não existe mais no Hub. Escolha "Nova sessão" e envie de novo.');
 		}
@@ -230,13 +251,27 @@ class AgentsViewProvider {
 	_post() {
 		this._postSessions();
 		if (this._view) {
-			this._view.webview.postMessage({ type: 'state', state: this._hub.getState() });
+			this._view.webview.postMessage({ type: 'state', state: this._visibleState() });
 		}
 	}
 
+	_visibleState() {
+		const state = this._hub.getState();
+		const workspace = this._workspace();
+		if (workspace !== this._workspacePath) {
+			this._workspacePath = workspace;
+			try { this._canonicalWorkspace = workspace && realpathSync.native(workspace); }
+			catch { this._canonicalWorkspace = undefined; }
+		}
+		const key = value => value?.replace(/\\/g, '/').toLowerCase();
+		return { ...state, sessions: state.sessions.filter(session => !session.workspace || key(session.workspace) === key(this._canonicalWorkspace)) };
+	}
+
 	_postSessions() {
-		const { hub, sessions } = this._hub.getState();
-		const entries = sessions.map(({ id, harness, status, workspace, model, recovery }) => ({ id, harness, status, workspace, model, recovery }));
+		const { hub, sessions } = this._visibleState();
+		const entries = sessions.map(({ id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt }) => ({
+			id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt
+		}));
 		this._sessions?.webview.postMessage({
 			type: 'sessions', state: { hub, sessions: entries }, catalog: this._catalog, targetId: this._targetId, workspace: this._workspace()
 		});

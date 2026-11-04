@@ -145,3 +145,6 @@ button.primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackg
 	.hd { padding-block: 6px; }
 	.heading p, .orbit { display: none; }
 }
+
+.history-turn { padding: 8px 12px; border-inline-start: 1px solid var(--line); }
+.history-turn .response-text { white-space: pre-wrap; overflow-wrap: anywhere; }

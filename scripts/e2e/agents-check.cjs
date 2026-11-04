@@ -307,8 +307,9 @@ async function main() {
 
 	await editor(doc => doc.querySelector('[data-action="stop"]').click());
 	await click(page.getByRole('button', { name: /^Encerrar/ }).last());
-	await waitFor(async () => (await sessionsOnHub()).length === 0, 'the Hub removes the session', 60000);
-	await waitFor(() => editor(doc => !!doc.querySelector('.welcome')), 'empty editor after ending the session');
+	await waitFor(async () => (await sessionsOnHub()).some(session => session.id === before.id && session.historical),
+		'the Hub archives the closed session', 60000);
+	await waitFor(() => editor(doc => doc.querySelector('#send').disabled), 'archived conversation is read-only');
 	check('10a. Encerrar ends the session and the Hub releases it', true);
 
 	await click(page.locator('.part.sidebar').getByText('sample.txt', { exact: true }).first());

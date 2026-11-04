@@ -7,6 +7,7 @@ export const FILES = {
 	lock: 'hub.lock',
 	log: 'hub.log',
 	recovery: 'recovery',
+	history: 'history',
 } as const;
 
 /**

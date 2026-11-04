@@ -7,6 +7,7 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import { CatalogResult, ModelSelection, sanitizeCatalog, serviceList, validateSelection } from './catalog';
+import { SessionHistory, Turn } from './history';
 import { HubEvent, ModelInfo, Session } from './protocol';
 import { currentWindowsUser, ensureSecureDir, readSecureFile, writeFileAtomic } from './secure';
 
@@ -274,17 +275,22 @@ interface Managed {
 export class OpenCodeSessions {
 	private readonly sessions = new Map<string, Managed>();
 	private readonly unrecoverable = new Map<string, Session>();
+	private readonly history?: SessionHistory;
 	private creating = 0;
 	private closed = false;
 	private readonly catalogs = new Map<string, { at: number; result: Promise<CatalogResult> }>();
 
-	constructor(private readonly publish: (event: Omit<HubEvent, 'seq'>) => void, private readonly recoveryDir?: string) { }
+	constructor(private readonly publish: (event: Omit<HubEvent, 'seq'>) => void, private readonly recoveryDir?: string, historyDir?: string) {
+		if (historyDir && process.platform === 'win32') { this.history = new SessionHistory(historyDir, helper); }
+	}
 
 	list(): Session[] {
-		return [...[...this.sessions.values()].map(item => ({ ...item.view })), ...this.unrecoverable.values()];
+		const historical = this.history?.list().filter(session => !this.sessions.has(session.id) && !this.unrecoverable.has(session.id)) ?? [];
+		return [...[...this.sessions.values()].map(item => ({ ...item.view })), ...this.unrecoverable.values(), ...historical];
 	}
 
 	async recover(): Promise<void> {
+		this.history?.load();
 		if (!this.recoveryDir || !existsSync(this.recoveryDir)) { return; }
 		const directory = this.recoveryDir;
 		const expectedExecutable = executable();
@@ -315,14 +321,14 @@ export class OpenCodeSessions {
 				stage = 'autentica��o HTTP';
 				const version = await server.ready();
 				stage = 'identidade da sess�o OpenCode';
-				const { data } = await server.request<{ data: { id: string; location: { directory: string }; outcome?: string; model?: RawModel; time: { busy?: number; idle?: number } } }>('state', record.remoteId);
+				const { data } = await server.request<{ data: { id: string; location: { directory: string }; outcome?: string; model?: RawModel; time: { created?: number; busy?: number; idle?: number } } }>('state', record.remoteId);
 				if (data.id !== record.remoteId || (await realpath(data.location.directory)).toLowerCase() !== record.workspace.toLowerCase()) {
 					throw new Error('different session');
 				}
 				const active = (data.time.busy ?? 0) > (data.time.idle ?? 0);
 				const item: Managed = { server, remoteId: record.remoteId, view: {
 					id, harness: 'opencode', title: 'OpenCode', workspace: record.workspace, version,
-					model: modelOf(data.model), status: active ? 'running' : 'idle'
+					model: modelOf(data.model), createdAt: data.time.created, updatedAt: Date.now(), status: active ? 'running' : 'idle'
 				} };
 				stage = 'fluxo SSE';
 				await this.subscribe(item);
@@ -367,7 +373,7 @@ export class OpenCodeSessions {
 			}
 			const item: Managed = {
 				server, remoteId,
-				view: { id: randomUUID(), harness: 'opencode', title: 'OpenCode', status: 'idle', workspace, version, model: modelOf(created.data.model) }
+				view: { id: randomUUID(), harness: 'opencode', title: 'OpenCode', status: 'idle', workspace, version, createdAt: Date.now(), updatedAt: Date.now(), model: modelOf(created.data.model) }
 			};
 			await this.subscribe(item);
 			if (this.closed) {
@@ -376,6 +382,7 @@ export class OpenCodeSessions {
 			if (this.recoveryDir) {
 				server.writeRecovery(this.recoveryDir, item.view.id, remoteId, workspace, exe);
 			}
+			this.history?.save(item.view);
 			this.sessions.set(item.view.id, item);
 			this.update(item, {});
 			return { ...item.view };
@@ -420,7 +427,9 @@ export class OpenCodeSessions {
 		if (item.run || !text.trim() || text.length > 16000) {
 			throw new OpenCodeError('Há uma tarefa ativa ou o prompt está vazio ou excede o limite.');
 		}
-		this.update(item, { status: 'waiting', prompt: text, summary: undefined, result: undefined });
+		const at = Date.now();
+		this.history?.save({ ...item.view, status: 'waiting', updatedAt: at }, { prompt: text, status: 'waiting', at });
+		this.update(item, { status: 'waiting', prompt: text, updatedAt: at, summary: undefined, result: undefined });
 		item.run = this.run(item, text).finally(() => { item.run = undefined; });
 	}
 
@@ -439,13 +448,47 @@ export class OpenCodeSessions {
 			const status = data.outcome === 'succeeded' ? 'done' : !data.outcome || data.outcome === 'interrupted' ? 'idle' : 'failed';
 			const prompt = text === undefined && userIndex >= 0 ? messages[userIndex].content
 				?.filter(part => part.type === 'text').map(part => part.text ?? '').join('').slice(0, 16000) : undefined;
-			this.update(item, { ...(prompt ? { prompt } : {}), status, result, model: modelOf(data.model) ?? item.view.model, summary: data.outcome === 'interrupted' ? 'Execução interrompida.'
+			this.update(item, { ...(prompt ? { prompt } : {}), status, result, updatedAt: Date.now(), model: modelOf(data.model) ?? item.view.model, summary: data.outcome === 'interrupted' ? 'Execução interrompida.'
 				: status === 'failed' ? `O OpenCode informou falha${http}. Confira o modelo e a autenticação na sua configuração do OpenCode.` : undefined });
+			const savedPrompt = text ?? prompt ?? this.history?.turns(item.view.id).at(-1)?.prompt;
+			if (savedPrompt) { this.saveTurn(item, savedPrompt); }
 		} catch (error) {
 			if (!item.closing) {
 				this.update(item, { status: 'failed', summary: error instanceof OpenCodeError ? error.message : 'A execução não pôde ser confirmada pelo OpenCode.' });
 			}
 		}
+	}
+
+	private saveTurn(item: Managed, prompt: string): void {
+		const last = this.history?.turns(item.view.id).at(-1);
+		try {
+			this.history?.save(item.view, { prompt, result: item.view.result, status: item.view.status,
+				at: last?.at ?? Date.now() }, !!last);
+		} catch {
+			this.update(item, { summary: 'O resultado foi recebido, mas n�o p�de ser salvo no hist�rico local.' });
+		}
+	}
+
+	private async scopedHistory(id: string, directory: string): Promise<Session> {
+		const workspace = await realpath(directory).catch(() => undefined);
+		const session = this.list().find(entry => entry.id === id);
+		if (!session?.workspace || !workspace || workspace.toLowerCase() !== session.workspace.toLowerCase()) {
+			throw new OpenCodeError('Hist�rico indispon�vel neste workspace.');
+		}
+		return session;
+	}
+
+	async historyFor(id: string, directory: string): Promise<Turn[]> {
+		await this.scopedHistory(id, directory);
+		return this.history?.turns(id) ?? [];
+	}
+
+	async deleteHistory(id: string, directory: string): Promise<{ deleted: boolean }> {
+		const session = await this.scopedHistory(id, directory);
+		if (!session.historical) { throw new OpenCodeError('Encerre a sess�o antes de excluir o hist�rico.'); }
+		this.history?.delete(id);
+		this.publish({ type: 'session.removed', sessionId: id });
+		return { deleted: true };
 	}
 
 	/**
@@ -528,7 +571,14 @@ export class OpenCodeSessions {
 				rmSync(join(this.recoveryDir, id + '.dpapi'), { force: true });
 			}
 			this.sessions.delete(id);
-			this.publish({ type: 'session.removed', sessionId: id });
+			if (this.history) {
+				const archived: Session = { ...item.view, historical: true, updatedAt: Date.now() };
+				this.history.save(archived);
+				const { prompt, result, ...metadata } = archived;
+				this.publish({ type: 'session.changed', sessionId: id, data: metadata });
+			} else {
+				this.publish({ type: 'session.removed', sessionId: id });
+			}
 		} catch (error) {
 			item.closing = false;
 			throw error;

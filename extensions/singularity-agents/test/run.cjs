@@ -232,7 +232,7 @@ test('the page keeps what is typed: the composer is drawn once and sessions are 
 	assert.ok(/app\.innerHTML = R\.shell\(\)/.test(main));
 	assert.ok(!/composer\.innerHTML|prompt\.innerHTML|prompt\.value = ''(?![\s\S]*'sent')/.test(main) || /data\.type === 'sent'/.test(main));
 	assert.ok(/el\.sessions\.innerHTML = /.test(main), 'only the sessions are redrawn');
-	assert.match(main, /setState\(\{ targetId, draft: el.prompt.value \}\)/);
+	assert.match(main, /setState\(\{ targetId, draft: el.prompt.value, drafts:/);
 	assert.match(main, /let state = \{ hub: \{ status: 'disconnected' \}/);
 });
 
@@ -240,7 +240,7 @@ test('the session in use survives an update that does not list it yet, and a sen
 	const main = read('media/main.js');
 	assert.ok(main.includes('targetSeen') && main.includes('targetSeen && connected()'), 'the session in use is dropped only if it was seen and the Hub is connected');
 	const ext = read('extension.js');
-	assert.ok(ext.includes('if (id && !existing)') && ext.includes('não existe mais no Hub'), 'a missing session in use is an error, never a new session');
+	assert.ok(ext.includes('if (id && (!existing || existing.historical || existing.recovery))') && ext.includes('não existe mais no Hub'), 'a missing session in use is an error, never a new session');
 });
 
 test('the right view only navigates; the central editor shows the selected result', () => {

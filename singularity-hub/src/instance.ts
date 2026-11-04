@@ -126,7 +126,7 @@ export async function startHub(options: StartOptions = {}): Promise<StartResult>
 		const token = newToken();
 		const instanceId = newId();
 		const startedAt = new Date().toISOString();
-		const server = new HubServer({ recoveryDir: file(home, 'recovery'), token, instanceId, startedAt, logger, limits: options.limits, onShutdownRequested: options.onShutdownRequested });
+		const server = new HubServer({ recoveryDir: file(home, 'recovery'), historyDir: file(home, 'history'), token, instanceId, startedAt, logger, limits: options.limits, onShutdownRequested: options.onShutdownRequested });
 		try {
 			const port = await server.listen();
 			const info: ConnectionInfo = { v: 1, instanceId, pid: process.pid, port, startedAt, hubVersion: HUB_VERSION, protocol: PROTOCOL };

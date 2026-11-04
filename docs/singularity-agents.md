@@ -60,3 +60,7 @@ cd singularity-hub && npm test                                    # 65 testes, i
 node scripts/e2e/agents-check.cjs --out <pasta> [--exe <exe>]     # IDE real, OpenCode real, teclado e mouse reais
 node scripts/e2e/chat-compat-check.cjs --out <pasta> [--exe <exe>] # compatibilidade do Chat para extensões de terceiros
 ```
+
+## Histórico local
+
+O Hub guarda até 20 turnos por sessão em arquivos DPAPI no subdiretório `history` do diretório de dados do Hub. Por padrão, esse diretório é `%LOCALAPPDATA%/Singularity/Hub`. O usuário pode excluir o histórico de uma sessão encerrada pelo cartão na lateral. Históricos encerrados expiram após 30 dias e são removidos na inicialização do Hub. Os logs técnicos seguem uma política separada. O histórico abre no workspace de origem e sessões encerradas são somente leitura.

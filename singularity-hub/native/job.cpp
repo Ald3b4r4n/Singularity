@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include <array>
+#include <vector>
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "crypt32.lib")
 #include <string>
@@ -15,7 +16,7 @@ static int protectRecord(bool decrypt) {
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1) {
         return 9;
     }
-    std::array<BYTE, 16385> buffer{};
+    std::vector<BYTE> buffer(1024 * 1024);
     const size_t size = std::fread(buffer.data(), 1, buffer.size(), stdin);
     if (!size || size == buffer.size() || std::ferror(stdin)) {
         SecureZeroMemory(buffer.data(), buffer.size());

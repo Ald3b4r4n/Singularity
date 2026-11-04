@@ -80,7 +80,7 @@ async function main() {
 		await client.request('session.prompt', { id, text: 'Write a long poem. Do not use tools or read or modify files.' });
 		const cancel = await client.request('session.interrupt', { id }, 15000);
 		await client.request('session.stop', { id }, 30000);
-		assert(!(await client.request('sessions.list')).some(session => session.id === id));
+		assert(!(await client.request('sessions.list')).some(session => session.id === id && !session.historical));
 		await assert.rejects(fs.stat(recordPath), { code: 'ENOENT' });
 		console.log(JSON.stringify({ version: created.version, model: terminal.model, terminal: terminal.status, diagnostic: terminal.summary, events: names, interrupted: cancel.interrupted, reconnect: true, jobTreeEmpty: true }, null, 2));
 	} finally {

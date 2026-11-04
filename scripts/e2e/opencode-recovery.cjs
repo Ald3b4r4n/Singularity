@@ -102,7 +102,7 @@ async function main() {
 		const cancel = await client.request('session.interrupt', { id: session.id });
 		assert(cancel.interrupted, 'recovered task was not interrupted');
 		await client.request('session.stop', { id: session.id }, 30000);
-		assert.deepEqual(await client.request('sessions.list'), []);
+		assert(!(await client.request('sessions.list')).some(item => item.id === session.id && !item.historical));
 
 		console.log('Recovered original session after SIGKILL, resumed SSE, interrupted and confirmed an empty Job Object.');
 	} finally {

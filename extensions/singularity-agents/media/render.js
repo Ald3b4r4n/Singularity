@@ -88,20 +88,21 @@
 	}
 
 	function renderSession(s, events, catalog) {
-		var label = s.recovery === 'unrecoverable' ? 'não recuperável' : SESSION_LABEL[s.status] || esc(s.status);
+		var label = s.historical ? 'histórico' : s.recovery === 'unrecoverable' ? 'não recuperável' : SESSION_LABEL[s.status] || esc(s.status);
 		var id = esc(s.id);
 		var effort = s.model ? '<span class="effort">' + esc(s.model.variant ? effortLabel(s.model.variant) : 'Padrão do modelo') + '</span>' : '';
 		return '<li class="session target" data-id="' + id + '" data-status="' + esc(s.status) + '">' +
 			'<div class="row"><span class="svc">' + esc(serviceName(catalog, s.harness)) + '</span>' +
 			'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + '<span>' + label + '</span></span></div>' +
 			'<div class="meta"><span class="model" title="' + esc(s.model ? s.model.providerID + '/' + s.model.modelID : '') + '">' + esc(modelLabel(catalog, s.model)) + '</span>' + effort + '</div>' +
+			(s.createdAt ? '<div class="workspace">' + esc(new Date(s.createdAt).toLocaleString()) + (s.updatedAt ? ' · ' + esc(new Date(s.updatedAt).toLocaleString()) : '') + '</div>' : '') +
 			(s.workspace ? '<div class="workspace" title="' + esc(s.workspace) + '">' + esc(folderName(s.workspace)) + '</div>' : '') +
 			(s.prompt ? '<section class="submitted"><h2>Tarefa enviada</h2><p>' + esc(s.prompt) + '</p></section>' : '') +
 			(s.summary ? '<div class="summary" role="status">' + esc(s.summary) + '</div>' : '') +
 			(s.result ? '<pre class="result" aria-label="Resultado">' + esc(s.result) + '</pre>' : '') +
 			(events.length ? '<ol class="events" aria-label="Eventos">' + events.slice(-3).map(function (e) { return '<li>' + esc(e.name) + '</li>'; }).join('') + '</ol>' : '') +
 			'<div class="session-actions">' +
-			(s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + '</div>' +
+			(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + '</div>' +
 			'</li>';
 	}
 
@@ -112,18 +113,24 @@
 				'<ul class="sessions">' + state.sessions.map(function (s) {
 					var id = esc(s.id);
 					return '<li class="session" data-id="' + id + '"><button type="button" class="session-link" data-action="use" data-id="' + id +
-						'"' + (s.id === targetId ? ' aria-current="true"' : '') + '><strong>' + (s.recovery === 'unrecoverable' ? 'Sessão não recuperável' : esc(serviceName(catalog, s.harness))) + '</strong>' +
+						'"' + (s.id === targetId ? ' aria-current="true"' : '') + '><strong>' + (s.recovery === 'unrecoverable' ? 'Sessão não recuperável' : 'Sessão ' + esc(s.id.slice(0, 8))) + '</strong>' +
 						'<span>' + esc(modelLabel(catalog, s.model)) + '</span><span>' + esc(folderName(s.workspace)) + '</span>' +
-						'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + esc(SESSION_LABEL[s.status] || s.status) + '</span></button>' +
-						(s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + '</li>';
+						'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + esc(s.historical ? 'histórico' : SESSION_LABEL[s.status] || s.status) + '</span></button>' +
+						(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + (s.historical ? '<button type="button" data-action="deleteHistory" data-id="' + id + '">Excluir histórico</button>' : '') + '</li>';
 				}).join('') + '</ul>');
 	}
 
-	function renderTarget(state, catalog, targetId) {
+	function renderTarget(state, catalog, targetId, transcript) {
 		var session = state.sessions.find(function (s) { return s.id === targetId; });
 		if (!session) { return welcome(); }
 		var events = (state.events || []).filter(function (event) { return event.sessionId === targetId; });
-		return '<ul class="sessions">' + renderSession(session, events, catalog) + '</ul>';
+		var turns = transcript || [];
+		var prior = session.historical || !session.prompt ? turns : turns.slice(0, -1);
+		var history = prior.map(function (turn) {
+			return '<li class="history-turn"><p><strong>Você</strong></p><div class="response-text">' + esc(turn.prompt) + '</div>' +
+				(turn.result ? '<p><strong>Agente</strong></p><div class="response-text">' + esc(turn.result) + '</div>' : '') + '</li>';
+		}).join('');
+		return '<ul class="sessions">' + history + renderSession(session, events, catalog) + '</ul>';
 	}
 
 	function hubLine(state) {

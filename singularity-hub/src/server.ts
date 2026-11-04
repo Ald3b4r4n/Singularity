@@ -32,6 +32,7 @@ export const DEFAULT_LIMITS: ServerLimits = {
 
 export interface ServerOptions {
 	recoveryDir?: string;
+	historyDir?: string;
 	token: string;
 	instanceId: string;
 	startedAt: string;
@@ -50,7 +51,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'catalog.get', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'catalog.get', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -72,7 +73,7 @@ export class HubServer {
 	private closed = false;
 
 	constructor(private readonly opts: ServerOptions) {
-		this.sessions = new OpenCodeSessions(event => this.publish(event), opts.recoveryDir);
+		this.sessions = new OpenCodeSessions(event => this.publish(event), opts.recoveryDir, opts.historyDir);
 		this.limits = { ...DEFAULT_LIMITS, ...opts.limits };
 		this.http = http.createServer((req, res) => this.onHttp(req, res));
 		this.wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxPayloadBytes, perMessageDeflate: false });
@@ -302,6 +303,8 @@ export class HubServer {
 			case 'session.setModel':
 			case 'session.interrupt':
 			case 'session.stop':
+			case 'session.history':
+			case 'session.deleteHistory':
 				return this.operateSession(method, request.params);
 			case 'session.subscribe':
 				return this.subscribe(client, request.params);
@@ -333,6 +336,10 @@ export class HubServer {
 		try {
 			if (method === 'session.create' && typeof p?.workspace === 'string') {
 				return await this.sessions.create(p.workspace, parseSelection(p.model));
+			}
+			if (typeof p?.id === 'string' && typeof p.workspace === 'string') {
+				if (method === 'session.history') { return await this.sessions.historyFor(p.id, p.workspace); }
+				if (method === 'session.deleteHistory') { return await this.sessions.deleteHistory(p.id, p.workspace); }
 			}
 			if (method !== 'session.create' && typeof p?.id === 'string') {
 				if (!this.sessions.has(p.id)) {
