@@ -103,6 +103,9 @@ body.vscode-dark .orbit .mark { filter: drop-shadow(0 0 12px var(--accent)); }
 }
 .actions { margin-inline-start: auto; }
 .field { min-width: 0; }
+/* Claude Code only: the permission mode is a fourth choice, on its own row so the other three keep their widths. */
+#permission-field { grid-column: 1 / -1; }
+#permission-field[hidden] { display: none; }
 .field label { display: block; }
 .composer > label, .field label, .note { font-size: .9em; color: var(--muted); }
 .note { margin: 0; }

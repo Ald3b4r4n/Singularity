@@ -78,7 +78,7 @@ export class HubSupervisor extends EventEmitter {
 		}
 	}
 
-	async sessionRequest(method: 'session.create' | 'session.prompt' | 'session.setModel' | 'session.interrupt' | 'session.stop' | 'session.history' | 'session.deleteHistory', params: unknown): Promise<unknown> {
+	async sessionRequest(method: 'session.create' | 'session.prompt' | 'session.setModel' | 'session.interrupt' | 'session.stop' | 'session.history' | 'session.deleteHistory' | 'session.reopen', params: unknown): Promise<unknown> {
 		if (!this.connection) {
 			throw new Error('Connect to the Singularity Hub first.');
 		}
@@ -219,7 +219,7 @@ export class HubSupervisor extends EventEmitter {
 		} else if (type === 'session.removed') {
 			this.set({ ...this.state, sessions: this.state.sessions.filter(item => item.id !== sessionId),
 				events: this.state.events?.filter(item => item.sessionId !== sessionId) });
-		} else if (type === 'opencode.event') {
+		} else if (type === 'opencode.event' || type === 'claude.event') {
 			const { name } = data as { name: string };
 			this.set({ ...this.state, events: [...(this.state.events ?? []), { sessionId, name, seq: event.seq }].slice(-80) });
 		}

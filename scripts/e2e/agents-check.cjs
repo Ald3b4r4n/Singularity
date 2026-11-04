@@ -177,7 +177,9 @@ async function main() {
 	const opencode = truth.providers.find(p => p.id === 'opencode');
 	const options = id => editor((doc, id) => [...doc.getElementById(id).options].map(o => ({ value: o.value, text: o.textContent, disabled: o.disabled })), id);
 	const integrations = await options('service');
-	check('3a. only OpenCode is enabled as a coding integration', integrations.filter(s => !s.disabled).map(s => s.value).join() === 'opencode');
+	const availableIds = truth.services.filter(s => s.status === 'available').map(s => s.id).sort().join();
+	check('3a. only integrations with a working adapter are enabled; Codex CLI and Gemini CLI are em breve',
+		integrations.filter(s => !s.disabled).map(s => s.value).sort().join() === availableIds && ['codex-cli', 'gemini-cli'].every(id => integrations.find(s => s.value === id)?.disabled && /em breve/.test(integrations.find(s => s.value === id).text)), integrations.map(s => s.text));
 	const modelKey = (providerId, modelId) => JSON.stringify([providerId, modelId]);
 	const modelKeys = truth.providers.flatMap(provider => provider.models.map(model => modelKey(provider.id, model.id)));
 	check('3b. the selector shows exactly the real catalog', JSON.stringify((await options('model')).map(m => m.value)) === JSON.stringify(modelKeys));

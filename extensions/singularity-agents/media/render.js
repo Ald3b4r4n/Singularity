@@ -10,11 +10,21 @@
 	var HUB_LABEL = { disconnected: 'não conectado', connecting: 'conectando', connected: 'conectado', error: 'com erro' };
 	var SESSION_LABEL = { running: 'em execução', waiting: 'aguardando', done: 'concluída', failed: 'falhou', idle: 'ociosa' };
 	var EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Extra alto', max: 'Máximo' };
+	var PERMISSIONS = [
+		{ value: '', label: 'Padrão (nega o que pedir aprovação)' },
+		{ value: 'plan', label: 'Somente planejar' },
+		{ value: 'acceptEdits', label: 'Aceitar edições de arquivos' }
+	];
 	var SERVICE_NOTE = { available: '', unavailable: ' (indisponível)', planned: ' (em breve)' };
 
 	function esc(value) {
 		return String(value === undefined || value === null ? '' : value)
 			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+	}
+
+	function permissionLabel(mode) {
+		for (var i = 0; i < PERMISSIONS.length; i++) { if (PERMISSIONS[i].value === (mode || '')) { return PERMISSIONS[i].label; } }
+		return String(mode);
 	}
 
 	/** Effort levels are the model's own ids. Known ones get a readable name; any other id is shown as the service gave it. */
@@ -71,7 +81,7 @@
 
 	function serviceName(catalog, id) {
 		var s = catalog && catalog.services ? find(catalog.services, id) : undefined;
-		return s ? s.name : (id === 'opencode' ? 'OpenCode' : String(id));
+		return s ? s.name : (id === 'opencode' ? 'OpenCode' : id === 'claude-code' ? 'Claude Code' : String(id));
 	}
 
 	/** "Provider name · Model name" for a model a session reports, using the catalog names when they are known. */
@@ -79,13 +89,16 @@
 		if (!model) { return 'modelo padrão do serviço'; }
 		var provider = catalog && catalog.providers ? find(catalog.providers, model.providerID) : undefined;
 		var known = provider ? find(provider.models, model.modelID) : undefined;
-		return (provider ? provider.name : model.providerID) + ' · ' + (known ? known.name : model.modelID);
+		return (provider ? provider.name : model.providerID === 'claude-code' ? 'Claude Code' : model.providerID) + ' · ' + (known ? known.name : model.modelID);
 	}
 
 	function folderName(path) {
 		var parts = String(path || '').replace(/[\\/]+$/, '').split(/[\\/]/);
 		return parts[parts.length - 1] || String(path || '');
 	}
+
+	/** An archived Claude Code session whose CLI conversation exists can be brought back; the next task resumes it. */
+	function canReopen(s) { return !!s.historical && s.harness === 'claude-code' && s.resumable === true; }
 
 	function renderSession(s, events, catalog) {
 		var label = s.historical ? 'histórico' : s.recovery === 'unrecoverable' ? 'não recuperável' : SESSION_LABEL[s.status] || esc(s.status);
@@ -97,12 +110,14 @@
 			'<div class="meta"><span class="model" title="' + esc(s.model ? s.model.providerID + '/' + s.model.modelID : '') + '">' + esc(modelLabel(catalog, s.model)) + '</span>' + effort + '</div>' +
 			(s.createdAt ? '<div class="workspace">' + esc(new Date(s.createdAt).toLocaleString()) + (s.updatedAt ? ' · ' + esc(new Date(s.updatedAt).toLocaleString()) : '') + '</div>' : '') +
 			(s.workspace ? '<div class="workspace" title="' + esc(s.workspace) + '">' + esc(folderName(s.workspace)) + '</div>' : '') +
+			(s.harness === 'claude-code' ? '<div class="workspace">Permissões: ' + esc(permissionLabel(s.permissionMode)) + '</div>' : '') +
 			(s.prompt ? '<section class="submitted"><h2>Tarefa enviada</h2><p>' + esc(s.prompt) + '</p></section>' : '') +
 			(s.summary ? '<div class="summary" role="status">' + esc(s.summary) + '</div>' : '') +
 			(s.result ? '<pre class="result" aria-label="Resultado">' + esc(s.result) + '</pre>' : '') +
 			(events.length ? '<ol class="events" aria-label="Eventos">' + events.slice(-3).map(function (e) { return '<li>' + esc(e.name) + '</li>'; }).join('') + '</ol>' : '') +
 			'<div class="session-actions">' +
-			(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + '</div>' +
+			(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') +
+			(canReopen(s) ? '<button type="button" data-action="reopen" data-id="' + id + '">Reabrir sessão</button>' : '') + '</div>' +
 			'</li>';
 	}
 
@@ -116,7 +131,7 @@
 						'"' + (s.id === targetId ? ' aria-current="true"' : '') + '><strong>' + (s.recovery === 'unrecoverable' ? 'Sessão não recuperável' : 'Sessão ' + esc(s.id.slice(0, 8))) + '</strong>' +
 						'<span>' + esc(modelLabel(catalog, s.model)) + '</span><span>' + esc(folderName(s.workspace)) + '</span>' +
 						'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + esc(s.historical ? 'histórico' : SESSION_LABEL[s.status] || s.status) + '</span></button>' +
-						(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + (s.historical ? '<button type="button" data-action="deleteHistory" data-id="' + id + '">Excluir histórico</button>' : '') + '</li>';
+						(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + (canReopen(s) ? '<button type="button" data-action="reopen" data-id="' + id + '">Reabrir</button>' : '') + (s.historical ? '<button type="button" data-action="deleteHistory" data-id="' + id + '">Excluir histórico</button>' : '') + '</li>';
 				}).join('') + '</ul>');
 	}
 
@@ -168,7 +183,8 @@
 			'<div class="toolbar"><div class="selectors">' +
 			'<div class="field"><label for="service">Provedor</label><select id="service"></select></div>' +
 			'<div class="field"><label for="model">Modelo</label><select id="model"></select></div>' +
-			'<div class="field"><label for="effort">Esforço</label><select id="effort"></select></div></div>' +
+			'<div class="field"><label for="effort">Esforço</label><select id="effort"></select></div>' +
+			'<div class="field" id="permission-field" hidden><label for="permission">Permissões</label><select id="permission"></select></div></div>' +
 			'<div class="actions"><button type="button" id="cancel" data-action="cancel" hidden>Cancelar tarefa</button>' +
 			'<button type="submit" id="send" class="primary" title="Enviar (Ctrl+Enter)">Enviar</button></div></div>' +
 			'<p id="note" class="note" role="status"></p></form>';
@@ -176,7 +192,8 @@
 
 	var api = {
 		renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
-		modelLabel: modelLabel, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE
+		modelLabel: modelLabel, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE,
+			PERMISSIONS: PERMISSIONS, permissionLabel: permissionLabel, canReopen: canReopen
 	};
 	if (typeof module !== 'undefined' && module.exports) { module.exports = api; } else { root.SingularityAgentsRender = api; }
 })(typeof window !== 'undefined' ? window : this);
