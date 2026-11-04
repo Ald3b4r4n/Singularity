@@ -303,7 +303,7 @@ export class OpenCodeSessions {
 		if (item.run || !text.trim() || text.length > 16000) {
 			throw new OpenCodeError('Há uma tarefa ativa ou o prompt está vazio ou excede o limite.');
 		}
-		this.update(item, { status: 'waiting', summary: undefined, result: undefined });
+		this.update(item, { status: 'waiting', prompt: text, summary: undefined, result: undefined });
 		item.run = this.run(item, text).finally(() => { item.run = undefined; });
 	}
 

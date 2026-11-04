@@ -6,6 +6,7 @@ const { selectionOf, same, text } = require('./selection.js');
 
 const VIEW_ID = 'singularity.agents.sessions';
 const EDITOR_ID = 'singularity.agents.editor';
+const FIRST_OPEN_KEY = 'singularity.agents.firstOpen';
 const PREFS_KEY = 'singularity.agents.prefs';
 const WORKSPACE_KEY = 'singularity.agents.workspace';
 
@@ -23,12 +24,12 @@ class AgentsViewProvider {
 		this._view = undefined;
 	}
 
-	open() {
+	open(preserveFocus = false) {
 		if (this._view) {
-			this._view.reveal();
+			this._view.reveal(undefined, preserveFocus);
 			return;
 		}
-		this.attachEditor(vscode.window.createWebviewPanel(EDITOR_ID, 'Agentes', vscode.ViewColumn.Active, {
+		this.attachEditor(vscode.window.createWebviewPanel(EDITOR_ID, 'Agentes', { viewColumn: vscode.ViewColumn.Active, preserveFocus }, {
 			retainContextWhenHidden: true
 		}));
 	}
@@ -41,7 +42,7 @@ class AgentsViewProvider {
 		view.webview.onDidReceiveMessage(async message => {
 			if (message?.type === 'ready') {
 				this._postSessions();
-			} else if (message?.type === 'use' && this._hub.getState().sessions.some(session => session.id === message.id)) {
+			} else if (message?.type === 'use' && !this._sending && this._hub.getState().sessions.some(session => session.id === message.id)) {
 				this._targetId = message.id;
 				this.open();
 				this._view.webview.postMessage({ type: 'use', id: message.id });
@@ -166,7 +167,9 @@ class AgentsViewProvider {
 			return;
 		}
 		if (message?.type === 'send') {
-			await this._send(message);
+			if (this._sending) { return; }
+			this._sending = true;
+			try { await this._send(message); } finally { this._sending = false; }
 			return;
 		}
 		if (typeof message?.id !== 'string') {
@@ -273,10 +276,7 @@ function activate(context) {
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),
 		vscode.window.registerWebviewPanelSerializer(EDITOR_ID, { deserializeWebviewPanel: async (view, saved) => provider.attachEditor(view, saved) }),
 		{ dispose: hub.onDidChange(() => provider._post()) },
-		vscode.commands.registerCommand('singularity.agents.open', () => {
-			provider.open();
-			return vscode.commands.executeCommand('workbench.view.extension.singularityAgents', { preserveFocus: true });
-		}),
+		vscode.commands.registerCommand('singularity.agents.open', () => provider.open()),
 		vscode.commands.registerCommand('singularity.hub.updateState', async () => {
 			await hub.start(false);
 			return hub.getState().hub.status;
@@ -291,6 +291,15 @@ function activate(context) {
 		}),
 		vscode.commands.registerCommand('singularity.agents.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:singularity.singularity-agents'))
 	);
+
+	// Open after the startup editors have been restored, preserving Welcome or the file already in focus.
+	if (!context.globalState.get(FIRST_OPEN_KEY)) {
+		void context.globalState.update(FIRST_OPEN_KEY, true).then(() => {
+			const preserveFocus = !!vscode.window.tabGroups.activeTabGroup.activeTab;
+			provider.open(preserveFocus);
+			return vscode.commands.executeCommand(VIEW_ID + '.focus', { preserveFocus: true });
+		});
+	}
 
 	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 	// At startup only look for a Hub that is already running; nothing is started until the panel is opened.

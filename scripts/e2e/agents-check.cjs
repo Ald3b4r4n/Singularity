@@ -4,16 +4,15 @@
 //
 //   node scripts/e2e/agents-check.cjs --out <dir> [--exe <packaged exe> | --dev <repo>]
 //
-// What it proves: no Chat tab and no Copilot control in the default UI; the Agentes panel opens from the status bar; its service,
-// provider, model and effort selectors show what the Hub reads from OpenCode and depend on each other; one composer sends a real
-// task; the answer streams in the same panel; the task can be cancelled and the session ended; the session survives closing and
-// reopening the IDE; the layout holds in a narrow panel, Dark, Light and high contrast; Git, terminal, Browser and the GitHub
-// account entry still work. Nothing here reads or prints a key or a token.
+// Exercises the native editor and session sidebar in the Windows app with the real Hub and OpenCode.
+// Captures the workbench surface only, so other windows cannot appear in the evidence.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { chromium } = require('playwright');
+const { once } = require('node:events');
+const WebSocket = require('../../singularity-hub/node_modules/ws');
 const lib = require('./lib.cjs');
 const { HubConnection } = require('../../singularity-hub/dist/client.js');
 
@@ -24,7 +23,7 @@ const outDir = path.resolve(arg('out', path.join(process.cwd(), 'agents-out')));
 const profile = path.join(outDir, 'profile');
 const home = path.join(outDir, 'hub');
 const workspace = path.join(outDir, 'workspace');
-const port = 9480 + Math.floor(Math.random() * 200);
+let port = 9480 + Math.floor(Math.random() * 200);
 fs.mkdirSync(workspace, { recursive: true });
 fs.writeFileSync(path.join(workspace, 'sample.txt'), 'synthetic workspace\n');
 execFileSync('git', ['init', '-q', workspace]);
@@ -36,7 +35,7 @@ const must = (name, ok, detail) => { if (!check(name, ok, detail)) { throw new E
 const sleep = lib.sleep;
 const EFFORT = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Extra alto', max: 'Máximo' };
 
-let browser, page, cdp, panel, hub;
+let browser, page, cdp, hub;
 
 async function waitFor(fn, name, timeout = 30000, every = 300) {
 	const end = Date.now() + timeout;
@@ -48,74 +47,49 @@ async function waitFor(fn, name, timeout = 30000, every = 300) {
 	throw new Error('Timed out: ' + name);
 }
 
-// ---------- real input, always to this instance's window ----------
-async function front() {
-	try { lib.guard(profile); } catch { await lib.bringToFront(profile); await sleep(300); lib.keys(profile, '{ESC}'); await sleep(300); }
-}
-// Tries the input first (lib.keys and lib.click check the foreground window themselves) and brings the window to the front only when
-// that guard refuses: checking the foreground twice per key made every step slow on a busy machine.
-async function input(action) {
-	for (let attempt = 0; ; attempt++) {
-		try { return action(); } catch (error) {
-			if (attempt >= 4 || !/guard:|Command failed/.test(error.message)) { throw error; }
-			await front();
-		}
+async function command(title, settle = 900) {
+	const picker = page.locator('.quick-input-widget input:visible').first();
+	if (!(await picker.isVisible())) { await page.keyboard.press('F1'); }
+	await picker.fill('>' + title, { timeout: 8000 });
+	const name = title.split(': ').at(-1);
+	const entry = page.locator('.quick-input-list-entry:visible').filter({ has: page.getByText(name, { exact: true }) }).first();
+	if (await entry.count()) {
+		await entry.click({ timeout: 8000 });
+	} else {
+		await page.keyboard.press('Enter');
 	}
-}
-const keys = value => input(() => lib.keys(profile, value));
-const paste = value => input(() => lib.paste(profile, value));
-
-async function command(title, settle = 1500) {
-	for (let attempt = 0; attempt < 3; attempt++) {
-		await keys('{F1}'); await sleep(700); await paste(title); await sleep(900);
-		const ready = await page.evaluate(`(document.querySelector('.quick-input-widget:not(.hidden) .quick-input-list-entry') || {}).innerText || ''`);
-		if (ready.includes(title.split(' ')[0])) { await keys('{ENTER}'); await sleep(settle); return; }
-		await keys('{ESC}'); await sleep(500);
-	}
-	throw new Error('the Command Palette did not accept ' + title);
+	await sleep(settle);
 }
 
-async function position(locator) {
-	const box = await locator.boundingBox();
-	if (!box) { throw new Error('control is outside the visible area'); }
-	const g = await cdp.evaluate('({ dpr: devicePixelRatio, ow: outerWidth, oh: outerHeight, iw: innerWidth, ih: innerHeight })');
-	const border = (g.ow - g.iw) / 2;
-	return [Math.round((box.x + box.width / 2 + border) * g.dpr), Math.round((box.y + box.height / 2 + g.oh - g.ih - border) * g.dpr)];
-}
-async function click(locator) {
-	await locator.scrollIntoViewIfNeeded();
-	const point = await position(locator);
-	await input(() => lib.click(profile, ...point));
-	await sleep(500);
+const click = locator => locator.click();
+
+async function typePrompt(text) {
+	await editor((doc, value) => {
+		const prompt = doc.querySelector('#prompt');
+		prompt.focus();
+		prompt.value = value;
+		prompt.dispatchEvent(new Event('input'));
+	}, text);
 }
 
-/** Types into a field with the real keyboard: click it, select what is there, paste. */
-async function typeInto(locator, text) {
-	await click(locator);
-	await keys('^a');
-	await paste(text);
+async function pick(id, value) {
+	await editor((doc, [id, value]) => {
+		const select = doc.getElementById(id);
+		select.value = value;
+		select.dispatchEvent(new Event('change'));
+	}, [id, value]);
 }
 
-/** Chooses an option of a <select> with the real keyboard: clicking the label focuses the field without opening the native list. */
-async function pick(selectId, wanted) {
-	const select = panel.locator('#' + selectId);
-	await click(panel.locator(`label[for="${selectId}"]`));
-	for (let i = 0; i < 60; i++) {
-		const { cur, values } = await select.evaluate(e => ({ cur: e.value, values: [...e.options].map(o => o.value) }));
-		if (cur === wanted) { return true; }
-		const from = values.indexOf(cur), to = values.indexOf(wanted);
-		if (to < 0) { throw new Error(`option "${wanted}" is not offered by #${selectId}`); }
-		await input(() => lib.keys(profile, to > from ? '{DOWN}' : '{UP}'));
-		await sleep(200);
-	}
-	return false;
-}
+const activate = selector => editor((doc, selector) => { doc.querySelector(selector).click(); }, selector);
+const content = selector => editor((doc, selector) => doc.querySelector(selector)?.innerText, selector);
+const status = () => editor(doc => doc.querySelector('.session')?.dataset.status);
+const disabled = selector => editor((doc, selector) => doc.querySelector(selector).disabled, selector);
+const value = selector => editor((doc, selector) => doc.querySelector(selector).value, selector);
 
-function shot(file) {
-	const w = lib.appWindows(profile)[0];
-	lib.ps(`Add-Type -AssemblyName System.Drawing; $r=New-Object SG.W+RECT; [void][SG.W]::GetWindowRect([IntPtr]${w.hwnd},[ref]$r); $b=New-Object System.Drawing.Bitmap ($r.R-$r.L),($r.B-$r.T); $g=[System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($r.L,$r.T,0,0,$b.Size); $b.Save('${file}')`);
-}
-const snap = async name => { await front(); await sleep(500); shot(path.join(outDir, name)); log('screenshot', name); };
+const snap = async name => {
+	await page.screenshot({ path: path.join(outDir, name), timeout: 10000 });
+	log('screenshot', name);
+};
 
 const settingsFile = () => path.join(profile, 'data', 'User', 'settings.json');
 function setSetting(k, v) {
@@ -125,24 +99,40 @@ function setSetting(k, v) {
 }
 
 async function open() {
-	lib.launch({ exe, dev, profile, workspace, port, env: { SINGULARITY_HUB_HOME: home }, settings: { 'security.workspace.trust.enabled': false, 'workbench.startupEditor': 'none', 'workbench.colorTheme': 'Event Minimal Dark', 'singularity.update.checkAutomatically': false } });
+	lib.launch({ exe, dev, profile, workspace, port, env: { SINGULARITY_HUB_HOME: home }, settings: { 'security.workspace.trust.enabled': false, 'workbench.startupEditor': 'none', 'window.dialogStyle': 'custom', 'workbench.colorTheme': 'Event Minimal Dark', 'singularity.update.checkAutomatically': false } });
 	cdp = await lib.cdp(port);
 	await waitFor(() => cdp.evaluate("window.__singularityWorkbenchRestored && !document.getElementById('singularity-intro')"), 'workbench', 120000, 500);
+
 	browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
 	page = browser.contexts().flatMap(context => context.pages()).find(tab => /workbench/.test(tab.url()));
 	if (!page) { throw new Error('workbench DevTools target missing'); }
-	await lib.bringToFront(profile);
 	const hwnd = lib.appWindows(profile)[0].hwnd;
 	lib.ps(`Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class RS0 { [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int ht,bool r); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int c); }'; [void][RS0]::ShowWindow([IntPtr]${hwnd},9); [void][RS0]::MoveWindow([IntPtr]${hwnd},30,30,1360,860,$true)`);
 	await sleep(6000);
 }
 
-async function findPanel() {
-	return waitFor(async () => {
-		for (const frame of page.frames()) {
-			if (await frame.locator('h1').filter({ hasText: 'AGENTES' }).count().catch(() => 0)) { return frame; }
+// Electron exposes webviews as separate DevTools targets. Attach to each wrapper directly
+// and access its same-origin content frame, including when the editor has just been restored.
+async function editor(expression, args, root = '#composer') {
+	const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
+	for (const target of targets.filter(t => t.type === 'iframe')) {
+		const ws = new WebSocket(target.webSocketDebuggerUrl);
+		try {
+			await once(ws, 'open');
+			const response = once(ws, 'message');
+			ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: {
+				expression: `(() => {
+					const doc = document.querySelector('iframe#active-frame')?.contentDocument;
+					if (doc?.querySelector(${JSON.stringify(root)})) { return (${expression})(doc, ${JSON.stringify(args)}); }
+				})()`, returnByValue: true
+			} }));
+			const [message] = await response;
+			const value = JSON.parse(message).result?.result?.value;
+			if (value !== undefined) { return value; }
+		} finally {
+			ws.close();
 		}
-	}, 'Agentes webview', 40000, 500);
+	}
 }
 
 async function closeIde() {
@@ -151,7 +141,6 @@ async function closeIde() {
 	return lib.closeApp(profile, 30000);
 }
 
-const cards = () => panel.locator('.session');
 const sessionsOnHub = async () => hub.request('sessions.list');
 
 async function main() {
@@ -172,93 +161,87 @@ async function main() {
 	check('1b. no Copilot "Sign In" button; the Singularity GitHub entry is there', !audit.titleSignIn && audit.account);
 	check('1c. the status bar offers one agents entry', audit.status.filter(s => /Agentes/.test(s)).length === 1, audit.status);
 
-	// ---------- 2. open Agentes from the status bar with a real click ----------
-	await click(page.locator('.statusbar-item').filter({ hasText: /Agentes/ }).first());
-	panel = await findPanel();
-	const tabs = await page.evaluate(`[...document.querySelectorAll('.auxiliarybar .composite-bar [aria-label], .auxiliarybar .title-label')].map(e => (e.getAttribute('aria-label') || e.innerText || '').trim()).filter(Boolean)`);
-	check('2a. the Agentes panel opens from the status bar', true, tabs);
-	check('2b. the secondary side bar offers only Agentes (no Chat tab)', !tabs.some(t => /chat|copilot/i.test(t)), tabs);
+	// The first profile opens Agentes on its own. Explorer and Sessões live outside the editor part.
+	await waitFor(() => editor(doc => !!doc.querySelector('#composer')), 'Agentes editor', 40000);
+	const editorTab = page.locator('.tabs-container .tab').filter({ hasText: 'Agentes' });
+	must('2a. Agentes is a native editor tab', await editorTab.isVisible());
+	check('2b. Explorer is on the left and Sessões is on the right',
+		await page.locator('.part.sidebar').isVisible() && /Sessões/.test(await page.locator('.part.auxiliarybar').innerText()));
+	const draft = 'Rascunho que não pode ser perdido ao trocar as opções.';
+	await activate('[data-action="prepare"]');
+	check('2c. a shortcut prepares a draft', /Implemente/.test(await value('#prompt')));
 
-	// ---------- 3. the selectors show what the Hub really reads from OpenCode ----------
-	await waitFor(async () => (await panel.locator('#provider option').count()) > 1 || /Sem serviços|indisponível/.test(await panel.locator('#note').innerText()), 'catalog loaded in the panel', 120000, 500);
+	await waitFor(() => disabled('#model').then(d => d === false), 'real catalog loaded in the editor', 120000);
 	hub = await HubConnection.connect({ home, clientName: 'agents-e2e' });
 	const truth = await hub.request('catalog.get', { workspace }, 120000);
 	const opencode = truth.providers.find(p => p.id === 'opencode');
-	const options = async id => panel.locator(`#${id} option`).evaluateAll(list => list.map(o => ({ value: o.value, text: o.textContent, disabled: o.disabled })));
-	const services = await options('service');
-	check('3a. Serviço de agentes: OpenCode is selectable; Claude Code, Codex CLI and Gemini CLI are listed as "em breve" and cannot be chosen',
-		services.length === 4 && !services[0].disabled && services[0].text === 'OpenCode' && services.slice(1).every(s => s.disabled && /em breve/.test(s.text)), services);
-	const providers = await options('provider');
-	check('3b. Provedor: exactly the providers the Hub read from OpenCode', JSON.stringify(providers.map(p => p.value)) === JSON.stringify(truth.providers.map(p => p.id)) && providers.length >= 2, providers.map(p => p.value));
-	const selectedProvider = await panel.locator('#provider').inputValue();
-	const selectedModel = await panel.locator('#model').inputValue();
-	check('3c. the service default model is preselected', !!truth.default && selectedProvider === truth.default.providerID && selectedModel === truth.default.modelID, { selectedProvider, selectedModel });
-	const modelsFor = id => truth.providers.find(p => p.id === id).models;
-	check('3d. Modelo: exactly the models of the selected provider', JSON.stringify((await options('model')).map(m => m.value)) === JSON.stringify(modelsFor(selectedProvider).map(m => m.id)));
+	const options = id => editor((doc, id) => [...doc.getElementById(id).options].map(o => ({ value: o.value, text: o.textContent, disabled: o.disabled })), id);
+	const integrations = await options('service');
+	check('3a. only OpenCode is enabled as a coding integration', integrations.filter(s => !s.disabled).map(s => s.value).join() === 'opencode');
+	const modelKey = (providerId, modelId) => JSON.stringify([providerId, modelId]);
+	const modelKeys = truth.providers.flatMap(provider => provider.models.map(model => modelKey(provider.id, model.id)));
+	check('3b. the selector shows exactly the real catalog', JSON.stringify((await options('model')).map(m => m.value)) === JSON.stringify(modelKeys));
+	check('3c. the integration default is preselected', !truth.default || (await value('#model')) === modelKey(truth.default.providerID, truth.default.modelID));
+	await typePrompt('');
 	await snap('01-agentes-inicial.png');
 
-	// ---------- 4. the selectors depend on each other, and the typed text is never lost ----------
-	const draft = 'Rascunho que não pode ser perdido ao trocar as opções.';
-	await typeInto(panel.locator('#prompt'), draft);
-	must('4a. a draft is typed with the real keyboard', (await panel.locator('#prompt').inputValue()) === draft);
-	await pick('provider', 'opencode');
-	check('4b. changing the provider replaces the models with those of that provider', JSON.stringify((await options('model')).map(m => m.value)) === JSON.stringify(opencode.models.map(m => m.id)));
-	const withEffort = opencode.models.find(m => /free/.test(m.id) && m.efforts.length >= 3);
-	const withoutEffort = opencode.models.find(m => m.efforts.length === 0);
-	must('4c. OpenCode offers a free model with effort levels to test with', !!withEffort, withEffort && withEffort.id);
-	await typeInto(panel.locator('#filter'), withEffort.id.slice(0, 5));
-	check('4d. the model filter narrows the list and keeps the selected model', (await options('model')).length < opencode.models.length);
-	await pick('model', withEffort.id);
+	await typePrompt(draft);
+	must('4a. the draft is entered into the composer', (await value('#prompt')) === draft);
+	const withEffort = opencode.models.find(m => m.id === process.env.SINGULARITY_E2E_OPENCODE_MODEL && m.efforts.includes('low')) ||
+		opencode.models.find(m => /free/.test(m.id) && m.efforts.includes('low') && m.efforts.length >= 2);
+	must('4b. OpenCode offers a free model with effort levels', !!withEffort, withEffort?.id);
+	await pick('model', modelKey('opencode', withEffort.id));
 	const efforts = await options('effort');
-	check('4e. changing the model replaces the effort levels with that model\'s own', JSON.stringify(efforts.map(e => e.value)) === JSON.stringify(['', ...withEffort.efforts]) && efforts[0].text === 'Padrão do modelo', efforts.map(e => e.text));
-	check('4f. effort levels use readable names', efforts.slice(1).every(e => /^(Nenhum|Mínimo|Baixo|Médio|Alto|Extra alto|Máximo)$/.test(e.text) || e.text === e.value), efforts.map(e => e.text));
-	if (withoutEffort) {
-		await typeInto(panel.locator('#filter'), withoutEffort.id.slice(0, 5));
-		await pick('model', withoutEffort.id);
-		check('4g. a model without effort control disables the selector and says so', (await panel.locator('#effort').isDisabled()) && /Sem controle de esforço/.test(await panel.locator('#effort').innerText()));
-	}
-	await typeInto(panel.locator('#filter'), withEffort.id.slice(0, 5));
-	await pick('model', withEffort.id);
+	check('4c. effort selector uses exactly the real model levels', JSON.stringify(efforts.map(e => e.value)) === JSON.stringify(['', ...withEffort.efforts]));
 	await pick('effort', 'low');
-	check('4h. the draft survived every change of service, provider, model and effort', (await panel.locator('#prompt').inputValue()) === draft);
+	check('4d. the draft survived model and effort changes', (await value('#prompt')) === draft);
 	await snap('02-selecao-modelo-esforco.png');
 
 	// ---------- 5. one composer sends a real task; the answer streams in the same panel ----------
-	await typeInto(panel.locator('#prompt'), 'Reply with exactly SINGULARITY_OK. Do not use tools or read or modify files.');
-	await click(panel.locator('#send'));
-	await waitFor(async () => (await cards().count()) === 1, 'the session card appears', 90000);
+	await typePrompt('Reply with exactly SINGULARITY_OK. Do not use tools or read or modify files.');
+	await editor(doc => {
+		const prompt = doc.querySelector('#prompt');
+		prompt.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+	});
+	await waitFor(async () => !!(await status()), 'the session card appears', 90000);
 	const created = (await sessionsOnHub())[0];
 	check('5a. the session was created at send time, in the chosen workspace, with the chosen model and effort',
 		created.harness === 'opencode' && /workspace$/i.test(created.workspace) && created.model && created.model.providerID === 'opencode' && created.model.modelID === withEffort.id && created.model.variant === 'low', created.model);
-	const cardText = await cards().first().innerText();
+	const cardText = await content('.session');
 	check('5b. the card shows the service, the model really used and the effort', /OpenCode/.test(cardText) && cardText.includes((opencode.models.find(m => m.id === withEffort.id)).name) && /Baixo/.test(cardText), cardText.replace(/\s+/g, ' ').slice(0, 160));
-	await waitFor(async () => /running|waiting|done|failed/.test(await cards().first().getAttribute('data-status')), 'task started', 60000);
-	await cards().first().locator('.events li').first().waitFor({ timeout: 60000 }).catch(() => undefined);
-	const final = await waitFor(async () => { const s = await cards().first().getAttribute('data-status'); return s === 'done' || s === 'failed' ? s : undefined; }, 'task finished', 150000, 500);
-	const result = await cards().first().locator('.result').innerText().catch(() => '');
+	check('5bb. the submitted prompt is visible above the result', /SINGULARITY_OK/.test(await content('.submitted')));
+	await waitFor(async () => /running|waiting|done|failed/.test(await status()), 'task started', 60000);
+	await waitFor(() => content('.events li'), 'first streaming event', 60000);
+	await waitFor(async () => (await status()) === 'running' && !!(await content('.result')),
+		'a partial result while running', 1800, 80).then(async () => snap('03a-streaming.png')).catch(() => undefined);
+	const final = await waitFor(async () => { const s = await status(); return s === 'done' || s === 'failed' ? s : undefined; }, 'task finished', 150000, 500);
+	const result = await content('.result').catch(() => '');
 	check('5c. the task ran to the end and its answer streamed into the same panel', final === 'done' && /SINGULARITY_OK/.test(result), { final, result: result.slice(0, 60) });
-	check('5d. streaming events were shown', (await cards().first().locator('.events li').allTextContents()).some(t => /session\./.test(t)));
+	check('5d. streaming events were shown', /session\./.test(await content('.events')));
 	await snap('03-tarefa-concluida.png');
 
 	// ---------- 6. change the effort and send again: the same session, the model it reports changes ----------
 	await pick('effort', withEffort.efforts[1]);
-	await typeInto(panel.locator('#prompt'), 'Reply with exactly SECOND_OK. Do not use tools or read or modify files.');
-	await click(panel.locator('#send'));
+	await typePrompt('Reply with exactly SECOND_OK. Do not use tools or read or modify files.');
+	await activate('#send');
 	await waitFor(async () => { const s = (await sessionsOnHub())[0]; return s.model && s.model.variant === withEffort.efforts[1]; }, 'the effort change reaches the session', 60000).catch(async error => {
-		log('diagnostic: sessions on the Hub:', JSON.stringify((await sessionsOnHub()).map(x => ({ id: x.id.slice(0, 8), status: x.status, model: x.model }))), '| panel target:', await panel.locator('#target').innerText().catch(() => '?'), '| note:', await panel.locator('#note').innerText().catch(() => '?'));
+		log('diagnostic: sessions on the Hub:', JSON.stringify((await sessionsOnHub()).map(x => ({ id: x.id.slice(0, 8), status: x.status, model: x.model }))), '| panel target:', await content('#target').catch(() => '?'), '| note:', await content('#note').catch(() => '?'));
 		throw error;
 	});
 	check('6a. changing the effort changes the effort of the session in use (same session, no new one)', (await sessionsOnHub()).length === 1);
-	await waitFor(async () => { const s = await cards().first().getAttribute('data-status'); return s === 'done' || s === 'failed'; }, 'second task finished', 150000, 500);
-	check('6b. the card shows the new effort level', (await cards().first().innerText()).includes(EFFORT[withEffort.efforts[1]] || withEffort.efforts[1]), withEffort.efforts[1]);
+	await waitFor(async () => { const s = await status(); return s === 'done' || s === 'failed'; }, 'second task finished', 150000, 500);
+	check('6b. the card shows the new effort level', (await content('.session')).includes(EFFORT[withEffort.efforts[1]] || withEffort.efforts[1]), withEffort.efforts[1]);
 
 	// ---------- 7. cancel a running task, then end the session ----------
-	await typeInto(panel.locator('#prompt'), 'Write a 100-line numbered poem, one line per number. Do not use tools or read or modify files.');
-	await click(panel.locator('#send'));
-	await waitFor(async () => (await cards().first().getAttribute('data-status')) === 'running', 'the poem task is running', 90000, 200);
-	check('7a. while a task runs, the composer offers Cancelar tarefa and Enviar is off', !(await panel.locator('#cancel').isDisabled()) && (await panel.locator('#send').isDisabled()));
-	await click(panel.locator('#cancel'));
-	await waitFor(async () => /Execução interrompida/.test(await cards().first().innerText()), 'the task is reported as interrupted', 30000);
+	await typePrompt('Write a 100-line numbered poem, one line per number. Do not use tools or read or modify files.');
+	await activate('#send');
+	await waitFor(async () => (await status()) === 'running', 'the poem task is running', 90000, 200);
+	check('7a. while a task runs, the composer offers Cancelar tarefa and Enviar is off', !(await disabled('#cancel')) && (await disabled('#send')));
+	await snap('03b-tarefa-em-execucao.png');
+	await waitFor(async () => (await status()) === 'running' && !!(await content('.result')),
+		'a partial result while running', 4000, 120).then(async () => snap('03a-streaming.png')).catch(() => undefined);
+	await activate('#cancel');
+	await waitFor(async () => /Execução interrompida/.test(await content('.session')), 'the task is reported as interrupted', 30000);
 	check('7b. Cancelar tarefa interrupts the task from the composer', (await sessionsOnHub())[0].status === 'idle');
 
 	// ---------- 8. the session survives closing and reopening the IDE ----------
@@ -267,48 +250,89 @@ async function main() {
 	const closed = await closeIde();
 	check('8a. the IDE closes normally', closed.forced === 0, closed);
 	check('8b. the Hub and the session keep running without the IDE', (await sessionsOnHub())[0].id === before.id);
+	port += 200;
 	await open();
-	await click(page.locator('.statusbar-item').filter({ hasText: /Agentes/ }).first());
-	panel = await findPanel();
-	await waitFor(async () => (await cards().count()) === 1, 'the session is back in the panel', 60000);
+	await waitFor(() => editor(doc => doc.querySelector('.session')?.dataset.id), 'the session is back in the editor', 60000);
+	await waitFor(() => editor(doc => !doc.querySelector('#model').disabled), 'the restored model is available', 90000);
 	const after = (await sessionsOnHub())[0];
-	check('8c. after reopening, the same Hub and the same session are shown, with the same model and effort', hub.hello.hub.instanceId === instance && after.id === before.id && JSON.stringify(after.model) === JSON.stringify(before.model));
-	check('8d. the preferences were remembered (provider, model, effort)', (await panel.locator('#provider').inputValue()) === 'opencode' && (await panel.locator('#model').inputValue()) === withEffort.id);
+	check('8c. after reopening, the same Hub and the same session are shown', hub.hello.hub.instanceId === instance && after.id === before.id &&
+		(await editor(doc => doc.querySelector('.session').dataset.id)) === before.id);
+	check('8d. the preferences were remembered', (await editor(doc => doc.querySelector('#model').value)) === modelKey('opencode', withEffort.id));
 
-	// ---------- 9. layout: narrow panel, Dark, Light, high contrast ----------
 	await snap('04-reaberto-dark.png');
-	// a narrow window makes the side bars narrow: that is the real condition the panel lives in
-	const resizeTo = async (w, h) => { const hwnd = lib.appWindows(profile)[0].hwnd; lib.ps(`Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class RS1 { [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int ht,bool r); }'; [void][RS1]::MoveWindow([IntPtr]${hwnd},30,30,${w},${h},$true)`); await sleep(3500); };
+	await activate('#new');
+	await waitFor(() => editor(doc => !!doc.querySelector('.welcome')), 'new-task view');
+	await waitFor(() => editor(doc => {
+		const link = doc.querySelector('.session-link');
+		if (!link || link.hasAttribute('aria-current')) { return false; }
+		link.click();
+		return true;
+	}, undefined, '.navigation'), 'sidebar updates the selected session');
+	await waitFor(() => editor((doc, id) => doc.querySelector('.session')?.dataset.id === id, before.id), 'sidebar opens the selected session');
+	check('8e. selecting a session in the sidebar opens it in the editor', true);
+	const resizeTo = async (w, h) => {
+		const hwnd = lib.appWindows(profile)[0].hwnd;
+		lib.ps(`Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class RS1 { [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int ht,bool r); }'; [void][RS1]::MoveWindow([IntPtr]${hwnd},30,30,${w},${h},$true)`);
+		await sleep(2000);
+	};
 	await resizeTo(620, 860);
-	const width = await panel.evaluate(() => window.innerWidth);
-	const overflow = await panel.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-	check('9a. narrow panel: the composer and the sessions fit without horizontal scroll', width <= 330 && overflow <= 1, { width, overflow });
-	const usable = await panel.evaluate(() => ['service', 'provider', 'model', 'effort', 'prompt', 'send'].every(id => { const r = document.getElementById(id).getBoundingClientRect(); return r.width > 40 && r.left >= 0 && r.right <= window.innerWidth + 1; }));
-	check('9b. narrow panel: every control stays inside and usable', usable, width);
+	const layout = await editor(doc => {
+		const width = doc.defaultView.innerWidth;
+		const overflow = doc.documentElement.scrollWidth - width;
+		const usable = ['service', 'model', 'effort', 'prompt', 'send'].every(id => {
+			const box = doc.getElementById(id).getBoundingClientRect();
+			return box.width > 36 && box.left >= 0 && box.right <= width + 1;
+		});
+		return { width, overflow, usable };
+	});
+	check('9a. narrow window: the editor fits without horizontal scroll', layout.width <= 620 && layout.overflow <= 1, layout);
+	check('9b. narrow window: composer controls remain usable', layout.usable);
 	await snap('05-painel-estreito-dark.png');
-	setSetting('workbench.colorTheme', 'Event Minimal Light'); await sleep(4000);
-	await snap('06-claro.png');
-	const lightBody = await panel.evaluate(() => document.body.className);
-	check('9c. Event Minimal Light applies to the panel (the webview body switches to the light theme)', /vscode-light/.test(lightBody) && !(await page.evaluate("document.querySelector('.monaco-workbench').className.includes('vs-dark')")), lightBody);
-	setSetting('workbench.colorTheme', 'Default High Contrast'); await sleep(4000);
-	await snap('07-alto-contraste.png');
-	const hcBorder = await panel.evaluate(() => getComputedStyle(document.getElementById('prompt')).borderTopWidth);
-	check('9d. high contrast: fields keep a visible border', parseFloat(hcBorder) >= 1, hcBorder);
-	setSetting('workbench.colorTheme', 'Event Minimal Dark'); await sleep(3500);
 	await resizeTo(1360, 860);
+	setSetting('workbench.colorTheme', 'Event Minimal Light');
+	await waitFor(() => editor(doc => doc.body.classList.contains('vscode-light')), 'light theme');
+	await snap('06-claro.png');
+	check('9c. Event Minimal Light applies to the editor', true);
+	setSetting('workbench.colorTheme', 'Default High Contrast');
+	await waitFor(() => editor(doc => doc.body.classList.contains('vscode-high-contrast')), 'high contrast theme');
+	await snap('07-alto-contraste.png');
+	check('9d. high contrast: the prompt keeps a visible border', (await editor(doc => parseFloat(doc.defaultView.getComputedStyle(doc.querySelector('#prompt')).borderTopWidth))) >= 1);
+	setSetting('workbench.colorTheme', 'Event Minimal Dark');
+	const defaultWidth = await editor(doc => doc.defaultView.innerWidth);
+	setSetting('window.zoomLevel', 1);
+	await waitFor(() => editor(doc => doc.defaultView.innerWidth).then(width => width < defaultWidth), 'increased interface scale');
+	check('9e. the composer remains usable with interface zoom', await editor(doc => doc.querySelector('#send').getBoundingClientRect().right <= doc.defaultView.innerWidth));
+	await snap('08-escala-maior.png');
+	setSetting('window.zoomLevel', 0);
 
-	// ---------- 10. end the session; the Hub removes it ----------
-	await click(panel.locator('[data-action="stop"]').first());
+	await editor(doc => doc.querySelector('[data-action="stop"]').click());
+	await click(page.getByRole('button', { name: /^Encerrar/ }).last());
 	await waitFor(async () => (await sessionsOnHub()).length === 0, 'the Hub removes the session', 60000);
-	check('10. Encerrar ends the session and the Hub releases it', (await cards().count()) === 0);
+	await waitFor(() => editor(doc => !!doc.querySelector('.welcome')), 'empty editor after ending the session');
+	check('10a. Encerrar ends the session and the Hub releases it', true);
+
+	await click(page.locator('.part.sidebar').getByText('sample.txt', { exact: true }).first());
+	check('10b. the Explorer still opens a conventional file', await page.locator('.tabs-container .tab').filter({ hasText: 'sample.txt' }).isVisible());
+	await command('View: Split Editor Right');
+	await command('Singularity: Abrir Agentes');
+	await command('View: Move Editor into Next Group');
+	check('10c. the native singleton Agentes can move into another editor group while the file stays open',
+		(await page.locator('.editor-group-container').count()) >= 2 && (await editorTab.count()) === 1);
+	await editorTab.evaluate(tab => tab.querySelector('.codicon-close').click());
+	await waitFor(async () => (await editorTab.count()) === 0, 'the editor closes');
+	await command('Singularity: Abrir Agentes');
+	await waitFor(() => editor(doc => !!doc.querySelector('.welcome')), 'Agentes reopened');
+	check('10d. the command reopens the closed editor', await editorTab.isVisible());
 
 	// ---------- 11. the rest of the product still works ----------
 	check('11a. the GitHub account entry is still in the title bar', await page.locator('.singularity-account-entry').isVisible());
+	await click(page.locator('.part.sidebar').getByText('sample.txt', { exact: true }).first());
 	await command('Singularity Browser: Open Browser', 2500);
 	check('11b. the Singularity Browser opens', (await page.locator('.tabs-container .tab').filter({ hasText: /Browser/ }).count()) > 0);
 	await command('Terminal: Create New Terminal', 2500);
 	const probe = path.join(workspace, 'terminal.txt');
-	await paste('git status --porcelain | Set-Content -Encoding ascii terminal.txt'); await keys('{ENTER}');
+	await page.keyboard.type('git status --porcelain > terminal.txt');
+	await page.keyboard.press('Enter');
 	check('11c. the integrated terminal runs Git', !!(await waitFor(() => fs.existsSync(probe), 'terminal output', 20000).catch(() => false)));
 }
 

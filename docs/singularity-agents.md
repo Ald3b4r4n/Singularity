@@ -1,45 +1,34 @@
 # Singularity Agentes
 
-O Singularity é uma IDE independente, construída a partir do Code - OSS, com o seu próprio sistema de orquestração de agentes de codificação. A experiência é uma só:
+O Singularity Hub orquestra os provedores de codificação integrados à IDE. Na aba **Agentes**, a tarefa segue a ordem **Provedor → Modelo → Esforço**.
 
-**Singularity IDE → Agentes → Serviço de agentes → Provedor → Modelo → Esforço → Executar tarefa.**
+## Agentes e Sessões
 
-Não é "VS Code → Chat → Copilot → extensão". O **Singularity** é o orquestrador; o **Singularity Hub** gerencia sessões, processos, eventos e execução; **OpenCode, Claude Code, Codex CLI e Gemini CLI** são *serviços de agentes* que o Singularity controla. O OpenCode tem um harness próprio por dentro, mas na interface é só um serviço de agentes: o usuário nunca vê "Harness: OpenCode".
+**Agentes** é uma aba de editor. O primeiro uso abre a aba junto com a experiência de boas-vindas. Depois, o workbench restaura as abas abertas. Use **Singularity: Abrir Agentes** ou o item **Agentes** da barra de status para reabrir. A aba pode mudar de grupo e conviver com arquivos de código. O workbench mantém uma instância do editor de Agentes.
 
-## O que o usuário vê
+A lateral direita **Sessões** mostra workspace, modelo e estado. Selecione uma sessão para abrir a tarefa no editor. Encerrar exige confirmação. O Hub mantém as sessões quando a IDE é fechada.
 
-- A barra lateral secundária tem **uma** aba, **Agentes**. Não há aba Chat, botão do Copilot, convite para entrar no Copilot, onboarding promocional nem a entrada "Open Chat" da tela vazia.
-- O painel tem as sessões em cima e **um único compositor** embaixo: workspace, quatro seletores dependentes e uma caixa de tarefa.
-- Abre-se pelo item **Agentes** da barra de status, pelo comando **Singularity: Abrir painel de agentes** ou pelo botão de layout da barra lateral secundária.
+O compositor oferece três seletores:
 
-### Os quatro seletores
+| Seletor | Origem |
+|---|---|
+| **Provedor** | Integrações do Hub. OpenCode está operacional. |
+| **Modelo** | Catálogo real do OpenCode. A escolha mantém o ID do provedor de inferência e do modelo. |
+| **Esforço** | Variantes informadas pelo modelo. Padrão do modelo usa a configuração do provedor. |
 
-| Seletor | De onde vem | Regra |
-|---|---|---|
-| **Serviço de agentes** | catálogo de integrações do Hub | só o OpenCode tem adapter, então só ele é selecionável. Claude Code, Codex CLI e Gemini CLI aparecem como "(em breve)" e não podem ser escolhidos nem executados. |
-| **Provedor** | `provider.list` do OpenCode, lido pelo Hub | só provedores que não estão desativados e que têm ao menos um modelo utilizável. Nada de lista fixa. |
-| **Modelo** | `model.list` do OpenCode, lido pelo Hub | só modelos ativos e habilitados do provedor escolhido. O modelo padrão do serviço vem pré-selecionado. Um filtro de texto aparece quando a lista é longa. |
-| **Esforço** | as *variantes* do modelo (`variants`) | cada modelo traz os seus níveis (por exemplo `low, medium, high, xhigh, max`). "Padrão do modelo" não envia nada. Modelo sem variantes: o seletor fica desabilitado e diz "Sem controle de esforço". Esforço não é temperatura nem limite de tokens. |
-
-A cascata é: trocar o serviço recarrega os provedores; trocar o provedor troca os modelos; trocar o modelo troca os níveis de esforço, e um nível que o novo modelo não tem é limpo (nunca inventado). **O texto digitado nunca se perde**: o compositor é desenhado uma vez e só as listas de opções são atualizadas.
-
-Os níveis conhecidos têm nome legível (Nenhum, Mínimo, Baixo, Médio, Alto, Extra alto, Máximo); qualquer outro é mostrado como o serviço o chamou.
-
-### Sessões
-
-Cada sessão está ligada a serviço, workspace, estado real e id da sessão no Hub, e mostra o **modelo e o esforço que o próprio serviço informa** (não só o que foi pedido). Não é preciso criar a sessão antes: ao enviar, se não há sessão em uso, o Singularity a cria no workspace escolhido, já com o modelo e o esforço. Com uma sessão em uso, trocar modelo ou esforço no compositor muda a sessão antes do prompt. A saída aparece em streaming no mesmo painel. Há **Cancelar tarefa** no compositor e **Encerrar** em cada sessão. Fechar a IDE não encerra o Hub nem as sessões; ao reabrir, elas voltam.
+Os atalhos da tela inicial preparam um rascunho. Use **Ctrl+Enter** ou **Enviar** para iniciar uma sessão ou continuar a atual. O modelo e o esforço podem mudar entre tarefas da mesma sessão. O editor mostra o último prompt enviado, a resposta e os eventos durante a execução. **Cancelar tarefa** interrompe a execução atual.
 
 ## Arquitetura
 
 ```
-Painel (webview) ──mensagens──> extensão singularity-agents ──JSON-RPC──> Singularity Hub ──HTTP local──> OpenCode v2
+Editor (webview) ──mensagens──> extensão singularity-agents ──JSON-RPC──> Singularity Hub ──HTTP local──> OpenCode v2
    render.js / main.js              extension.js, hubClient.js              catalog.ts, opencode.ts
 ```
 
 - **Hub** (`singularity-hub/src`): `catalog.get` devolve serviços, provedores, modelos e níveis de esforço; `session.create` aceita `model: { providerID, modelID, variant? }`; `session.setModel` troca modelo e esforço de uma sessão. A sessão informa o modelo em uso no campo `model`.
 - **Catálogo** (`catalog.ts`): um servidor OpenCode curto roda num Job Object do Windows só para ler o catálogo do workspace, é encerrado em seguida, e a resposta fica em cache por um minuto.
 - **Extensão** (`extensions/singularity-agents`): é o único ponto de contato com o Hub. O token do Hub nunca chega à webview. As preferências (serviço, provedor, modelo, esforço, workspace) ficam no `globalState`.
-- **Painel** (`media/`): `render.js` é puro (testado em Node); `main.js` só liga eventos. CSP estrita, sem conteúdo remoto, só variáveis de tema (Dark, Light e alto contraste valem sem regras próprias).
+- **Editor e lateral** (`media/`): `render.js` é puro (testado em Node); `main.js` só liga eventos. CSP estrita, sem conteúdo remoto, cores e tipografia do tema ativo.
 
 ### O Singularity valida; o OpenCode não
 
@@ -61,12 +50,12 @@ O **login GitHub do Singularity** (barra de título) é outra coisa e não muda:
 - O esforço só existe quando o OpenCode informa variantes para o modelo. O catálogo não diz qual o esforço *padrão* de um modelo; por isso "Padrão do modelo" não envia nada.
 - O modelo mostrado vem da sessão no OpenCode. Para uma sessão criada sem escolha, o OpenCode só informa o modelo depois da primeira tarefa; o painel diz "modelo padrão do serviço" até lá.
 - Permissões de execução são as do OpenCode (a configuração dele); o painel ainda não as edita.
-- O painel é uma contribuição embutida do produto (a extensão `singularity-agents` vai no pacote). Ele não é instalado pelo usuário nem aparece no marketplace; migrá-lo para uma view nativa em TypeScript só se justifica se for preciso integrar mais fundo ao workbench.
+- O editor e a lateral são registrados pela extensão embutida `singularity-agents`.
 
 ## Testes
 
 ```bash
-node extensions/singularity-agents/test/run.cjs                  # 25 verificações: seleção em cascata, render, escape, sem segredos
+node extensions/singularity-agents/test/run.cjs                  # catálogo, renderização e mensagens da webview
 cd singularity-hub && npm test                                    # 65 testes, incluindo catálogo (lista de permissão) e validação de RPC
 node scripts/e2e/agents-check.cjs --out <pasta> [--exe <exe>]     # IDE real, OpenCode real, teclado e mouse reais
 node scripts/e2e/chat-compat-check.cjs --out <pasta> [--exe <exe>] # compatibilidade do Chat para extensões de terceiros

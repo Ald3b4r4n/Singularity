@@ -44,6 +44,7 @@ export interface Session {
 	summary?: string;
 	workspace?: string;
 	version?: string;
+	prompt?: string;
 	result?: string;
 }
 

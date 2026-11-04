@@ -47,33 +47,26 @@
 		return undefined;
 	}
 
-	/**
-	 * Turns what the user chose into a consistent selection and the options of every selector.
-	 * Service -> provider -> model -> effort: each level offers only what the level above allows, and a stale choice falls back
-	 * to something that exists (the catalog default, then the first entry); an effort that the model does not offer becomes
-	 * "the model's own default" (empty), never an invented level.
-	 * `filter` narrows the model list by text but never hides the selected model.
-	 */
-	function resolve(catalog, prefs, filter) {
+	/** The integration catalog includes models from multiple inference backends. Keep both ids in every option. */
+	function resolve(catalog, prefs) {
 		prefs = prefs || {};
 		var services = (catalog && catalog.services) || [];
 		var selectable = services.filter(function (s) { return s.status === 'available'; });
 		var service = (find(selectable, prefs.service) || selectable[0] || {}).id;
 		var providers = catalog && catalog.service === service ? (catalog.providers || []) : [];
+		var models = providers.flatMap(function (provider) {
+			return provider.models.map(function (model) {
+				return { ...model, providerID: provider.id, providerName: provider.name, key: JSON.stringify([provider.id, model.id]) };
+			});
+		});
 		var def = (catalog && catalog.default) || {};
-		var provider = find(providers, prefs.providerID) || find(providers, def.providerID) || providers[0];
-		var models = provider ? provider.models : [];
-		var model = find(models, prefs.modelID) || (provider && provider.id === def.providerID ? find(models, def.modelID) : undefined) || models[0];
-		var efforts = model ? model.efforts : [];
-		var effort = efforts.indexOf(prefs.variant) >= 0 ? prefs.variant : '';
-		var needle = String(filter || '').trim().toLowerCase();
-		var shown = needle
-			? models.filter(function (m) { return m === model || m.name.toLowerCase().indexOf(needle) >= 0 || m.id.toLowerCase().indexOf(needle) >= 0; })
-			: models;
-		return {
-			services: services, service: service, providers: providers, provider: provider, models: shown, totalModels: models.length,
-			model: model, efforts: efforts, effort: effort, canSend: !!(service && provider && model)
+		var choose = function (choice) {
+			return models.find(function (model) { return model.providerID === choice.providerID && model.id === choice.modelID; });
 		};
+		var model = choose(prefs) || choose(def) || models[0];
+		var efforts = model ? model.efforts : [];
+		var effort = efforts.includes(prefs.variant) ? prefs.variant : '';
+		return { services, service, models, model, efforts, effort, canSend: !!(service && model) };
 	}
 
 	function serviceName(catalog, id) {
@@ -94,38 +87,22 @@
 		return parts[parts.length - 1] || String(path || '');
 	}
 
-	function renderSession(s, events, catalog, isTarget) {
+	function renderSession(s, events, catalog) {
 		var label = SESSION_LABEL[s.status] || esc(s.status);
 		var id = esc(s.id);
-		var busy = s.status === 'running' || s.status === 'waiting';
-		var effort = s.model && s.model.variant ? '<span class="effort" title="Esforço">' + esc(effortLabel(s.model.variant)) + '</span>' : '';
-		return '<li class="session' + (isTarget ? ' target' : '') + '" data-id="' + id + '" data-status="' + esc(s.status) + '">' +
+		var effort = s.model ? '<span class="effort">' + esc(s.model.variant ? effortLabel(s.model.variant) : 'Padrão do modelo') + '</span>' : '';
+		return '<li class="session target" data-id="' + id + '" data-status="' + esc(s.status) + '">' +
 			'<div class="row"><span class="svc">' + esc(serviceName(catalog, s.harness)) + '</span>' +
 			'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + '<span>' + label + '</span></span></div>' +
 			'<div class="meta"><span class="model" title="' + esc(s.model ? s.model.providerID + '/' + s.model.modelID : '') + '">' + esc(modelLabel(catalog, s.model)) + '</span>' + effort + '</div>' +
 			(s.workspace ? '<div class="workspace" title="' + esc(s.workspace) + '">' + esc(folderName(s.workspace)) + '</div>' : '') +
+			(s.prompt ? '<section class="submitted"><h2>Tarefa enviada</h2><p>' + esc(s.prompt) + '</p></section>' : '') +
 			(s.summary ? '<div class="summary" role="status">' + esc(s.summary) + '</div>' : '') +
 			(s.result ? '<pre class="result" aria-label="Resultado">' + esc(s.result) + '</pre>' : '') +
 			(events.length ? '<ol class="events" aria-label="Eventos">' + events.slice(-3).map(function (e) { return '<li>' + esc(e.name) + '</li>'; }).join('') + '</ol>' : '') +
 			'<div class="session-actions">' +
-			(isTarget ? '<span class="using">Em uso no compositor</span>' : '<button type="button" data-action="use" data-id="' + id + '">Usar esta sessão</button>') +
-			'<button type="button" data-action="interrupt" data-id="' + id + '"' + (busy ? '' : ' disabled') + '>Cancelar tarefa</button>' +
 			'<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button></div>' +
 			'</li>';
-	}
-
-	function renderSessions(state, catalog, targetId) {
-		var sessions = (state && state.sessions) || [];
-		var hub = (state && state.hub) || { status: 'disconnected' };
-		if (!sessions.length) {
-			return hub.status === 'connected'
-				? '<div class="empty"><p class="lead">Nenhuma sessão</p><p>Escolha o serviço, o modelo e o esforço abaixo e descreva a tarefa. A sessão é criada ao enviar.</p></div>'
-				: '<div class="empty"><p class="lead">Singularity Hub ' + esc(HUB_LABEL[hub.status] || 'não conectado') + '</p>' +
-				'<p>Quando estiver disponível, suas sessões aparecerão aqui.</p>' + (hub.detail ? '<p class="detail">' + esc(hub.detail) + '</p>' : '') + '</div>';
-		}
-		return '<ul class="sessions">' + sessions.map(function (s) {
-			return renderSession(s, ((state && state.events) || []).filter(function (e) { return e.sessionId === s.id; }), catalog, s.id === targetId);
-		}).join('') + '</ul>';
 	}
 
 	function renderNavigation(state, catalog, targetId, workspace) {
@@ -144,9 +121,9 @@
 
 	function renderTarget(state, catalog, targetId) {
 		var session = state.sessions.find(function (s) { return s.id === targetId; });
-		if (!session) { return '<div class="empty"><p class="lead">Crie uma tarefa para um agente</p><p>Uma sessão será criada ao enviar a tarefa.</p></div>'; }
+		if (!session) { return welcome(); }
 		var events = (state.events || []).filter(function (event) { return event.sessionId === targetId; });
-		return '<ul class="sessions">' + renderSession(session, events, catalog, true) + '</ul>';
+		return '<ul class="sessions">' + renderSession(session, events, catalog) + '</ul>';
 	}
 
 	function hubLine(state) {
@@ -154,33 +131,44 @@
 		return '<span class="state state-' + status + '">' + statusGlyph(status) + '</span><span class="k">Hub</span><span class="v">' + HUB_LABEL[status] + '</span>';
 	}
 
-	/** The fixed layout. It is drawn once: only the parts that have ids are updated afterwards, so typing is never interrupted. */
-	function shell() {
-		return '<header class="hd">' + BRAND_MARK + '<h1>AGENTES</h1><span id="hub" class="hubline" aria-live="polite"></span>' +
-			'<button type="button" class="icon" data-action="openSettings" title="Configurações do painel de agentes" aria-label="Configurações do painel de agentes">' +
-			'<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6.5 1.5h3l.4 1.7 1.3.7 1.6-.7 1.5 2.6-1.3 1.2v1.4l1.3 1.2-1.5 2.6-1.6-.7-1.3.7-.4 1.7h-3l-.4-1.7-1.3-.7-1.6.7-1.5-2.6 1.3-1.2V7l-1.3-1.2 1.5-2.6 1.6.7 1.3-.7z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.1"/></svg></button></header>' +
-			'<main class="list" aria-label="Sessões"><div id="sessions"></div></main>' +
-			'<form id="composer" class="composer" aria-label="Nova tarefa">' +
-			'<div class="target-row"><span id="target" class="target-label"></span><button type="button" id="new" data-action="new" hidden>Nova sessão</button></div>' +
-			'<div class="ws-row"><span class="ws-label">Workspace</span><span id="ws" class="ws"></span><button type="button" data-action="pickWorkspace">Trocar</button></div>' +
-			'<div class="selectors">' +
-			'<div class="field"><label for="service">Serviço de agentes</label><select id="service"></select></div>' +
-			'<div class="field"><label for="provider">Provedor</label><select id="provider"></select></div>' +
-			'<div class="field wide"><label for="model">Modelo</label><input id="filter" type="search" placeholder="Filtrar modelos" aria-label="Filtrar modelos" autocomplete="off"><select id="model"></select></div>' +
-			'<div class="field"><label for="effort">Esforço</label><select id="effort"></select></div>' +
-			'</div>' +
-			'<p id="note" class="note" role="status"></p>' +
-			'<div class="field wide"><label for="prompt">Tarefa</label><textarea id="prompt" rows="4" maxlength="16000" placeholder="Descreva o que o agente deve fazer"></textarea></div>' +
-			'<div class="actions"><button type="submit" id="send" class="primary">Enviar</button><button type="button" id="cancel" data-action="cancel" disabled>Cancelar tarefa</button></div>' +
-			'</form>';
+	var shortcuts = [
+		['Implementar um recurso', 'Desenvolva uma nova funcionalidade no projeto.', 'Implemente o seguinte recurso no projeto: ', 'M9 6l-6 6 6 6m6-12l6 6-6 6m-1-15l-4 18'],
+		['Corrigir um problema', 'Investigue e corrija um bug no código.', 'Investigue e corrija o seguinte problema: ', 'M14 7l3 3 5-5a6 6 0 0 1-8 8L6 21a2 2 0 0 1-3-3l8-8a6 6 0 0 1 8-8z'],
+		['Refatorar o código', 'Melhore a estrutura, a performance ou a legibilidade.', 'Refatore o seguinte trecho preservando seu comportamento: ', 'M2 7l10-5 10 5-10 5zm0 5l10 5 10-5m-20 5l10 5 10-5'],
+		['Planejar uma tarefa', 'Analise o projeto e proponha um plano de desenvolvimento.', 'Analise o projeto e proponha um plano para: ', 'M2 5l2 2 4-4m-6 9l2 2 4-4m-6 9l2 2 4-4m3-12h11m-11 7h11m-11 7h11']
+	];
+
+	function welcome() {
+		return '<section class="welcome"><div class="orbit">' + BRAND_MARK + '</div>' +
+			'<h2>Crie uma tarefa para um agente</h2><p>Use agentes de IA para implementar funcionalidades, corrigir problemas, refatorar o código ou planejar o desenvolvimento do seu projeto.</p>' +
+			'<div class="shortcuts">' + shortcuts.map(function ([title, description, prompt, icon]) {
+				return '<button type="button" data-action="prepare" data-prompt="' + esc(prompt) + '">' +
+					'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + icon + '"/></svg>' +
+					'<span><strong>' + title + '</strong><span>' + description + '</span></span></button>';
+			}).join('') + '</div></section>';
 	}
 
-	function render(state, catalog, targetId) {
-		return '<div class="hubline">' + hubLine(state) + '</div>' + renderSessions(state, catalog, targetId);
+	/** The composer is mounted once; streaming only changes the session above it. */
+	function shell() {
+		return '<header class="hd">' + BRAND_MARK + '<div class="heading"><h1>AGENTES</h1><p>Desenvolva e gerencie tarefas com agentes de IA.</p></div>' +
+			'<div class="header-actions"><span id="hub" class="hubline" aria-live="polite"></span>' +
+			'<button type="button" data-action="openSettings">Configurações</button></div></header>' +
+			'<main class="list" aria-label="Tarefa do agente"><div id="sessions"></div></main>' +
+			'<form id="composer" class="composer" aria-label="Nova tarefa">' +
+			'<div class="target-row"><span id="target" class="target-label"></span><button type="button" id="new" data-action="new" hidden>Nova sessão</button>' +
+			'<button class="workspace-control" type="button" id="ws" data-action="pickWorkspace"></button></div>' +
+			'<label for="prompt">Tarefa</label><textarea id="prompt" rows="3" maxlength="16000" placeholder="Descreva o que deseja desenvolver…"></textarea>' +
+			'<div class="toolbar"><div class="selectors">' +
+			'<div class="field"><label for="service">Provedor</label><select id="service"></select></div>' +
+			'<div class="field"><label for="model">Modelo</label><select id="model"></select></div>' +
+			'<div class="field"><label for="effort">Esforço</label><select id="effort"></select></div></div>' +
+			'<div class="actions"><button type="button" id="cancel" data-action="cancel" hidden>Cancelar tarefa</button>' +
+			'<button type="submit" id="send" class="primary" title="Enviar (Ctrl+Enter)">Enviar</button></div></div>' +
+			'<p id="note" class="note" role="status"></p></form>';
 	}
 
 	var api = {
-		renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, render: render, renderSessions: renderSessions, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
+		renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
 		modelLabel: modelLabel, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE
 	};
 	if (typeof module !== 'undefined' && module.exports) { module.exports = api; } else { root.SingularityAgentsRender = api; }

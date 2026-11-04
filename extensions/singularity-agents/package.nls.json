@@ -1,6 +1,6 @@
 {
   "displayName": "Singularity Agents",
-  "description": "Central de agentes do Singularity: serviço, provedor, modelo e esforço, um único compositor de tarefas e as sessões do Singularity Hub.",
+  "description": "Central de agentes do Singularity: provedor, modelo e esforço, um único compositor de tarefas e as sessões do Singularity Hub.",
   "container.title": "Sessões",
   "view.name": "Sessões",
   "command.open": "Abrir Agentes",

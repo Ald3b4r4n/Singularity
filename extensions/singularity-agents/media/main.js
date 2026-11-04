@@ -7,7 +7,7 @@
 	const $ = id => document.getElementById(id);
 	const el = {
 		hub: $('hub'), sessions: $('sessions'), composer: $('composer'), target: $('target'), newSession: $('new'), ws: $('ws'),
-		service: $('service'), provider: $('provider'), filter: $('filter'), model: $('model'), effort: $('effort'), note: $('note'),
+		service: $('service'), model: $('model'), effort: $('effort'), note: $('note'),
 		prompt: $('prompt'), send: $('send'), cancel: $('cancel')
 	};
 
@@ -22,7 +22,9 @@
 	el.prompt.value = vscode.getState()?.draft || '';
 	let targetSeen = false; // the session in use has been seen in the Hub state at least once
 	let sending = false;
+	let submittedDraft;
 	let message = '';
+	let lastMarkup;
 
 	const target = () => state.sessions.find(s => s.id === targetId);
 	const connected = () => state.hub.status === 'connected';
@@ -53,28 +55,34 @@
 	}
 
 	function drawComposer() {
-		const sel = R.resolve(catalog, prefs, el.filter.value);
+		const sel = R.resolve(catalog, prefs);
 		el.hub.innerHTML = R.hubLine(state);
-		el.ws.textContent = workspace ? R.folderName(workspace) : 'nenhum';
-		el.ws.title = workspace || '';
+		el.ws.textContent = workspace ? R.folderName(workspace) : 'Escolher workspace';
+		el.ws.title = workspace || 'Escolher workspace';
+		el.ws.setAttribute('aria-label', 'Workspace: ' + el.ws.textContent);
 
 		fill(el.service, sel.services.map(s => ({ value: s.id, label: s.name + R.SERVICE_NOTE[s.status], disabled: s.status !== 'available' })), sel.service, loading ? 'Carregando…' : 'Sem serviços');
-		fill(el.provider, sel.providers.map(p => ({ value: p.id, label: p.name })), sel.provider && sel.provider.id, loading ? 'Carregando…' : 'Sem provedores');
-		fill(el.model, sel.models.map(m => ({ value: m.id, label: m.name })), sel.model && sel.model.id, loading ? 'Carregando…' : 'Sem modelos');
-		const effortOptions = sel.efforts.length ? [{ value: '', label: 'Padrão do modelo' }].concat(sel.efforts.map(e => ({ value: e, label: R.effortLabel(e) }))) : [];
-		fill(el.effort, effortOptions, sel.effort, 'Sem controle de esforço');
+		const names = new Map();
+		for (const model of sel.models) { names.set(model.name, (names.get(model.name) || 0) + 1); }
+		fill(el.model, sel.models.map(m => ({
+			value: m.key, label: names.get(m.name) > 1 ? m.name + ' · ' + m.providerName : m.name
+		})), sel.model?.key, loading ? 'Carregando…' : 'Sem modelos');
+		el.model.title = sel.model ? sel.model.providerName + ' · ' + sel.model.name : '';
+		const effortOptions = [{ value: '', label: 'Padrão do modelo' }, ...sel.efforts.map(e => ({ value: e, label: R.effortLabel(e) }))];
+		fill(el.effort, effortOptions, sel.effort);
 
 		const online = connected();
-		for (const control of [el.service, el.provider, el.model, el.filter]) { control.disabled = !online || loading || !sel.canSend && control !== el.service; }
+		el.service.disabled = !online || loading;
+		el.model.disabled = !online || loading || !sel.canSend;
 		el.effort.disabled = !online || loading || !sel.efforts.length;
-		el.filter.hidden = sel.totalModels < 12;
 
 		const current = target();
-		el.target.textContent = current ? 'Sessão: ' + R.serviceName(catalog, current.harness) + ' · ' + R.modelLabel(catalog, current.model) : 'Nova sessão (criada ao enviar)';
-		el.newSession.hidden = !current;
+		el.target.textContent = current ? 'Sessão: ' + R.serviceName(catalog, current.harness) + ' · ' + R.modelLabel(catalog, current.model) : '';
+		el.newSession.hidden = !targetId;
 		const running = busy();
-		el.send.disabled = !online || sending || running || !sel.canSend || !workspace || !el.prompt.value.trim();
-		el.cancel.disabled = !running;
+		el.send.disabled = !online || sending || running || !sel.canSend || !el.prompt.value.trim();
+		el.cancel.hidden = !running;
+		el.newSession.disabled = sending;
 		el.prompt.disabled = false;
 
 		let note = message;
@@ -83,20 +91,25 @@
 			else if (loading) { note = 'Lendo serviços, provedores e modelos…'; }
 			else if (catalogError) { note = catalogError; }
 			else if (catalog && catalog.unavailable) { note = catalog.unavailable; }
-			else if (sel.service && sel.provider && !sel.efforts.length) { note = 'Este modelo não oferece controle de esforço.'; }
-			else if (current && current.model && sel.model && (current.model.modelID !== sel.model.id || current.model.providerID !== sel.provider.id || (current.model.variant || '') !== sel.effort)) { note = 'A escolha será aplicada a esta sessão ao enviar.'; }
+			else if (sel.service && sel.model && !sel.efforts.length) { note = 'Este modelo usa seu esforço padrão.'; }
+			else if (current && current.model && sel.model && (current.model.modelID !== sel.model.id || current.model.providerID !== sel.model.providerID || (current.model.variant || '') !== sel.effort)) { note = 'A escolha será aplicada a esta sessão ao enviar.'; }
 		}
 		el.note.textContent = note;
 	}
 
 	function drawSessions() {
-		el.sessions.innerHTML = R.renderTarget(state, catalog, targetId);
+		const markup = R.renderTarget(state, catalog, targetId);
+		if (markup !== lastMarkup) {
+			const action = el.sessions.contains(document.activeElement) ? document.activeElement.dataset.action : undefined;
+			el.sessions.innerHTML = lastMarkup = markup;
+			if (action === 'stop') { el.sessions.querySelector('[data-action="stop"]')?.focus({ preventScroll: true }); }
+		}
 		vscode.setState({ targetId, draft: el.prompt.value });
 	}
 
 	function remember() {
-		const sel = R.resolve(catalog, prefs, el.filter.value);
-		prefs = { service: sel.service, providerID: sel.provider && sel.provider.id, modelID: sel.model && sel.model.id, variant: sel.effort };
+		const sel = R.resolve(catalog, prefs);
+		prefs = { service: sel.service, providerID: sel.model?.providerID, modelID: sel.model && sel.model.id, variant: sel.effort };
 		vscode.postMessage({ type: 'prefs', prefs });
 	}
 
@@ -116,6 +129,7 @@
 			targetId = data.id; targetSeen = !!target();
 			drawSessions(); drawComposer();
 		} else if (data.type === 'use') {
+			if (sending) { return; }
 			targetId = data.id;
 			targetSeen = !!target();
 			const model = target()?.model;
@@ -133,7 +147,7 @@
 		} else if (data.type === 'sent') {
 			sending = false; message = '';
 			if (data.sessionId) { targetId = data.sessionId; targetSeen = !!target(); }
-			el.prompt.value = '';
+			if (el.prompt.value === submittedDraft) { el.prompt.value = ''; }
 			drawSessions(); drawComposer();
 		} else if (data.type === 'failed') {
 			sending = false; message = data.message || 'A operação falhou.';
@@ -143,10 +157,13 @@
 
 	// Each selector changes only what depends on it; the text being typed is never touched.
 	el.service.addEventListener('change', () => { prefs = { service: el.service.value }; message = ''; remember(); requestCatalog(false); });
-	el.provider.addEventListener('change', () => { prefs = { ...prefs, providerID: el.provider.value, modelID: undefined, variant: '' }; message = ''; remember(); drawComposer(); });
-	el.model.addEventListener('change', () => { prefs = { ...prefs, modelID: el.model.value, variant: '' }; message = ''; remember(); drawComposer(); });
+	el.model.addEventListener('change', () => {
+		const model = R.resolve(catalog, prefs).models.find(m => m.key === el.model.value);
+		if (!model) { return; }
+		prefs = { ...prefs, providerID: model.providerID, modelID: model.id, variant: '' };
+		message = ''; remember(); drawComposer();
+	});
 	el.effort.addEventListener('change', () => { prefs = { ...prefs, variant: el.effort.value }; message = ''; remember(); drawComposer(); });
-	el.filter.addEventListener('input', () => drawComposer());
 	el.prompt.addEventListener('input', () => { message = ''; vscode.setState({ targetId, draft: el.prompt.value }); drawComposer(); });
 	el.prompt.addEventListener('keydown', event => {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !el.send.disabled) { event.preventDefault(); el.composer.requestSubmit(); }
@@ -154,11 +171,12 @@
 
 	el.composer.addEventListener('submit', event => {
 		event.preventDefault();
-		const sel = R.resolve(catalog, prefs, '');
+		const sel = R.resolve(catalog, prefs);
 		const text = el.prompt.value.trim();
-		if (!text || !sel.canSend || sending || busy()) { return; }
+		if (el.send.disabled || !text || !sel.canSend) { return; }
+		submittedDraft = el.prompt.value;
 		sending = true; message = '';
-		vscode.postMessage({ type: 'send', text, sessionId: targetId, selection: { providerID: sel.provider.id, modelID: sel.model.id, variant: sel.effort || undefined } });
+		vscode.postMessage({ type: 'send', text, sessionId: targetId, selection: { providerID: sel.model.providerID, modelID: sel.model.id, variant: sel.effort || undefined } });
 		drawComposer();
 	});
 
@@ -166,18 +184,26 @@
 		const button = event.target instanceof Element ? event.target.closest('button[data-action]') : null;
 		if (!button || button.disabled) { return; }
 		const { action, id } = button.dataset;
-		if (action === 'new') {
+		if (action === 'prepare') {
+			if (!el.prompt.value.trim()) {
+				el.prompt.value = button.dataset.prompt;
+				el.prompt.dispatchEvent(new Event('input'));
+			}
+			el.prompt.focus();
+			el.prompt.setSelectionRange(el.prompt.value.length, el.prompt.value.length);
+		} else if (action === 'new') {
 			targetId = undefined; targetSeen = false;
 			vscode.postMessage({ type: 'target' });
 			drawSessions(); drawComposer();
 		} else if (action === 'cancel') {
 			if (targetId) { vscode.postMessage({ type: 'interrupt', id: targetId }); }
-		} else if (action === 'interrupt' || action === 'stop') {
+		} else if (action === 'stop') {
 			vscode.postMessage({ type: action, id });
 		} else {
 			vscode.postMessage({ type: action });
 		}
 	});
 
+	drawSessions(); drawComposer();
 	vscode.postMessage({ type: 'ready' });
 })();

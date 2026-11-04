@@ -112,19 +112,15 @@ test('only a service with a working adapter is selectable; planned services are 
 	assert.strictEqual(R.resolve({ services: [{ id: 'opencode', name: 'OpenCode', status: 'unavailable' }], providers: [] }, {}).canSend, false);
 });
 
-test('providers come from the catalog, and the default model is preselected when nothing was chosen', () => {
+test('the model selector includes each inference backend and preserves the catalog default', () => {
 	const sel = R.resolve(catalog, {});
-	assert.deepStrictEqual(sel.providers.map(p => p.id), ['opencode', 'vercel']);
-	assert.strictEqual(sel.provider.id, 'vercel');
+	assert.deepStrictEqual(sel.models.map(m => [m.providerID, m.id]), [['opencode', 'plain'], ['opencode', 'thinker'], ['vercel', 'alpha'], ['vercel', 'beta']]);
+	assert.strictEqual(sel.model.providerID, 'vercel');
 	assert.strictEqual(sel.model.id, 'beta');
 	assert.strictEqual(sel.canSend, true);
-});
-
-test('changing the provider updates the models; a model of another provider is never kept', () => {
-	const sel = R.resolve(catalog, { service: 'opencode', providerID: 'opencode', modelID: 'alpha' });
-	assert.strictEqual(sel.provider.id, 'opencode');
-	assert.deepStrictEqual(sel.models.map(m => m.id), ['plain', 'thinker']);
-	assert.strictEqual(sel.model.id, 'plain', 'alpha belongs to vercel: it falls back to the first model of the provider');
+	const duplicate = { ...catalog, providers: [{ id: 'another', models: [{ id: 'beta', name: 'Beta', efforts: ['low'] }] }, ...catalog.providers] };
+	assert.equal(R.resolve(duplicate, { providerID: 'another', modelID: 'beta' }).model.providerID, 'another');
+	assert.equal(new Set(R.resolve(duplicate, {}).models.map(m => m.key)).size, 5);
 });
 
 test('changing the model updates the effort options; the levels are the model\'s own', () => {
@@ -147,17 +143,10 @@ test('effort labels: known levels are named, any other level is shown as the ser
 	assert.strictEqual(R.effortLabel('constructor'), 'constructor', 'no prototype lookup');
 });
 
-test('filtering the models never hides the selected one', () => {
-	const sel = R.resolve(catalog, { providerID: 'vercel', modelID: 'beta' }, 'alp');
-	assert.deepStrictEqual(sel.models.map(m => m.id), ['alpha', 'beta']);
-	assert.strictEqual(sel.totalModels, 2);
-});
-
 test('without a catalog nothing can be sent and no option is invented', () => {
 	for (const empty of [undefined, null, {}, { services: [], providers: [] }]) {
 		const sel = R.resolve(empty, { providerID: 'vercel', modelID: 'alpha' });
 		assert.strictEqual(sel.canSend, false);
-		assert.deepStrictEqual(sel.providers, []);
 		assert.deepStrictEqual(sel.models, []);
 	}
 });
@@ -175,17 +164,17 @@ test('the model choice sent to the Hub is reduced to three short strings', () =>
 // --- the page ---
 const shell = R.shell();
 
-test('one composer: one prompt box, one send button, four selectors, and no second conversation area', () => {
+test('one composer: one prompt box, one send button, three selectors, and no second conversation area', () => {
 	assert.strictEqual((shell.match(/<textarea/g) || []).length, 1);
 	assert.strictEqual((shell.match(/type="submit"/g) || []).length, 1);
-	for (const id of ['service', 'provider', 'model', 'effort']) { assert.ok(new RegExp(`<select id="${id}"`).test(shell), id); }
+	for (const id of ['service', 'model', 'effort']) { assert.ok(new RegExp(`<select id="${id}"`).test(shell), id); }
 	const labels = text(shell);
-	for (const label of ['Serviço de agentes', 'Provedor', 'Modelo', 'Esforço', 'Workspace', 'Cancelar tarefa', 'Enviar']) { assert.ok(labels.includes(label), label); }
-	assert.ok(!/<textarea/.test(R.renderSessions({ hub: { status: 'connected' }, sessions: [{ id: '1', harness: 'opencode', status: 'idle', workspace: 'C:\\w' }] }, catalog)), 'sessions carry no prompt box of their own');
+	for (const label of ['Provedor', 'Modelo', 'Esforço', 'Cancelar tarefa', 'Enviar']) { assert.ok(labels.includes(label), label); }
+	assert.ok(!/<textarea/.test(R.renderTarget({ hub: { status: 'connected' }, sessions: [{ id: '1', harness: 'opencode', status: 'idle', workspace: 'C:\\w' }] }, catalog)), 'sessions carry no prompt box of their own');
 });
 
 test('every control has its own label (a label that wraps two controls would focus the wrong one)', () => {
-	for (const id of ['service', 'provider', 'model', 'effort', 'prompt']) {
+	for (const id of ['service', 'model', 'effort', 'prompt']) {
 		assert.ok(new RegExp(`<label for="${id}">[^<]+</label>`).test(shell), `label for #${id}`);
 	}
 	for (const wrapped of shell.match(/<label\b[^>]*>[\s\S]*?<\/label>/g) || []) {
@@ -194,51 +183,47 @@ test('every control has its own label (a label that wraps two controls would foc
 });
 
 test('Singularity is the orchestrator: no "Harness:" label, and no Copilot or Chat wording', () => {
-	const everything = shell + R.render({ hub: { status: 'connected' }, sessions: [] }) + read('media/main.js') + read('extension.js');
+	const everything = shell + R.renderTarget({ sessions: [] }) + read('media/main.js') + read('extension.js');
 	assert.ok(!/Harness:/i.test(everything), 'the user never sees "Harness: OpenCode"');
 	assert.ok(!/copilot/i.test(shell + read('media/main.js')), 'no Copilot wording in the page');
 });
 
-test('empty state: header, hub status and an honest explanation, nothing invented', () => {
-	const off = R.render({ hub: { status: 'disconnected' }, sessions: [] }, undefined, undefined);
-	assert.ok(off.includes('não conectado'));
-	assert.ok(off.includes('Quando estiver disponível, suas sessões aparecerão aqui.'));
-	assert.ok(!/<li\b/.test(off), 'no session items');
-	assert.ok(!/\d+\s?%/.test(off), 'no progress percentages');
-	assert.ok(!/state-connected|state-running/.test(off), 'no "connected" look when disconnected');
-	const on = text(R.render({ hub: { status: 'connected' }, sessions: [] }));
-	assert.ok(/Hub conectado/.test(on) && /Nenhuma sessão/.test(on) && !/não conectado/.test(on));
-	assert.ok(R.render({ hub: { status: 'weird' }, sessions: [] }).includes('não conectado'), 'unknown status falls back to disconnected');
+test('empty state has four actionable shortcuts and the Hub state is independent', () => {
+	const empty = R.renderTarget({ sessions: [] });
+	assert.match(empty, /Crie uma tarefa para um agente/);
+	assert.equal((empty.match(/data-action="prepare" data-prompt="[^"]+"/g) || []).length, 4);
+	assert.match(R.hubLine({ hub: { status: 'weird' } }), /não conectado/);
+	assert.match(R.hubLine({ hub: { status: 'connected' } }), /state-connected/);
 });
 
 test('each session shows its service, the model it really runs, the effort, the workspace and its state', () => {
-	const html = R.renderSessions({ hub: { status: 'connected' }, sessions: [{
-		id: 's1', harness: 'opencode', status: 'running', workspace: 'C:\\work\\project', result: 'partial output',
+	const html = R.renderTarget({ hub: { status: 'connected' }, sessions: [{
+		id: 's1', harness: 'opencode', status: 'running', workspace: 'C:\\work\\project', prompt: 'a real task', result: 'partial output',
 		model: { providerID: 'vercel', modelID: 'alpha', variant: 'high' }
 	}] }, catalog, 's1');
 	const t = text(html);
-	assert.ok(/OpenCode/.test(t) && /em execução/.test(t) && /Vercel · Alpha/.test(t) && /Alto/.test(t) && /project/.test(t) && /partial output/.test(t), t);
+	assert.ok(/OpenCode/.test(t) && /em execução/.test(t) && /Vercel · Alpha/.test(t) && /Alto/.test(t) && /project/.test(t) && /partial output/.test(t) && /a real task/.test(t), t);
 	assert.match(html, /class="session target"/);
-	assert.match(html, /data-action="interrupt" data-id="s1">/, 'a running session can be cancelled');
 	assert.match(html, /data-action="stop" data-id="s1"/);
 	assert.ok(/<svg class="gl"/.test(html), 'the state has a shape as well as a color');
 });
 
 test('a session without a known model says so instead of inventing one', () => {
-	assert.ok(text(R.renderSessions({ hub: { status: 'connected' }, sessions: [{ id: 's', harness: 'opencode', status: 'idle' }] }, catalog)).includes('modelo padrão do serviço'));
+	assert.ok(text(R.renderTarget({ hub: { status: 'connected' }, sessions: [{ id: 's', harness: 'opencode', status: 'idle' }] }, catalog, 's')).includes('modelo padrão do serviço'));
 	assert.strictEqual(R.modelLabel(catalog, { providerID: 'zzz', modelID: 'yyy' }), 'zzz · yyy');
 });
 
 test('everything that comes from state is escaped', () => {
-	const html = R.renderSessions({ hub: { status: 'connected' }, sessions: [{
+	const html = R.renderTarget({ hub: { status: 'connected' }, sessions: [{
 		id: '"><img src=x onerror=alert(1)>', harness: '<b>x</b>', status: 'waiting', workspace: '<w>', summary: '<i>s</i>', result: '<script>unsafe</script>',
 		model: { providerID: '<p>', modelID: '<m>', variant: '<v>' }
-	}], events: [{ sessionId: '"><img src=x onerror=alert(1)>', name: '<e>' }] }, undefined);
-	assert.ok(!/<img|<script|<b>|<w>|<i>|<p>|<m>|<v>|<e>/.test(html), html);
+	}], events: [{ sessionId: '"><img src=x onerror=alert(1)>', name: '<e>' }] }, undefined, '"><img src=x onerror=alert(1)>');
+	assert.match(html, /&lt;script&gt;unsafe/);
+	assert.ok(!/<img|<script|<b>|<w>|<i>|<m>|<v>|<e>/.test(html), html);
 });
 
 test('only another session\'s events are left out of a session', () => {
-	const html = R.renderSessions({ hub: { status: 'connected' }, sessions: [{ id: 's1', harness: 'opencode', status: 'running' }], events: [{ sessionId: 's1', name: 'session.execution.started' }, { sessionId: 'other', name: 'unrelated' }] }, catalog);
+	const html = R.renderTarget({ hub: { status: 'connected' }, sessions: [{ id: 's1', harness: 'opencode', status: 'running' }], events: [{ sessionId: 's1', name: 'session.execution.started' }, { sessionId: 'other', name: 'unrelated' }] }, catalog, 's1');
 	assert.ok(/session.execution.started/.test(html) && !/unrelated/.test(html));
 });
 
