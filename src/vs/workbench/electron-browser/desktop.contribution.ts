@@ -67,11 +67,6 @@ import product from '../../platform/product/common/product.js';
 		registerAction2(UninstallShellScriptAction);
 	}
 
-	if (isWindows && product.singularityUpdateInstall) {
-		CommandsRegistry.registerCommand('_singularity.installUpdate', (accessor, update: ISingularityUpdateInstaller) =>
-			accessor.get(INativeHostService).installSingularityUpdate(update));
-	}
-
 	// Quit
 	KeybindingsRegistry.registerCommandAndKeybindingRule({
 		id: 'workbench.action.quit',

@@ -54,3 +54,8 @@ Base atual: tag `1.144.0`, commit `2c33b50b16c472efe58357d1d2a8a5414bc23fbf`.
 
 - `desktop.contribution.ts` registra o comando interno para o host nativo quando o produto habilita a instalação. `nativeHostMainService.ts` verifica arquivos não salvos em todas as janelas, preserva o veto do lifecycle e chama o assistente interativo do Inno após a saída. O arquivo é conferido novamente antes da execução.
 - `code.iss` reaproveita os argumentos de relançamento na ação de abrir a IDE após instalação interativa. A extensão do Hub expõe apenas o estado de conexão para a verificação prévia.
+
+### Convergência do atualizador
+
+- `desktop.contribution.ts` mantém um único registro do comando interno. O host nativo rejeita todas as solicitações de execução até que a procedência possa ser validada na fronteira nativa com proteção do arquivo durante o lançamento.
+- `extensions/singularity-update/provenance.js` usa Sigstore JS 5.0.0, Apache-2.0, com dependências fixadas pelo lockfile. A consulta às atestações públicas usa a API do GitHub sem credenciais.

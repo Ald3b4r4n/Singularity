@@ -36,10 +36,11 @@ atestação do EXE deve corresponder ao mesmo repositório, workflow, tag e
 commit. Falhas e cancelamentos descartam os arquivos da tentativa. Uma
 nova tentativa baixa os assets em outro diretório.
 
-A verificação usa o GitHub CLI instalado no diretório padrão do Windows
-(`Program Files\GitHub CLI`). Configure a autenticação do CLI conforme
-necessário para consultar atestações. As consultas de release e asset do
-Singularity são anônimas e não usam a sessão OAuth da IDE.
+O verificador Sigstore JS vem nas dependencias do aplicativo e consulta as
+atestacoes publicas por digest, sem credenciais. A raiz de confianca vem do
+TUF do Sigstore. A politica confere identidade do workflow, ID do
+repositorio, ref, commit, runner hospedado pelo GitHub e o digest do sujeito
+na declaracao assinada.
 
 A atestação vincula os bytes ao build do GitHub Actions. Authenticode
 assina o executável para a verificação do Windows. O SmartScreen usa
@@ -64,19 +65,14 @@ revisão com a versão instalada, a versão nova e as notas da release.
 O download pode ser adiado ou cancelado. O cliente só oferece ações sobre
 o EXE depois das verificações de integridade e procedência.
 
-O fluxo de instalação nativo exige uma instalação Inno Setup x64 com
-a capacidade habilitada no produto. O usuário confirma a instalação
-depois do download. O Singularity verifica se há arquivos não salvos e
-consulta o Hub antes de iniciar a saída normal do workbench. O assistente
-interativo do Windows abre quando a IDE termina. No fim, a opção de abrir
-o Singularity usa os argumentos de relançamento do workbench. Quando a
-IDE volta, ela compara a versão em execução com a versão esperada.
+A execucao pelo host nativo esta desabilitada em todos os builds. Um
+hash fornecido pelo chamador nao autoriza a execucao. A reativacao exige
+que o processo principal valide a procedencia independentemente e mantenha
+o arquivo protegido contra substituicao durante a verificacao e o
+lancamento. As verificacoes de disponibilidade e de download continuam
+ativas.
 
-A ação **Instalar e reiniciar** fica habilitada para o instalador x64 por
-usuário. O instalador por máquina pode ser baixado e localizado pela IDE.
-O fluxo de lançamento e reinício com UAC ainda precisa de E2E.
-
-A validação local da interface aplicou o instalador Windows interativo de
-`0.1.0-preview.10` sobre `0.1.0-preview.2` e reabriu o perfil sintético.
-O teste simulou a resposta de release e a atestação. O download, o hash,
-o encerramento, a instalação e o relançamento foram reais.
+O workflow pode ser despachado na branch `singularity` com
+`provenance_smoke=true` para atestar texto sintetico e verificar o resultado
+sem credenciais. O teste usa a identidade da branch, que nao satisfaz a
+politica de distribuicao, e nao envia instaladores nem cria releases ou tags.

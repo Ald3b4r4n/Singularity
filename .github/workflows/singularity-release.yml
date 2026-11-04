@@ -3,6 +3,10 @@ name: Singularity Windows release build
 on:
   workflow_dispatch:
     inputs:
+      provenance_smoke:
+        description: Attest synthetic text and verify it anonymously (no installer, release or tag)
+        type: boolean
+        default: false
       upload_artifacts:
         description: Upload the installer archive as a workflow artifact
         type: boolean
@@ -13,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    if: github.repository == 'Ald3b4r4n/Singularity' && github.ref_type == 'tag'
+    if: github.repository == 'Ald3b4r4n/Singularity' && github.ref_type == 'tag' && !inputs.provenance_smoke
     runs-on: windows-2025
     timeout-minutes: 50
     permissions:
@@ -35,7 +39,7 @@ jobs:
           if ($env:GITHUB_REF -cne "refs/tags/v$($product.singularityVersion)") { throw 'Tag must match product.json.' }
       - run: npm ci
       - run: npm ci --prefix singularity-hub
-      - run: node --test extensions/singularity-update/test/run.cjs extensions/singularity-update/test/interface.cjs
+      - run: node --test extensions/singularity-update/test/run.cjs extensions/singularity-update/test/interface.cjs extensions/singularity-update/test/native-boundary.cjs
       - run: node scripts/package-win32.cjs --installer
       - run: node scripts/prepare-singularity-release.cjs
       - name: Attest the manifest and both installers
@@ -51,3 +55,30 @@ jobs:
           path: .build/singularity-release/
           include-hidden-files: true
           if-no-files-found: error
+
+  provenance-smoke:
+    if: github.repository == 'Ald3b4r4n/Singularity' && github.ref == 'refs/heads/singularity' && inputs.provenance_smoke
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.22.1
+      - run: npm ci --ignore-scripts
+      - shell: pwsh
+        run: Set-Content -LiteralPath provenance-smoke.txt -Value "Synthetic test run $env:GITHUB_RUN_ID attempt $env:GITHUB_RUN_ATTEMPT"
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: provenance-smoke.txt
+      - name: Verify with the embedded library and no account
+        shell: pwsh
+        run: |
+          Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          node extensions/singularity-update/test/attestation-smoke.cjs provenance-smoke.txt

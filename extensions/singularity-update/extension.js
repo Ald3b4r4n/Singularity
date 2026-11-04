@@ -77,8 +77,7 @@ async function download(output, found) {
 			if (!controller.signal.aborted) {
 				output.appendLine(`download failed: ${error.code || 'error'}`);
 				const messages = {
-					'verifier-unavailable': vscode.l10n.t('A verificação de procedência requer o GitHub CLI no diretório padrão do Windows.'),
-					provenance: vscode.l10n.t('O GitHub CLI não confirmou a procedência da atualização. Verifique a autenticação do CLI e tente novamente.'),
+					provenance: vscode.l10n.t('Não foi possível confirmar a procedência da atualização no GitHub.'),
 					'checksum-mismatch': vscode.l10n.t('O hash do download diverge do manifesto verificado. Tente baixar a atualização novamente.'),
 					incomplete: vscode.l10n.t('O tamanho do download diverge do manifesto. Tente baixar a atualização novamente.')
 				};
