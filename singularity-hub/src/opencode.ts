@@ -53,14 +53,19 @@ async function readCatalog(server: OpenCodeProcess): Promise<ReturnType<typeof s
 
 /** Whether the OpenCode adapter can run on this machine, with the reason when it cannot. */
 export function openCodeRunnable(): { ok: boolean; reason?: string } {
-	return executable() ? { ok: true } : { ok: false, reason: 'OpenCode v2 ou o helper Windows do Singularity não foi encontrado.' };
+	return openCodeExecutable() ? { ok: true } : { ok: false, reason: 'OpenCode v2 ou o helper Windows do Singularity não foi encontrado.' };
 }
 
-function executable(): string | undefined {
+export function openCodeExecutable(env: NodeJS.ProcessEnv = process.env): string | undefined {
+	const explicit = env.SINGULARITY_OPENCODE;
+	if (explicit) { return isAbsolute(explicit) && /\.exe$/i.test(explicit) && existsSync(explicit) ? explicit : undefined; }
 	if (process.platform !== 'win32' || !existsSync(helper)) {
 		return undefined;
 	}
-	for (const entry of (process.env.PATH ?? '').split(delimiter)) {
+	const paths = (env.PATH ?? env.Path ?? '').split(delimiter);
+	if (env.USERPROFILE) { paths.push(join(env.USERPROFILE, '.local', 'bin')); }
+	if (env.LOCALAPPDATA) { paths.push(join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links')); }
+	for (const entry of paths) {
 		const directory = entry.replace(/^"|"$/g, '');
 		if (!isAbsolute(directory)) {
 			continue;
@@ -293,7 +298,7 @@ export class OpenCodeSessions {
 		this.history?.load();
 		if (!this.recoveryDir || !existsSync(this.recoveryDir)) { return; }
 		const directory = this.recoveryDir;
-		const expectedExecutable = executable();
+		const expectedExecutable = openCodeExecutable();
 		const files = readdirSync(directory).filter(name => name.endsWith('.dpapi') && recoveryId.test(name.slice(0, -6)));
 		await Promise.all(files.slice(0, maxSessions).map(async name => {
 			const id = name.slice(0, -6);
@@ -345,7 +350,7 @@ export class OpenCodeSessions {
 	has(id: string): boolean { return this.sessions.has(id); }
 
 	async create(directory: string, selection?: ModelSelection): Promise<Session> {
-		const exe = executable();
+		const exe = openCodeExecutable();
 		if (!exe) {
 			throw new OpenCodeError('OpenCode v2 ou o helper Windows do Singularity não foi encontrado.');
 		}
@@ -499,7 +504,7 @@ export class OpenCodeSessions {
 	async catalog(directory?: string, refresh = false): Promise<CatalogResult> {
 		const runnable = openCodeRunnable();
 		const services = serviceList(runnable);
-		const exe = executable();
+		const exe = openCodeExecutable();
 		if (!exe) {
 			return { services, service: 'opencode', providers: [], hiddenModels: 0, unavailable: runnable.reason };
 		}

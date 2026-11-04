@@ -1,3 +1,4 @@
+import { inspectProviders } from './providers';
 import * as http from 'http';
 import type { Duplex } from 'stream';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -53,7 +54,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -304,6 +305,14 @@ export class HubServer {
 		switch (method) {
 			case 'sessions.list':
 				return [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()];
+			case 'providers.inspect': {
+				const p = (request.params ?? {}) as { workspace?: unknown; refresh?: unknown };
+				if ((p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) ||
+					(p.refresh !== undefined && typeof p.refresh !== 'boolean')) {
+					throw new RpcError(ErrorCode.InvalidParams, 'Invalid provider inspection parameters');
+				}
+				return inspectProviders(async () => (await this.opencode.catalog(p.workspace as string | undefined, p.refresh === true)).providers.some(provider => provider.models.length > 0), p.refresh === true);
+			}
 			case 'catalog.get':
 				return this.catalog(request.params);
 			case 'session.create':

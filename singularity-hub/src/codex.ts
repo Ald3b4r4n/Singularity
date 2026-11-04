@@ -51,8 +51,11 @@ export function parseCodexPermissionMode(value: unknown): CodexPermissionMode | 
 export function codexExecutable(env: NodeJS.ProcessEnv = process.env): string | undefined {
 	if (process.platform !== 'win32' || !existsSync(helper)) { return undefined; }
 	const explicit = env.SINGULARITY_CODEX_CLI;
-	if (explicit && isAbsolute(explicit) && /\.exe$/i.test(explicit) && existsSync(explicit)) { return explicit; }
-	for (const entry of (env.PATH ?? env.Path ?? '').split(delimiter)) {
+	if (explicit) { return isAbsolute(explicit) && /\.exe$/i.test(explicit) && existsSync(explicit) ? explicit : undefined; }
+	const paths = (env.PATH ?? env.Path ?? '').split(delimiter);
+	if (env.USERPROFILE) { paths.push(join(env.USERPROFILE, '.local', 'bin')); }
+	if (env.LOCALAPPDATA) { paths.push(join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links')); }
+	for (const entry of paths) {
 		const directory = entry.replace(/^"|"$/g, '');
 		if (!isAbsolute(directory)) { continue; }
 		if (existsSync(join(directory, 'codex.exe'))) { return join(directory, 'codex.exe'); }
@@ -109,11 +112,11 @@ export interface CodexFacts {
 	login: 'chatgpt' | 'api-key' | 'other';
 }
 
-let cachedFacts: { at: number; promise: Promise<CodexFacts | { reason: string }> } | undefined;
+let cachedFacts: { at: number; promise: Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string }> } | undefined;
 
-export function inspectCodex(refresh = false): Promise<CodexFacts | { reason: string }> {
+export function inspectCodex(refresh = false): Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string }> {
 	if (cachedFacts && !refresh && Date.now() - cachedFacts.at < factsTtlMs) { return cachedFacts.promise; }
-	const promise = (async (): Promise<CodexFacts | { reason: string }> => {
+	const promise = (async (): Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string }> => {
 		const executable = codexExecutable();
 		if (!executable) { return { reason: 'Codex CLI ou o helper Windows do Singularity não foi encontrado.' }; }
 		const [version, login, models] = await Promise.all([capture(executable, ['--version']), capture(executable, ['login', 'status']), capture(executable, ['debug', 'models'], 30000)]);
@@ -122,7 +125,7 @@ export function inspectCodex(refresh = false): Promise<CodexFacts | { reason: st
 		// `codex login status` prints its answer on stderr.
 		const loginText = `${login.stdout}
 ${login.stderr}`.trim();
-		if (login.code !== 0 || !/^Logged in/im.test(loginText)) { return { reason: 'Entre no Codex CLI (`codex login`) antes de usar este serviço.' }; }
+		if (login.code !== 0 || !/^Logged in/im.test(loginText)) { return { authenticationRequired: true, version: versionText, reason: 'Entre no Codex CLI (`codex login`) antes de usar este serviço.' }; }
 		let parsed: CodexModel[] = [];
 		try { parsed = parseCodexModels(JSON.parse(models.stdout)); } catch { /* an unreadable catalog offers nothing */ }
 		if (models.code !== 0 || !parsed.length) { return { reason: 'O catálogo de modelos desta versão do Codex CLI não pôde ser confirmado.' }; }

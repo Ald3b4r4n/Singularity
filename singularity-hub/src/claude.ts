@@ -46,8 +46,11 @@ export function parsePermissionMode(value: unknown): PermissionMode | undefined 
 export function claudeExecutable(env: NodeJS.ProcessEnv = process.env): string | undefined {
 	if (process.platform !== 'win32' || !existsSync(helper)) { return undefined; }
 	const explicit = env.SINGULARITY_CLAUDE_CODE;
-	if (explicit && isAbsolute(explicit) && /\.exe$/i.test(explicit) && existsSync(explicit)) { return explicit; }
-	for (const entry of (env.PATH ?? env.Path ?? '').split(delimiter)) {
+	if (explicit) { return isAbsolute(explicit) && /\.exe$/i.test(explicit) && existsSync(explicit) ? explicit : undefined; }
+	const paths = (env.PATH ?? env.Path ?? '').split(delimiter);
+	if (env.USERPROFILE) { paths.push(join(env.USERPROFILE, '.local', 'bin')); }
+	if (env.LOCALAPPDATA) { paths.push(join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links')); }
+	for (const entry of paths) {
 		const directory = entry.replace(/^"|"$/g, '');
 		if (!isAbsolute(directory)) { continue; }
 		for (const candidate of [join(directory, 'claude.exe'), join(directory, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')]) {
@@ -84,12 +87,12 @@ export function parseClaudeHelp(help: string): { aliases: string[]; efforts: str
 	return { aliases, efforts };
 }
 
-let cachedFacts: { at: number; promise: Promise<ClaudeFacts | { reason: string }> } | undefined;
+let cachedFacts: { at: number; promise: Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string }> } | undefined;
 
 /** Version, documented models and efforts, and whether the CLI is logged in. Cached for a minute. */
-export function inspectClaude(refresh = false): Promise<ClaudeFacts | { reason: string }> {
+export function inspectClaude(refresh = false): Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string }> {
 	if (cachedFacts && !refresh && Date.now() - cachedFacts.at < factsTtlMs) { return cachedFacts.promise; }
-	const promise = (async (): Promise<ClaudeFacts | { reason: string }> => {
+	const promise = (async (): Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string }> => {
 		const executable = claudeExecutable();
 		if (!executable) { return { reason: 'Claude Code CLI ou o helper Windows do Singularity não foi encontrado.' }; }
 		const [version, help, auth] = await Promise.all([capture(executable, ['--version']), capture(executable, ['--help']), capture(executable, ['auth', 'status', '--json'])]);
@@ -99,7 +102,7 @@ export function inspectClaude(refresh = false): Promise<ClaudeFacts | { reason: 
 		if (help.code !== 0 || !aliases.length || !efforts.length) { return { reason: 'O catálogo headless desta versão do Claude Code não pôde ser confirmado.' }; }
 		let loggedIn = false;
 		try { loggedIn = JSON.parse(auth.stdout).loggedIn === true; } catch { /* the CLI answered something unusable: treated as not logged in */ }
-		if (!loggedIn) { return { reason: 'Entre no Claude Code CLI (`claude auth login`) antes de usar este serviço.' }; }
+		if (!loggedIn) { return { authenticationRequired: true, version: versionText, reason: 'Entre no Claude Code CLI (`claude auth login`) antes de usar este serviço.' }; }
 		return { executable, version: versionText, aliases, efforts, loggedIn };
 	})();
 	cachedFacts = { at: Date.now(), promise };
