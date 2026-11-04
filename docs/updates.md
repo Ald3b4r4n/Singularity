@@ -56,3 +56,27 @@ download com respostas controladas, inclusive rejeições de integridade e
 procedência. O caminho positivo do teste usa um verificador simulado. O
 primeiro build atestado do Singularity precisa ser conferido com os
 artefatos gerados pelo workflow.
+
+## Revisão da atualização na IDE
+
+O comando de verificação e o indicador na barra de status abrem uma
+revisão com a versão instalada, a versão nova e as notas da release.
+O download pode ser adiado ou cancelado. O cliente só oferece ações sobre
+o EXE depois das verificações de integridade e procedência.
+
+O fluxo de instalação nativo exige uma instalação Inno Setup x64 com
+a capacidade habilitada no produto. O usuário confirma a instalação
+depois do download. O Singularity verifica se há arquivos não salvos e
+consulta o Hub antes de iniciar a saída normal do workbench. O assistente
+interativo do Windows abre quando a IDE termina. No fim, a opção de abrir
+o Singularity usa os argumentos de relançamento do workbench. Quando a
+IDE volta, ela compara a versão em execução com a versão esperada.
+
+A ação **Instalar e reiniciar** fica habilitada para o instalador x64 por
+usuário. O instalador por máquina pode ser baixado e localizado pela IDE.
+O fluxo de lançamento e reinício com UAC ainda precisa de E2E.
+
+A validação local da interface aplicou o instalador Windows interativo de
+`0.1.0-preview.10` sobre `0.1.0-preview.2` e reabriu o perfil sintético.
+O teste simulou a resposta de release e a atestação. O download, o hash,
+o encerramento, a instalação e o relançamento foram reais.

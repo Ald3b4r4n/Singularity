@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as fs from 'fs';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { app, BrowserWindow, clipboard, contentTracing, desktopCapturer, Display, Menu, MessageBoxOptions, MessageBoxReturnValue, nativeImage, Notification, OpenDevToolsOptions, OpenDialogOptions, OpenDialogReturnValue, powerMonitor, powerSaveBlocker, SaveDialogOptions, SaveDialogReturnValue, screen, shell, systemPreferences, webContents } from 'electron';
-import { arch, cpus, freemem, loadavg, platform, release, totalmem, type } from 'os';
+import { arch, cpus, freemem, loadavg, platform, release, tmpdir, totalmem, type } from 'os';
 import { promisify } from 'util';
 import { memoize } from '../../../base/common/decorators.js';
 import { Emitter, Event } from '../../../base/common/event.js';
@@ -16,6 +16,7 @@ import { dirname, isAbsolute, join, posix, resolve, win32 } from '../../../base/
 import { isLinux, isMacintosh, isWindows } from '../../../base/common/platform.js';
 import { AddFirstParameterToFunctions, hasKey } from '../../../base/common/types.js';
 import { URI, UriComponents } from '../../../base/common/uri.js';
+import { checksum } from '../../../base/node/crypto.js';
 import { virtualMachineHint } from '../../../base/node/id.js';
 import { Promises, SymlinkSupport } from '../../../base/node/pfs.js';
 import { findFreePort, isPortFree } from '../../../base/node/ports.js';
@@ -25,9 +26,9 @@ import { INativeOpenDialogOptions } from '../../dialogs/common/dialogs.js';
 import { IDialogMainService } from '../../dialogs/electron-main/dialogMainService.js';
 import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
 import { createDecorator, IInstantiationService } from '../../instantiation/common/instantiation.js';
-import { ILifecycleMainService, IRelaunchOptions } from '../../lifecycle/electron-main/lifecycleMainService.js';
+import { ILifecycleMainService, IRelaunchOptions, ShutdownReason } from '../../lifecycle/electron-main/lifecycleMainService.js';
 import { ILogService } from '../../log/common/log.js';
-import { FocusMode, IApplicationBadge, ICommonNativeHostService, INativeHostOptions, INativeSystemWideKeybinding, INativeSystemWideKeybindingResult, INativeZipFile, INativeZipOptions, INativeZipProgress, INativeZipResult, IOpenAgentsWindowOptions, IOSProperties, IOSProxy, IOSProxyConfig, IOSStatistics, IStartTracingOptions, IToastOptions, IToastResult, PowerSaveBlockerType, SystemIdleState, ThermalState } from '../common/native.js';
+import { FocusMode, IApplicationBadge, ICommonNativeHostService, INativeHostOptions, ISingularityUpdateInstaller, INativeSystemWideKeybinding, INativeSystemWideKeybindingResult, INativeZipFile, INativeZipOptions, INativeZipProgress, INativeZipResult, IOpenAgentsWindowOptions, IOSProperties, IOSProxy, IOSProxyConfig, IOSStatistics, IStartTracingOptions, IToastOptions, IToastResult, PowerSaveBlockerType, SystemIdleState, ThermalState } from '../common/native.js';
 import { IGlobalKeybindingsMainService } from '../../globalKeybindings/electron-main/globalKeybindingsMainService.js';
 import { IGPUProcessMainService } from '../../gpu/electron-main/gpuProcessMainService.js';
 import { IProductService } from '../../product/common/productService.js';
@@ -53,6 +54,7 @@ import { randomPath } from '../../../base/common/extpath.js';
 import { CancellationToken, CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { GPUCompositingState } from './gpuCompositingState.js';
 import { AgentHostEditorUpdate, AgentsWindowInvitationState, IAgentHostEditorState, IAgentsWindowInvitation } from '../../chat/common/agentsWindowInvitation.js';
+import { getRelaunchArguments } from '../../update/electron-main/updateRelaunchArguments.js';
 import { IApplicationStorageMainService } from '../../storage/electron-main/storageMainService.js';
 
 export interface INativeHostMainService extends AddFirstParameterToFunctions<ICommonNativeHostService, Promise<unknown> /* only methods, not events */, number | undefined /* window ID */> { }
@@ -62,6 +64,7 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 
 	declare readonly _serviceBrand: undefined;
 
+	private singularityInstallPending = false;
 	private readonly gpuCompositingState: GPUCompositingState;
 	private readonly agentsWindowInvitations: AgentsWindowInvitationState;
 
@@ -1226,6 +1229,82 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 		// Otherwise: normal quit
 		else {
 			this.lifecycleMainService.quit();
+		}
+	}
+
+	async installSingularityUpdate(windowId: number | undefined, update: ISingularityUpdateInstaller): Promise<void> {
+		const target = this.productService.target;
+		const version = update?.version;
+		if (!isWindows || process.arch !== 'x64' || !this.productService.singularityUpdateInstall
+			|| (target !== 'user' && target !== 'system') || typeof version !== 'string'
+			|| !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-preview\.(0|[1-9]\d*))?$/.test(version)
+			|| typeof update.path !== 'string' || !/^[a-f0-9]{64}$/.test(update.sha256)
+			|| version === this.productService.singularityVersion || this.singularityInstallPending) {
+			throw new Error('Singularity update installation is unavailable.');
+		}
+
+		this.singularityInstallPending = true;
+		try {
+			const cache = await fs.promises.realpath(join(tmpdir(), 'singularity-update'));
+			const installer = await fs.promises.realpath(update.path);
+			const staging = dirname(installer);
+			const relativeStaging = win32.relative(cache, staging);
+			if (!/^singularity-update-[a-zA-Z0-9]+$/.test(relativeStaging)
+				|| win32.basename(installer) !== `SingularityIDE-${version}-x64-${target}.exe`) {
+				throw new Error('Unexpected Singularity installer location.');
+			}
+			await checksum(installer, update.sha256);
+
+			if (this.windowsMainService.getWindows().some(window => window.isDocumentEdited())) {
+				throw new Error('singularity-dirty-windows');
+			}
+			const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+			const relaunchFile = join(staging, 'relaunch-arguments.txt');
+			const relaunch = getRelaunchArguments(this.environmentMainService.args, process.argv);
+			await fs.promises.writeFile(relaunchFile, relaunch, { mode: 0o600 });
+			const systemRoot = process.env.SystemRoot;
+			if (!systemRoot) {
+				throw new Error('Windows PowerShell could not be located.');
+			}
+			const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+			await fs.promises.access(powershell);
+			const launchLog = join(staging, 'installer-launch.log');
+			const script = [
+				"$ErrorActionPreference = 'Stop'",
+				'try {',
+				`  Wait-Process -Id ${process.pid} -Timeout 60 -ErrorAction SilentlyContinue`,
+				`  if (Get-Process -Id ${process.pid} -ErrorAction SilentlyContinue) { throw 'Singularity is still running.' }`,
+				`  $stream = [IO.File]::OpenRead(${quote(installer)})`,
+				'  $sha = [Security.Cryptography.SHA256]::Create()',
+				"  try { $digest = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() } finally { $stream.Dispose(); $sha.Dispose() }",
+				`  if ($digest -cne ${quote(update.sha256)}) { throw 'Installer hash changed.' }`,
+				`  Start-Process -FilePath ${quote(installer)} -ArgumentList '/NORESTART', ${quote(`/relaunchargs="${relaunchFile}"`)} -WindowStyle Normal`,
+				`} catch { $_.Exception.Message | Set-Content -LiteralPath ${quote(launchLog)}; exit 1 }`
+			].join('\n');
+			const encoded = Buffer.from(script, 'utf16le').toString('base64');
+			// Start the waiter through the Windows shell so it can outlive Electron.
+			const broker = `Start-Process -FilePath ${quote(powershell)} -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', ${quote(encoded)} -WindowStyle Hidden`;
+			const encodedBroker = Buffer.from(broker, 'utf16le').toString('base64');
+			const onShutdown = this.lifecycleMainService.onWillShutdown(event => {
+				if (event.reason !== ShutdownReason.QUIT) {
+					return;
+				}
+				const start = promisify(execFile)(powershell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodedBroker], {
+					cwd: staging, windowsHide: true, timeout: 15000
+				}).then(() => undefined, error => {
+					this.logService.error('Singularity installer launcher failed', error);
+				});
+				event.join('singularity-update', start);
+			});
+			try {
+				if (await this.lifecycleMainService.quit(true)) {
+					throw new Error('singularity-shutdown-veto');
+				}
+			} finally {
+				onShutdown.dispose();
+			}
+		} finally {
+			this.singularityInstallPending = false;
 		}
 	}
 

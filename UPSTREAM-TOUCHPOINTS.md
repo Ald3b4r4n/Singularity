@@ -49,3 +49,8 @@ Base atual: tag `1.144.0`, commit `2c33b50b16c472efe58357d1d2a8a5414bc23fbf`.
 
 - `extensions/singularity-update` usa o `product.json` do aplicativo e verifica releases do repositório oficial. Atestações de manifesto e instalador são verificadas pelo GitHub CLI.
 - `.github/workflows/singularity-release.yml` e `scripts/prepare-singularity-release.cjs` preparam os instaladores, o manifesto e os hashes da tag.
+
+### Instalação de atualizações pelo workbench
+
+- `desktop.contribution.ts` registra o comando interno para o host nativo quando o produto habilita a instalação. `nativeHostMainService.ts` verifica arquivos não salvos em todas as janelas, preserva o veto do lifecycle e chama o assistente interativo do Inno após a saída. O arquivo é conferido novamente antes da execução.
+- `code.iss` reaproveita os argumentos de relançamento na ação de abrir a IDE após instalação interativa. A extensão do Hub expõe apenas o estado de conexão para a verificação prévia.

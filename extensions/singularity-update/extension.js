@@ -8,6 +8,7 @@ const update = require('./update.js');
 
 const product = JSON.parse(fs.readFileSync(path.join(vscode.env.appRoot, 'product.json'), 'utf8'));
 const INSTALLED = product.singularityVersion;
+const EXPECTED_VERSION_KEY = 'singularity.update.expectedVersion';
 const LAST_CHECK_KEY = 'singularity.update.lastCheck';
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -71,19 +72,17 @@ async function download(output, found) {
 				onVerifying: () => progress.report({ message: vscode.l10n.t('Verificando procedência') }),
 			});
 			output.appendLine(`verified ${found.version} (${result.bytes} bytes, SHA-256 ${result.sha256})`);
-			const reveal = vscode.l10n.t('Mostrar arquivo');
-			const choice = await vscode.window.showInformationMessage(
-				vscode.l10n.t('Integridade e procedência do instalador do Singularity {0} verificadas.', found.version), reveal
-			);
-			if (choice === reveal) {
-				await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.path));
-			}
+			return result;
 		} catch (error) {
 			if (!controller.signal.aborted) {
 				output.appendLine(`download failed: ${error.code || 'error'}`);
-				const message = error.code === 'verifier-unavailable'
-					? vscode.l10n.t('A verificação de procedência requer o GitHub CLI no diretório padrão do Windows.')
-					: vscode.l10n.t('Não foi possível baixar e verificar a atualização. Consulte Singularity Update para detalhes.');
+				const messages = {
+					'verifier-unavailable': vscode.l10n.t('A verificação de procedência requer o GitHub CLI no diretório padrão do Windows.'),
+					provenance: vscode.l10n.t('O GitHub CLI não confirmou a procedência da atualização. Verifique a autenticação do CLI e tente novamente.'),
+					'checksum-mismatch': vscode.l10n.t('O hash do download diverge do manifesto verificado. Tente baixar a atualização novamente.'),
+					incomplete: vscode.l10n.t('O tamanho do download diverge do manifesto. Tente baixar a atualização novamente.')
+				};
+				const message = messages[error.code] ?? vscode.l10n.t('Não foi possível baixar e verificar a atualização. Consulte Singularity Update para detalhes.');
 				await vscode.window.showErrorMessage(message);
 			}
 		} finally {
@@ -92,12 +91,89 @@ async function download(output, found) {
 	});
 }
 
+async function install(context, output, found, result) {
+	let hub;
+	try {
+		hub = await vscode.commands.executeCommand('singularity.hub.updateState');
+	} catch (error) {
+		output.appendLine(`Hub preflight unavailable: ${error.message}`);
+	}
+	if (hub !== 'disconnected') {
+		await vscode.window.showWarningMessage(vscode.l10n.t('Encerre o Hub e aguarde o fim das sessões antes de instalar a atualização.'));
+		return;
+	}
+	if (vscode.workspace.textDocuments.some(document => document.isDirty)
+		|| vscode.workspace.notebookDocuments.some(document => document.isDirty)) {
+		await vscode.window.showWarningMessage(vscode.l10n.t('Salve os arquivos abertos antes de instalar a atualização.'));
+		return;
+	}
+	await context.globalState.update(EXPECTED_VERSION_KEY, found.version);
+	try {
+		await vscode.commands.executeCommand('_singularity.installUpdate', {
+			path: result.path, sha256: result.sha256, version: found.version
+		});
+	} catch (error) {
+		await context.globalState.update(EXPECTED_VERSION_KEY, undefined);
+		output.appendLine(`installation postponed: ${error.message}`);
+		const message = error.message.includes('singularity-dirty-windows')
+			? vscode.l10n.t('Salve os arquivos em todas as janelas do Singularity antes de atualizar.')
+			: vscode.l10n.t('A instalação foi adiada. Você pode tentar novamente.');
+		await vscode.window.showWarningMessage(message);
+	}
+}
+
+async function review(context, output, found) {
+	const downloadAction = vscode.l10n.t('Baixar atualização');
+	const later = vscode.l10n.t('Adiar');
+	const decision = await vscode.window.showInformationMessage(
+		vscode.l10n.t('Atualização do Singularity disponível'), {
+			modal: true,
+			detail: vscode.l10n.t('Versão instalada: {0}\nNova versão: {1} ({2})\n\n{3}',
+				INSTALLED, found.version, found.channel, found.notes.slice(0, 3000))
+		}, downloadAction, later
+	);
+	if (decision !== downloadAction) {
+		return;
+	}
+	const result = await download(output, found);
+	if (!result) {
+		return;
+	}
+
+	const reveal = vscode.l10n.t('Mostrar arquivo');
+	const installAction = vscode.l10n.t('Instalar e reiniciar');
+	const native = product.singularityUpdateInstall === true && ['user', 'system'].includes(product.target)
+		&& (await vscode.commands.getCommands()).includes('_singularity.installUpdate');
+	const choices = native ? [installAction, reveal, later] : [reveal, later];
+	const action = await vscode.window.showInformationMessage(
+		vscode.l10n.t('Integridade e procedência do instalador do Singularity {0} verificadas.', found.version),
+		{ modal: native, detail: native ? vscode.l10n.t('Salve o trabalho em todas as janelas. O assistente do Windows abrirá após o encerramento do Singularity.') : undefined },
+		...choices
+	);
+	if (action === installAction && native) {
+		await install(context, output, found, result);
+	} else if (action === reveal) {
+		await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(result.path));
+	}
+}
+
 function activate(context) {
 	const output = vscode.window.createOutputChannel('Singularity Update', { log: true });
 	context.subscriptions.push(output);
 	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
 	context.subscriptions.push(item);
+	const expected = context.globalState.get(EXPECTED_VERSION_KEY);
+	if (expected) {
+		void context.globalState.update(EXPECTED_VERSION_KEY, undefined);
+		if (expected === INSTALLED) {
+			void vscode.window.showInformationMessage(vscode.l10n.t('Singularity atualizado para {0}.', INSTALLED));
+		} else {
+			output.appendLine(`expected version ${expected}; running ${INSTALLED}`);
+			void vscode.window.showWarningMessage(vscode.l10n.t('A atualização para {0} ficou pendente. O Singularity ainda está na versão {1}.', expected, INSTALLED));
+		}
+	}
 	let pending;
+	let reviewing = false;
 	const show = found => {
 		pending = found;
 		item.text = `$(cloud-download) ${vscode.l10n.t('Singularity {0}', found.version)}`;
@@ -109,11 +185,24 @@ function activate(context) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand('singularity.update.check', async () => {
 			const found = await check(context, output, { explicit: true });
-			if (found) { show(found); }
+			if (found) {
+				show(found);
+				await vscode.commands.executeCommand('singularity.update.download');
+			} else {
+				pending = undefined;
+				item.hide();
+			}
 		}),
 		vscode.commands.registerCommand('singularity.update.download', async () => {
 			const found = pending && (settings().channel === 'preview' || pending.channel === 'stable') ? pending : await check(context, output, { explicit: true });
-			if (found) { await download(output, found); }
+			if (found && !reviewing) {
+				reviewing = true;
+				try {
+					await review(context, output, found);
+				} finally {
+					reviewing = false;
+				}
+			}
 		}),
 	);
 

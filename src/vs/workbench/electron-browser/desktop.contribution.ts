@@ -16,7 +16,7 @@ import { KeybindingsRegistry, KeybindingWeight } from '../../platform/keybinding
 import { CommandsRegistry } from '../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../platform/instantiation/common/instantiation.js';
 import { IsMacContext } from '../../platform/contextkey/common/contextkeys.js';
-import { INativeHostService } from '../../platform/native/common/native.js';
+import { INativeHostService, ISingularityUpdateInstaller } from '../../platform/native/common/native.js';
 import { IJSONContributionRegistry, Extensions as JSONExtensions } from '../../platform/jsonschemas/common/jsonContributionRegistry.js';
 import { IJSONSchema } from '../../base/common/jsonSchema.js';
 import { UninstallShellScriptAction } from './actions/installActions.js';
@@ -65,6 +65,11 @@ import product from '../../platform/product/common/product.js';
 	// Actions: Install Shell Script (macOS only)
 	if (isMacintosh) {
 		registerAction2(UninstallShellScriptAction);
+	}
+
+	if (isWindows && product.singularityUpdateInstall) {
+		CommandsRegistry.registerCommand('_singularity.installUpdate', (accessor, update: ISingularityUpdateInstaller) =>
+			accessor.get(INativeHostService).installSingularityUpdate(update));
 	}
 
 	// Quit
@@ -123,6 +128,11 @@ import product from '../../platform/product/common/product.js';
 
 // Menu
 (function registerMenu(): void {
+
+	if (isWindows && product.singularityUpdateInstall) {
+		CommandsRegistry.registerCommand('_singularity.installUpdate', (accessor, update: ISingularityUpdateInstaller) =>
+			accessor.get(INativeHostService).installSingularityUpdate(update));
+	}
 
 	// Quit
 	MenuRegistry.appendMenuItem(MenuId.MenubarFileMenu, {

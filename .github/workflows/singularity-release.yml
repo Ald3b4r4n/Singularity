@@ -35,7 +35,7 @@ jobs:
           if ($env:GITHUB_REF -cne "refs/tags/v$($product.singularityVersion)") { throw 'Tag must match product.json.' }
       - run: npm ci
       - run: npm ci --prefix singularity-hub
-      - run: node extensions/singularity-update/test/run.cjs
+      - run: node --test extensions/singularity-update/test/run.cjs extensions/singularity-update/test/interface.cjs
       - run: node scripts/package-win32.cjs --installer
       - run: node scripts/prepare-singularity-release.cjs
       - name: Attest the manifest and both installers

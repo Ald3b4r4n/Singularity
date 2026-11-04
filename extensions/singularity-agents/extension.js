@@ -76,6 +76,10 @@ function activate(context) {
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),
 		vscode.commands.registerCommand('singularity.agents.open', () => vscode.commands.executeCommand(`workbench.view.extension.${CONTAINER_ID}`)),
+		vscode.commands.registerCommand('singularity.hub.updateState', async () => {
+			await hub.start(false);
+			return hub.getState().hub.status;
+		}),
 		vscode.commands.registerCommand('singularity.hub.start', async () => { await hub.start(true); }),
 		vscode.commands.registerCommand('singularity.hub.stop', async () => {
 			try {

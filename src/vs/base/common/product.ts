@@ -98,6 +98,7 @@ export interface IDictationRuntimeProductConfig {
 
 export interface IProductConfiguration {
 	readonly singularityVersion?: string;
+	readonly singularityUpdateInstall?: boolean;
 	readonly version: string;
 	readonly date?: string;
 	readonly quality?: string;

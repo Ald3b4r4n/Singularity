@@ -241,6 +241,12 @@ export interface INativeSystemWideKeybindingResult {
 	readonly failed: string[];
 }
 
+export interface ISingularityUpdateInstaller {
+	readonly path: string;
+	readonly version: string;
+	readonly sha256: string;
+}
+
 export interface ICommonNativeHostService {
 
 	readonly _serviceBrand: undefined;
@@ -432,6 +438,7 @@ export interface ICommonNativeHostService {
 	reload(options?: { disableExtensions?: boolean }): Promise<void>;
 	closeWindow(options?: INativeHostOptions): Promise<void>;
 	quit(): Promise<void>;
+	installSingularityUpdate(update: ISingularityUpdateInstaller): Promise<void>;
 	exit(code: number): Promise<void>;
 
 	// Development

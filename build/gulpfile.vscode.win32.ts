@@ -88,6 +88,7 @@ function buildWin32Setup(arch: string, target: string): task.CallbackTask {
 			throw new Error('The Windows x64 installer requires the bundled Hub. Run node scripts/package-win32.cjs first.');
 		}
 		productJson['target'] = target;
+		productJson['singularityUpdateInstall'] = arch === 'x64' && target === 'user';
 
 		const definitions: Record<string, unknown> = {
 			NameLong: product.nameLong,
