@@ -19,6 +19,7 @@ Abertura e foco da janela, Ctrl+P e digitação num arquivo (conferido no disco)
 |---|---|
 | `run.cjs` | abertura, arquivos, temas, terminal, Git, extensões, painel Agentes e Hub |
 | `agents-check.cjs` | **Agentes**: sem Chat nem Copilot; seletores Serviço → Provedor → Modelo → Esforço iguais ao catálogo do Hub; tarefa real no OpenCode com streaming; trocar esforço; cancelar; encerrar; sobreviver a fechar e reabrir; painel estreito, Dark, Light e alto contraste |
+| `opencode-recovery-guardrails.cjs` | após falhas reais do Hub: helper ausente, credencial incorreta e registro DPAPI adulterado são recusados sem executar prompt nem duplicar a sessão; o Job original é encerrado na limpeza |
 | `chat-compat-check.cjs` | a infraestrutura de Chat continua para extensões de terceiros (extensão de sonda em `chat-compat-ext/`) |
 | `browser-check.cjs` | Singularity Browser |
 | `titlebar-account-check.cjs`, `login-live.cjs`, `push-check.cjs` | conta GitHub, login e push real (o proprietário aprova os códigos) |

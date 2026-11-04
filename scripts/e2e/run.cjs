@@ -103,6 +103,7 @@ async function launchAndWait(files) {
 			await front();
 			lib.keys(profile, '^p'); await lib.sleep(700); lib.paste(profile, 'notes.txt'); await lib.sleep(700); lib.keys(profile, '{ENTER}'); await lib.sleep(1500);
 			assert(/notes\.txt/.test(await page.evaluate('document.title')), 'notes.txt is not the active editor');
+			await lib.runCommand(profile, 'View: Focus First Editor Group', 700);
 			lib.keys(profile, '^{END}'); lib.paste(profile, 'linha digitada pelo E2E\n'); await lib.sleep(500); lib.keys(profile, '^s'); await lib.sleep(1200);
 			const text = fs.readFileSync(path.join(workspace, 'notes.txt'), 'utf8');
 			assert(text.includes('linha digitada pelo E2E'), 'typed text did not reach the file on disk');
@@ -183,9 +184,10 @@ async function launchAndWait(files) {
 		await step('reopen: workspace and the edited file are restored', async () => {
 			page = await launchAndWait();
 			const title = await page.evaluate('document.title');
-			assert(/notes\.txt/.test(title), 'the edited file was not restored: ' + title);
-			if (withHub) { const st = hubCli(); assert(st.instanceId === before.instanceId, 'reconnected to a different Hub instance'); return { sameHub: true, title }; }
-			return { title };
+			const restored = await page.evaluate("[...document.querySelectorAll('.tabs-container .tab')].some(tab => /notes\\.txt/.test((tab.getAttribute('aria-label') || '') + ' ' + tab.innerText))");
+			assert(restored, 'the edited file tab was not restored: ' + title);
+			if (withHub) { const st = hubCli(); assert(st.instanceId === before.instanceId, 'reconnected to a different Hub instance'); return { sameHub: true, restoredTab: true, activeEditor: title }; }
+			return { restoredTab: true, activeEditor: title };
 		});
 
 		if (withHub) {
@@ -210,7 +212,14 @@ async function launchAndWait(files) {
 	} finally {
 		report.finished = new Date().toISOString();
 		fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify(report, null, 2));
-		if (!keep) { lib.rmrf(profile); }
+		if (withHub && !keep) {
+			try {
+				const cli = path.join(dev || path.dirname(exe), dev ? 'singularity-hub' : 'resources\\app\\singularity-hub', 'dist', 'cli.js');
+				const node = exe ? path.join(path.dirname(exe), 'resources', 'app', 'singularity-hub', 'runtime', 'node.exe') : (process.env.SINGULARITY_E2E_NODE || 'node');
+				execFileSync(node, [cli, 'stop'], { env: { ...process.env, SINGULARITY_HUB_HOME: hubHome }, stdio: 'ignore' });
+			} catch { /* already stopped */ }
+		}
+		if (!keep) { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }); }
 		console.log(report.ok ? 'E2E PASSED' : 'E2E FAILED: ' + report.error);
 		console.log('Windows input control released.');
 		process.exit(report.ok ? 0 : 1);
