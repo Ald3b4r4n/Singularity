@@ -72,3 +72,17 @@ foram lidos, copiados nem incluídos: o pacote e os commits vêm só do worktree
 Defeito de produto encontrado e corrigido nesta rodada (não era do harness): cancelar uma execução retomada do Codex CLI cerca de
 4 s depois do início deixava a sessão em `running` para sempre, porque o evento `close` do Node não disparava. Os adapters do
 Claude Code e do Codex agora concluem na saída do processo. Detalhes em `codex-cli-adapter.md`.
+
+## Terceira rodada: base aprovada (`fcd0782`)
+
+A integração dos três provedores foi reaplicada sobre a build aprovada `fcd0782` (branch `preserve/agents-interface`): cartões de
+sessão, "Parar" no botão Enviar e perfil do GitHub preservados. Pacote próprio, com `BUILD_SOURCEVERSION`; resultados nele:
+Hub 90/90, `agents-providers-check` 49/49 (OpenCode, Claude Code e Codex CLI), `agents-check`, `run.cjs`, `account-check` e
+`browser-check` aprovados.
+
+Observação sobre a interface aprovada: a lista lateral compara o caminho do workspace da IDE com o caminho canônico que o Hub
+devolve; se a pasta for aberta por um nome curto 8.3 (`ANTONI~1`), as sessões somem do filtro por workspace. Os testes usam
+caminhos longos. Não foi alterado, por ser comportamento da build aprovada; fica registrado.
+
+Os testes guardados por foco recusam enviar teclas quando outro aplicativo está em primeiro plano (aconteceu com Chrome,
+Antigravity e Firefox enquanto a máquina estava em uso); eles foram repetidos até rodar.
