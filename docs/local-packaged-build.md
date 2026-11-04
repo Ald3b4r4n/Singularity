@@ -40,7 +40,7 @@ O que continua: o `@github/copilot-sdk` (licença MIT) e seu runtime de platafor
 
 ## Limitações
 
-- Não há instalador (Inno Setup), assinatura de código nem atualização automática.
+- Os instaladores locais ainda não têm assinatura Authenticode. A atualização pela interface depende da validação do fluxo de distribuição.
 - Local apenas: nenhum binário foi publicado.
 
 ## O Hub no pacote
@@ -61,3 +61,33 @@ Escolha do Node (`launch.ts`): `SINGULARITY_NODE_PATH` (escolha explícita), dep
 Validado com entrada real de mouse e teclado (`scripts/e2e/run.cjs --exe ... --hub --no-system-node`, com o IDE iniciado com um PATH sem `node.exe`): o painel abre o Hub, que roda a partir de `resources\app\singularity-hub\runtime\node.exe`; "Hub conectado" com 0 sessões; fechar a janela não encerra o Hub; reabrir reconecta à mesma instância; "Singularity: Encerrar o Hub" libera os arquivos. Captura: `branding/event-minimal/packaged/07-hub-conectado-pacote.png`.
 
 Licenças: o Node.js vai sem modificação com o `LICENSE` da distribuição oficial (MIT, mais as licenças de suas dependências embutidas, listadas no mesmo arquivo). O `ws` é MIT. Nenhum componente com licença restritiva é incluído.
+
+## Instaladores locais e teste de atualização
+
+`node scripts/package-win32.cjs --installer` gera os instaladores x64 em
+`.build/win32-x64/user-setup` e `.build/win32-x64/system-setup`.
+Guarde o instalador A fora desses diretórios antes de mudar a versão
+`singularityVersion` em `product.json` e gerar B. A variante por usuário deve
+ser usada nas duas etapas do teste.
+
+```powershell
+node scripts/e2e/installer-upgrade.cjs <A.exe> <B.exe> <diretorio-novo-para-evidencias>
+```
+
+Execute o teste em uma sessão Windows com desktop interativo. O teste recusa
+prosseguir se o AppId por usuário já estiver registrado. Ele usa um perfil,
+uma extensão, um Hub e projetos sintéticos. A atualização usa o destino
+registrado na instalação A. Os logs e as capturas ficam no diretório indicado.
+
+Feche as janelas e salve seu trabalho antes de atualizar. No painel de
+agentes, encerre o Hub quando puder interromper suas sessões. O instalador
+bloqueia a atualização enquanto a IDE ou o Node embutido estiverem ativos.
+Fechar a IDE pode deixar o Hub independente rodando.
+
+O Inno Setup reverte alterações da instalação cancelada usando a lógica do
+desinstalador. O script herdado também limpa diretórios da instalação anterior
+na seção `[InstallDelete]`, processada no início da instalação. Uma
+interrupção durante a substituição pode exigir reinstalar a versão desejada.
+Os perfis, as extensões do usuário e os projetos ficam fora desses diretórios.
+Consulte a [FAQ do Inno Setup](https://jrsoftware.org/isfaq.php) e a
+[referência de InstallDelete](https://jrsoftware.org/ishelp/topic_installdeletesection.htm).
