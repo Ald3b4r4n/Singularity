@@ -9,12 +9,27 @@
 (function (root) {
 	var HUB_LABEL = { disconnected: 'não conectado', connecting: 'conectando', connected: 'conectado', error: 'com erro' };
 	var SESSION_LABEL = { running: 'em execução', waiting: 'aguardando', done: 'concluída', failed: 'falhou', idle: 'ociosa' };
-	var EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Extra alto', max: 'Máximo' };
+	var EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Extra alto', max: 'Máximo', ultra: 'Ultra' };
+	// What each provider's sandbox/permission system really offers. Neither list has a bypass; the Hub refuses one anyway.
 	var PERMISSIONS = [
 		{ value: '', label: 'Padrão (nega o que pedir aprovação)' },
 		{ value: 'plan', label: 'Somente planejar' },
 		{ value: 'acceptEdits', label: 'Aceitar edições de arquivos' }
 	];
+	var CODEX_PERMISSIONS = [
+		{ value: '', label: 'Somente leitura (padrão)' },
+		{ value: 'workspace-write', label: 'Escrever no workspace' }
+	];
+	/** The permission choices of a provider; none for a provider that has no such control. */
+	function permissionOptions(service) {
+		return service === 'claude-code' ? PERMISSIONS : service === 'codex-cli' ? CODEX_PERMISSIONS : [];
+	}
+	/** A remembered choice that the provider does not offer becomes the default. */
+	function validPermission(service, mode) {
+		var options = permissionOptions(service);
+		for (var i = 0; i < options.length; i++) { if (options[i].value === (mode || '')) { return options[i].value; } }
+		return '';
+	}
 	var SERVICE_NOTE = { available: '', unavailable: ' (indisponível)', planned: ' (em breve)' };
 
 	function esc(value) {
@@ -22,8 +37,11 @@
 			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 	}
 
-	function permissionLabel(mode) {
-		for (var i = 0; i < PERMISSIONS.length; i++) { if (PERMISSIONS[i].value === (mode || '')) { return PERMISSIONS[i].label; } }
+	function permissionLabel(mode, service) {
+		// a Codex session reports its sandbox mode by name: `read-only` is the default (empty) choice
+		var value = service === 'codex-cli' && mode === 'read-only' ? '' : mode || '';
+		var options = permissionOptions(service || 'claude-code');
+		for (var i = 0; i < options.length; i++) { if (options[i].value === value) { return options[i].label; } }
 		return String(mode);
 	}
 
@@ -81,7 +99,7 @@
 
 	function serviceName(catalog, id) {
 		var s = catalog && catalog.services ? find(catalog.services, id) : undefined;
-		return s ? s.name : (id === 'opencode' ? 'OpenCode' : id === 'claude-code' ? 'Claude Code' : String(id));
+		return s ? s.name : (id === 'opencode' ? 'OpenCode' : id === 'claude-code' ? 'Claude Code' : id === 'codex-cli' ? 'Codex CLI' : String(id));
 	}
 
 	/** "Provider name · Model name" for a model a session reports, using the catalog names when they are known. */
@@ -89,7 +107,7 @@
 		if (!model) { return 'modelo padrão do serviço'; }
 		var provider = catalog && catalog.providers ? find(catalog.providers, model.providerID) : undefined;
 		var known = provider ? find(provider.models, model.modelID) : undefined;
-		return (provider ? provider.name : model.providerID === 'claude-code' ? 'Claude Code' : model.providerID) + ' · ' + (known ? known.name : model.modelID);
+		return (provider ? provider.name : model.providerID === 'claude-code' ? 'Claude Code' : model.providerID === 'codex-cli' ? 'Codex CLI' : model.providerID) + ' · ' + (known ? known.name : model.modelID);
 	}
 
 	function folderName(path) {
@@ -97,8 +115,8 @@
 		return parts[parts.length - 1] || String(path || '');
 	}
 
-	/** An archived Claude Code session whose CLI conversation exists can be brought back; the next task resumes it. */
-	function canReopen(s) { return !!s.historical && s.harness === 'claude-code' && s.resumable === true; }
+	/** An archived Claude Code or Codex CLI session whose CLI conversation exists can be brought back; the next task resumes it. */
+	function canReopen(s) { return !!s.historical && (s.harness === 'claude-code' || s.harness === 'codex-cli') && s.resumable === true; }
 
 	function renderSession(s, events, catalog) {
 		var label = s.historical ? 'histórico' : s.recovery === 'unrecoverable' ? 'não recuperável' : SESSION_LABEL[s.status] || esc(s.status);
@@ -110,7 +128,7 @@
 			'<div class="meta"><span class="model" title="' + esc(s.model ? s.model.providerID + '/' + s.model.modelID : '') + '">' + esc(modelLabel(catalog, s.model)) + '</span>' + effort + '</div>' +
 			(s.createdAt ? '<div class="workspace">' + esc(new Date(s.createdAt).toLocaleString()) + (s.updatedAt ? ' · ' + esc(new Date(s.updatedAt).toLocaleString()) : '') + '</div>' : '') +
 			(s.workspace ? '<div class="workspace" title="' + esc(s.workspace) + '">' + esc(folderName(s.workspace)) + '</div>' : '') +
-			(s.harness === 'claude-code' ? '<div class="workspace">Permissões: ' + esc(permissionLabel(s.permissionMode)) + '</div>' : '') +
+			(permissionOptions(s.harness).length ? '<div class="workspace">Permissões: ' + esc(permissionLabel(s.permissionMode, s.harness)) + '</div>' : '') +
 			(s.prompt ? '<section class="submitted"><h2>Tarefa enviada</h2><p>' + esc(s.prompt) + '</p></section>' : '') +
 			(s.summary ? '<div class="summary" role="status">' + esc(s.summary) + '</div>' : '') +
 			(s.result ? '<pre class="result" aria-label="Resultado">' + esc(s.result) + '</pre>' : '') +
@@ -193,7 +211,7 @@
 	var api = {
 		renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
 		modelLabel: modelLabel, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE,
-			PERMISSIONS: PERMISSIONS, permissionLabel: permissionLabel, canReopen: canReopen
+			PERMISSIONS: PERMISSIONS, CODEX_PERMISSIONS: CODEX_PERMISSIONS, permissionOptions: permissionOptions, validPermission: validPermission, permissionLabel: permissionLabel, canReopen: canReopen
 	};
 	if (typeof module !== 'undefined' && module.exports) { module.exports = api; } else { root.SingularityAgentsRender = api; }
 })(typeof window !== 'undefined' ? window : this);

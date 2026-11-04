@@ -12,8 +12,9 @@ const PREFS_KEY = 'singularity.agents.prefs';
 const WORKSPACE_KEY = 'singularity.agents.workspace';
 
 // The integrations a session can run on, and the permission modes the panel may ask for. The Hub validates both again.
-const serviceOf = value => (value === 'claude-code' ? 'claude-code' : 'opencode');
-const permissionOf = value => (value === 'plan' || value === 'acceptEdits' ? value : undefined);
+const serviceOf = value => (value === 'claude-code' || value === 'codex-cli' ? value : 'opencode');
+const permissionOf = (service, value) => (service === 'claude-code' && (value === 'plan' || value === 'acceptEdits')) || (service === 'codex-cli' && value === 'workspace-write') ? value : undefined;
+const SERVICE_PHRASE = { 'claude-code': 'o Claude Code', 'codex-cli': 'o Codex CLI', opencode: 'o OpenCode' };
 
 class AgentsViewProvider {
 	/**
@@ -180,7 +181,7 @@ class AgentsViewProvider {
 				await this._context.globalState.update(PREFS_KEY, {
 					service: text(prefs.service, 40), providerID: text(prefs.providerID, 160), modelID: text(prefs.modelID, 160),
 					variant: typeof prefs.variant === 'string' && prefs.variant.length <= 24 ? prefs.variant : '',
-					permissionMode: permissionOf(prefs.permissionMode) ?? ''
+					permissionMode: typeof prefs.permissionMode === 'string' && /^[A-Za-z-]{0,24}$/.test(prefs.permissionMode) ? prefs.permissionMode : ''
 				});
 			}
 			return;
@@ -252,7 +253,7 @@ class AgentsViewProvider {
 			throw new Error('A sessão em uso não existe mais no Hub. Escolha "Nova sessão" e envie de novo.');
 		}
 		if (existing && existing.harness !== service) {
-			throw new Error('A sessão em uso é de outro provedor. Escolha "Nova sessão" para usar ' + (service === 'claude-code' ? 'o Claude Code' : 'o OpenCode') + '.');
+			throw new Error('A sessão em uso é de outro provedor. Escolha "Nova sessão" para usar ' + SERVICE_PHRASE[service] + '.');
 		}
 		if (existing) {
 			const current = existing.model ? { providerID: existing.model.providerID, modelID: existing.model.modelID, variant: existing.model.variant } : undefined;
@@ -268,7 +269,7 @@ class AgentsViewProvider {
 				throw new Error('Escolha o workspace em que o agente poderá trabalhar.');
 			}
 			const created = await this._hub.sessionRequest('session.create', {
-				workspace, service, model: selection, ...(service === 'claude-code' && permissionOf(message.permissionMode) ? { permissionMode: permissionOf(message.permissionMode) } : {})
+				workspace, service, model: selection, ...(permissionOf(service, message.permissionMode) ? { permissionMode: permissionOf(service, message.permissionMode) } : {})
 			});
 			id = created.id;
 		}

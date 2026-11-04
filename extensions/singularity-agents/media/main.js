@@ -86,10 +86,11 @@
 		fill(el.effort, effortOptions, sel.effort);
 
 		// Permissions are chosen when a Claude Code session is created and then stay fixed for it.
-		const claude = sel.service === 'claude-code';
-		el.permissionField.hidden = !claude;
+		const choices = R.permissionOptions(sel.service);
+		el.permissionField.hidden = !choices.length;
 		const fixed = target();
-		fill(el.permission, R.PERMISSIONS, fixed && fixed.harness === 'claude-code' ? (fixed.permissionMode || '') : (prefs.permissionMode || ''));
+		const shown = fixed && fixed.harness === sel.service ? (fixed.permissionMode === 'read-only' ? '' : fixed.permissionMode || '') : R.validPermission(sel.service, prefs.permissionMode);
+		fill(el.permission, choices, shown);
 
 		const online = connected();
 		el.permission.disabled = !online || !!fixed;
@@ -198,7 +199,7 @@
 	});
 
 	// Each selector changes only what depends on it; the text being typed is never touched.
-	el.service.addEventListener('change', () => { prefs = { service: el.service.value, permissionMode: prefs.permissionMode }; message = ''; remember(); requestCatalog(false, el.service.value); });
+	el.service.addEventListener('change', () => { prefs = { service: el.service.value, permissionMode: R.validPermission(el.service.value, prefs.permissionMode) }; message = ''; remember(); requestCatalog(false, el.service.value); });
 	el.model.addEventListener('change', () => {
 		const model = R.resolve(catalog, prefs).models.find(m => m.key === el.model.value);
 		if (!model) { return; }
@@ -220,7 +221,7 @@
 		submittedDraft = el.prompt.value;
 		sending = true; message = '';
 		vscode.postMessage({
-			type: 'send', text, sessionId: targetId, service: sel.service, permissionMode: sel.service === 'claude-code' ? (prefs.permissionMode || '') : '',
+			type: 'send', text, sessionId: targetId, service: sel.service, permissionMode: R.validPermission(sel.service, prefs.permissionMode),
 			selection: { providerID: sel.model.providerID, modelID: sel.model.id, variant: sel.effort || undefined }
 		});
 		drawComposer();

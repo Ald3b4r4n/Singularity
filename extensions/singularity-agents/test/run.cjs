@@ -306,7 +306,7 @@ test('an archived Claude Code session can be reopened; an OpenCode one cannot, a
 	assert.doesNotMatch(R.renderNavigation({ hub: {}, sessions: [{ ...archived, historical: false }] }, claudeCatalog), /reopen/);
 });
 
-test('the composer offers permissions only for Claude Code, never a bypass, and a session never changes provider', () => {
+test('the composer offers permissions only where the provider has them, never a bypass, and a session never changes provider', () => {
 	assert.match(R.shell(), /id="permission-field" hidden/);
 	assert.deepStrictEqual(R.PERMISSIONS.map(p => p.value), ['', 'plan', 'acceptEdits']);
 	assert.ok(!R.PERMISSIONS.some(p => /bypass|auto|dontAsk|skip/i.test(p.value + p.label)));
@@ -315,6 +315,65 @@ test('the composer offers permissions only for Claude Code, never a bypass, and 
 	assert.ok(ext.includes("value === 'plan' || value === 'acceptEdits'"), 'only the two safe modes can be requested from the panel');
 	const main = read('media/main.js');
 	assert.ok(main.includes('crossed'), 'the composer blocks a send to a session of another provider');
+});
+
+// --- Codex CLI as the third provider ---
+const codexCatalog = {
+	services: [
+		{ id: 'opencode', name: 'OpenCode', status: 'available' },
+		{ id: 'claude-code', name: 'Claude Code', status: 'available' },
+		{ id: 'codex-cli', name: 'Codex CLI', status: 'available' },
+		{ id: 'gemini-cli', name: 'Gemini CLI', status: 'planned' },
+	],
+	service: 'codex-cli',
+	providers: [{ id: 'codex-cli', name: 'Codex CLI', models: [
+		{ id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+		{ id: 'gpt-6-luna', name: 'GPT-6-Luna', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+	] }],
+	default: { providerID: 'codex-cli', modelID: 'gpt-6.1-sol' },
+	hiddenModels: 0,
+};
+
+test('Codex CLI is selectable when the Hub says it is available; only Gemini CLI stays "em breve"', () => {
+	const sel = R.resolve(codexCatalog, { service: 'codex-cli' });
+	assert.strictEqual(sel.service, 'codex-cli');
+	assert.deepStrictEqual(sel.services.map(s => [s.id, s.status]), [['opencode', 'available'], ['claude-code', 'available'], ['codex-cli', 'available'], ['gemini-cli', 'planned']]);
+	assert.deepStrictEqual(sel.models.map(m => m.id), ['gpt-6.1-sol', 'gpt-6-luna']);
+	assert.deepStrictEqual(sel.efforts, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], "the efforts are the model own levels, down to the last one");
+	assert.strictEqual(R.resolve(codexCatalog, { providerID: 'codex-cli', modelID: 'gpt-6-luna' }).efforts.includes('ultra'), false);
+	assert.strictEqual(R.effortLabel('ultra'), 'Ultra');
+});
+
+test('each provider has its own permission choices, none with a bypass; a stale choice falls back to the default', () => {
+	assert.deepStrictEqual(R.permissionOptions('codex-cli').map(p => p.value), ['', 'workspace-write']);
+	assert.deepStrictEqual(R.permissionOptions('claude-code').map(p => p.value), ['', 'plan', 'acceptEdits']);
+	assert.deepStrictEqual(R.permissionOptions('opencode'), []);
+	for (const service of ['codex-cli', 'claude-code']) {
+		assert.ok(!R.permissionOptions(service).some(p => /bypass|danger|full-access|dontAsk|auto/i.test(p.value + p.label)));
+	}
+	assert.strictEqual(R.validPermission('codex-cli', 'acceptEdits'), '');
+	assert.strictEqual(R.validPermission('claude-code', 'workspace-write'), '');
+	assert.strictEqual(R.validPermission('codex-cli', 'workspace-write'), 'workspace-write');
+	const ext = read('extension.js');
+	assert.ok(ext.includes("service === 'codex-cli' && value === 'workspace-write'"), 'only the one safe Codex mode can be requested from the panel');
+	assert.ok(!/danger-full-access|bypass/i.test(ext.replace(/\/\/.*$/gm, '')), 'the panel never names a bypass');
+});
+
+test('a Codex CLI session is labelled with its provider, the requested model, the effort and its sandbox', () => {
+	const state = { hub: { status: 'connected' }, sessions: [
+		{ id: 'x1', harness: 'codex-cli', status: 'done', workspace: 'C:/w', permissionMode: 'workspace-write', model: { providerID: 'codex-cli', modelID: 'gpt-6-luna', variant: 'low' } },
+		{ id: 'x2', harness: 'codex-cli', status: 'idle', workspace: 'C:/w', permissionMode: 'read-only', model: { providerID: 'codex-cli', modelID: 'gpt-6-luna' } },
+	] };
+	assert.match(text(R.renderTarget(state, codexCatalog, 'x1')), /Codex CLI · GPT-6-Luna/);
+	assert.match(text(R.renderTarget(state, codexCatalog, 'x1')), /Permissões: Escrever no workspace/);
+	assert.match(text(R.renderTarget(state, codexCatalog, 'x2')), /Permissões: Somente leitura/);
+	assert.match(R.modelLabel(catalog, { providerID: 'codex-cli', modelID: 'gpt-x' }), /Codex CLI · gpt-x/);
+});
+
+test('an archived Codex CLI session can be reopened when its conversation exists', () => {
+	const archived = { id: 'k1', harness: 'codex-cli', status: 'idle', historical: true, resumable: true, workspace: 'C:/w' };
+	assert.match(R.renderNavigation({ hub: {}, sessions: [archived] }, codexCatalog, undefined, 'C:/w'), /data-action="reopen" data-id="k1"/);
+	assert.doesNotMatch(R.renderNavigation({ hub: {}, sessions: [{ ...archived, resumable: false }] }, codexCatalog), /reopen/);
 });
 
 test('the page never touches settings, headers or keys', () => {
