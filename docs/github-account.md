@@ -36,3 +36,18 @@ Extensão `extensions/singularity-account` (embutida, sem alterar arquivos do up
 - **Botão "Sign In" da barra de título.** Ele abre o menu de contas do núcleo, que hoje mistura o Copilot. Trocar esse caminho exige mudança no núcleo do workbench (serviço de contas); fica registrado como pendência de núcleo, para ser feito com a mesma cautela dos outros patches. Enquanto isso o login do Singularity está disponível pelo Command Palette e pelo item da barra de status.
 - **Git.** Estar logado no Singularity não autoriza `git push` por si só. A autorização de transporte será dada ao Git de forma explícita, por processo (sem alterar o Git global nem o gerenciador de credenciais do usuário), na Task 3.
 - **Teste contra o GitHub real.** Depende do client id do aplicativo, que só o proprietário pode criar. Os testes atuais usam um GitHub simulado; o fluxo real ainda não foi executado.
+
+## Entrada na barra de título
+
+O botão "Sign In" que o Code - OSS mostra na barra de título é o do **Copilot** (`workbench.action.chat.signInIndicator`, em `chatSetupContributions.ts`): ele abre o setup do Copilot. No Singularity esse botão fica desligado por padrão (`chat.titleBar.signIn.enabled: false`) e a mesma posição mostra a conta GitHub do produto.
+
+| Estado | O que aparece | Clique |
+|---|---|---|
+| Desconectado | botão **Entrar com GitHub** | inicia o fluxo OAuth do Singularity (`singularity.account.signIn`) |
+| Conectado | avatar, login e ponto verde; a dica diz se a publicação está autorizada | abre o menu da conta (`singularity.account.manage`): conta conectada, autorizar ou remover a publicação, trocar de conta, sair |
+
+Arquitetura: a extensão `singularity-account` continua sendo a única dona do OAuth, dos tokens (SecretStorage) e da autorização de publicação. Ela publica só estado público, por `setContext`: `singularity.account.ready`, `signedIn`, `login`, `name`, `avatar` (data URI da imagem pública já guardada em cache) e `publishAuthorized` (booleano). O workbench lê essas chaves e desenha a entrada (`src/vs/workbench/contrib/singularityAccount/browser/singularityAccountTitleBar.ts`); nenhum token chega ao renderer. O teste `test/workbench-state.test.cjs` garante que o código que publica o estado não lê tokens.
+
+O item da barra de status continua, como indicador complementar da mesma conta: mesmos comandos, mesmo estado, sem segundo login. Em janelas abaixo de 760 px a entrada mostra só o avatar ou o ícone.
+
+Teste: `node scripts/e2e/titlebar-account-check.cjs --out <pasta> [--exe <exe>]` (cliques e teclas reais; o proprietário aprova o código no navegador).

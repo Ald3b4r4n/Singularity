@@ -157,6 +157,7 @@ export default defineConfig(
 			'src/vs/base/common/singularityIntroLogic.ts',
 			'src/vs/code/electron-browser/workbench/singularityIntro.ts',
 			'src/vs/workbench/contrib/singularityIntro/**/*.ts',
+			'src/vs/workbench/contrib/singularityAccount/**/*.ts',
 		],
 		rules: {
 			'header/header': [

@@ -152,7 +152,7 @@ const isSignedIn = t => t.includes(expectedLogin);
 		try { if (page) { page.close(); } } catch { /* ignore */ }
 		await lib.closeApp(profile);
 		// no token may be left in logs or state files
-		const hits = lib.ps(`(Get-ChildItem -Path '${profile}' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 20MB } | Select-String -Pattern 'gho_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_' -List -ErrorAction SilentlyContinue | Measure-Object).Count`);
+		const hits = lib.ps(`(Get-ChildItem -Path '${profile}' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 20MB } | Select-String -Pattern 'gh[opusr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}' -List -ErrorAction SilentlyContinue | Measure-Object).Count`);
 		check('no GitHub token pattern in the profile (logs and state)', Number(hits) === 0, { files: hits });
 		for (const f of codeFiles) { try { fs.rmSync(f, { force: true }); } catch { /* ignore */ } }
 		const ok = results.length > 0 && results.every(r => r.ok);

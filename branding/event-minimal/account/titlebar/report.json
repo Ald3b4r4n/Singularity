@@ -1,0 +1,222 @@
+{
+  "build": "packaged",
+  "expectedLogin": "Ald3b4r4n",
+  "results": [
+    {
+      "name": "A1. the title bar offers \"Entrar com GitHub\" when signed out",
+      "ok": true,
+      "detail": {
+        "mode": "signed-out",
+        "text": "Entrar com GitHub",
+        "visible": true,
+        "rect": [
+          909,
+          7,
+          133,
+          22
+        ],
+        "avatarLoaded": false,
+        "tooltip": "Entrar com a sua conta GitHub"
+      }
+    },
+    {
+      "name": "A2. the Copilot \"Sign In\" button is gone from the title bar",
+      "ok": true
+    },
+    {
+      "name": "A3. a real click on the title bar entry starts the GitHub device flow (not Copilot)",
+      "ok": true
+    },
+    {
+      "name": "A4. no Copilot setup was opened",
+      "ok": true
+    },
+    {
+      "name": "B1. after approval the title bar shows Ald3b4r4n",
+      "ok": true,
+      "detail": {
+        "mode": "signed-in",
+        "text": "Ald3b4r4n",
+        "visible": true,
+        "rect": [
+          940,
+          7,
+          102,
+          22
+        ],
+        "avatarLoaded": true,
+        "tooltip": "GitHub: Ald3b4r4n. Conectada. Publicação não autorizada. Clique para gerenciar."
+      }
+    },
+    {
+      "name": "B2. the avatar image is shown",
+      "ok": true,
+      "detail": true
+    },
+    {
+      "name": "B3. clicking the entry opens the account menu with account, publishing state, switch and sign out",
+      "ok": true,
+      "detail": [
+        "Antônio Rafael Souza Cruz de Noronha (Ald3b4r4n) Conectada",
+        "Publicação: não autorizada Autorizar escrita (permissão repo), só quando for publicar",
+        "Trocar de conta",
+        "Sair da conta"
+      ]
+    },
+    {
+      "name": "B4. the status bar shows the same account (complementary, not a second login)",
+      "ok": true,
+      "detail": "0 \n 0 | Ald3b4r4n | Agentes"
+    },
+    {
+      "name": "B5. the IDE closes normally",
+      "ok": true
+    },
+    {
+      "name": "C1. after restart the title bar shows Ald3b4r4n without a new login",
+      "ok": true,
+      "detail": {
+        "mode": "signed-in",
+        "text": "Ald3b4r4n",
+        "visible": true,
+        "rect": [
+          940,
+          7,
+          102,
+          22
+        ],
+        "avatarLoaded": true,
+        "tooltip": "GitHub: Ald3b4r4n. Conectada. Publicação não autorizada. Clique para gerenciar."
+      }
+    },
+    {
+      "name": "C2. no authorization dialog appeared and the Copilot Sign In is still absent",
+      "ok": true
+    },
+    {
+      "name": "C3. the status bar agrees with the title bar",
+      "ok": true
+    },
+    {
+      "name": "V1. Event Minimal Light: the entry is visible",
+      "ok": true,
+      "detail": {
+        "mode": "signed-in",
+        "text": "Ald3b4r4n",
+        "visible": true,
+        "rect": [
+          940,
+          7,
+          102,
+          22
+        ],
+        "avatarLoaded": true,
+        "tooltip": "GitHub: Ald3b4r4n. Conectada. Publicação não autorizada. Clique para gerenciar."
+      }
+    },
+    {
+      "name": "V2. high contrast: the entry is visible",
+      "ok": true,
+      "detail": {
+        "mode": "signed-in",
+        "text": "Ald3b4r4n",
+        "visible": true,
+        "rect": [
+          940,
+          7,
+          102,
+          22
+        ],
+        "avatarLoaded": true,
+        "tooltip": "GitHub: Ald3b4r4n. Conectada. Publicação não autorizada. Clique para gerenciar."
+      }
+    },
+    {
+      "name": "V3. enlarged interface (zoom +2): the entry is visible and inside the window",
+      "ok": true,
+      "detail": {
+        "mode": "signed-in",
+        "text": "Ald3b4r4n",
+        "visible": true,
+        "rect": [
+          591,
+          6,
+          101,
+          22
+        ],
+        "avatarLoaded": true,
+        "tooltip": "GitHub: Ald3b4r4n. Conectada. Publicação não autorizada. Clique para gerenciar."
+      }
+    },
+    {
+      "name": "V4. narrow window (700 px): the entry stays visible, reduced to the avatar",
+      "ok": true,
+      "detail": {
+        "mode": "signed-in",
+        "text": "",
+        "visible": true,
+        "rect": [
+          413,
+          7,
+          29,
+          22
+        ],
+        "avatarLoaded": true,
+        "tooltip": "GitHub: Ald3b4r4n. Conectada. Publicação não autorizada. Clique para gerenciar."
+      }
+    },
+    {
+      "name": "D1. the menu item under the cursor is \"Sair da conta\"",
+      "ok": true,
+      "detail": "Sair da conta"
+    },
+    {
+      "name": "D2. after sign out the title bar returns to \"Entrar com GitHub\"",
+      "ok": true,
+      "detail": {
+        "mode": "signed-out",
+        "text": "Entrar com GitHub",
+        "visible": true,
+        "rect": [
+          909,
+          7,
+          133,
+          22
+        ],
+        "avatarLoaded": false,
+        "tooltip": "Entrar com a sua conta GitHub"
+      }
+    },
+    {
+      "name": "D3. the status bar no longer shows the account and no false indicator remains",
+      "ok": true,
+      "detail": "0 \n 0 | Entrar no GitHub | Agentes"
+    },
+    {
+      "name": "D4. after sign out and restart the session stays closed",
+      "ok": true,
+      "detail": {
+        "mode": "signed-out",
+        "text": "Entrar com GitHub",
+        "visible": true,
+        "rect": [
+          909,
+          7,
+          133,
+          22
+        ],
+        "avatarLoaded": false,
+        "tooltip": "Entrar com a sua conta GitHub"
+      }
+    },
+    {
+      "name": "no GitHub token pattern in the profile (logs and state)",
+      "ok": true,
+      "detail": {
+        "files": "0"
+      }
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-04T01:11:46.472Z"
+}

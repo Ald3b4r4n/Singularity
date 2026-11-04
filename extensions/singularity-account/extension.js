@@ -188,6 +188,33 @@ async function verifyStored(context, output, changed) {
 	return context.globalState.get(ACCOUNT_KEY);
 }
 
+/**
+ * Public account state for the workbench (the title bar entry reads these context keys). Only public values are published:
+ * connected or not, login, display name, avatar image and whether publishing is authorized. Never a token.
+ */
+function setContext(key, value) { return vscode.commands.executeCommand('setContext', key, value); }
+
+function avatarDataUri(account) {
+	if (!account || !account.avatarPath) { return ''; }
+	try {
+		const bytes = fs.readFileSync(account.avatarPath);
+		if (bytes.length === 0 || bytes.length > 256 * 1024) { return ''; }
+		const mime = bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg' : bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png' : bytes[0] === 0x47 ? 'image/gif' : bytes[0] === 0x52 ? 'image/webp' : '';
+		return mime ? `data:${mime};base64,${bytes.toString('base64')}` : '';
+	} catch {
+		return '';
+	}
+}
+
+function publishContext(account, publishAuthorized) {
+	void setContext('singularity.account.ready', true);
+	void setContext('singularity.account.signedIn', !!account);
+	void setContext('singularity.account.login', account ? account.login : '');
+	void setContext('singularity.account.name', account ? account.name : '');
+	void setContext('singularity.account.avatar', avatarDataUri(account));
+	void setContext('singularity.account.publishAuthorized', !!account && !!publishAuthorized);
+}
+
 function activate(context) {
 	const output = vscode.window.createOutputChannel('Singularity Account', { log: true });
 	context.subscriptions.push(output);
@@ -204,6 +231,7 @@ function activate(context) {
 			: vscode.l10n.t('Nenhuma conta GitHub conectada. Clique para entrar.');
 		item.command = 'singularity.account.manage';
 		item.show();
+		publishContext(account, publish);
 	};
 
 	require('./publishing.js').registerPublishing(context, output);

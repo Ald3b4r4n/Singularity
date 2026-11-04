@@ -1,0 +1,84 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Singularity IDE contributors. Licensed under the MIT License.
+ *  See LICENSE.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* Account entry of the title bar. Colors come only from theme variables, so Event Minimal Dark, Light and the
+   high contrast themes style it without rules of their own. */
+
+.monaco-action-bar .singularity-account-entry {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 22px;
+	padding: 0 10px;
+	border-radius: 6px;
+	font-size: 12px;
+	line-height: 22px;
+	white-space: nowrap;
+	cursor: pointer;
+	box-sizing: border-box;
+	-webkit-app-region: no-drag;
+}
+
+.monaco-action-bar .singularity-account-entry.signed-out {
+	background-color: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.monaco-action-bar .singularity-account-entry.signed-out:hover {
+	background-color: var(--vscode-button-hoverBackground);
+}
+
+.monaco-action-bar .singularity-account-entry.signed-in {
+	background-color: transparent;
+	color: var(--vscode-titleBar-activeForeground);
+	border: 1px solid var(--vscode-widget-border, transparent);
+	padding: 0 8px 0 3px;
+}
+
+.monaco-action-bar .singularity-account-entry.signed-in:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-action-bar .singularity-account-entry .codicon {
+	font-size: 14px;
+}
+
+.monaco-action-bar .singularity-account-entry .avatar {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	object-fit: cover;
+}
+
+.monaco-action-bar .singularity-account-entry .login {
+	max-width: 14ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.monaco-action-bar .singularity-account-entry .status-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background-color: var(--vscode-testing-iconPassed, currentColor);
+}
+
+.monaco-action-bar .singularity-account-entry:focus-visible,
+.monaco-action-bar .action-item:focus-visible .singularity-account-entry {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+/* very narrow title bars: only the avatar or the icon stays */
+@media (max-width: 760px) {
+	.monaco-action-bar .singularity-account-entry .login,
+	.monaco-action-bar .singularity-account-entry .status-dot {
+		display: none;
+	}
+
+	.monaco-action-bar .singularity-account-entry.signed-out {
+		padding: 0 6px;
+	}
+}

@@ -2460,7 +2460,7 @@ configurationRegistry.registerConfiguration({
 		[ChatConfiguration.TitleBarSignInEnabled]: {
 			type: 'boolean',
 			description: nls.localize('chat.titleBar.signIn.enabled', "Controls whether the Copilot Sign In button is shown in the title bar when signed out. When disabled, the Sign In affordance falls back to the status bar."),
-			default: true,
+			default: false, // Singularity: the title bar account entry is the GitHub one (singularityAccount); the Copilot Sign In stays off (upstream default: true)
 		},
 		[ChatConfiguration.WelcomePageSignInEnabled]: {
 			type: 'boolean',
