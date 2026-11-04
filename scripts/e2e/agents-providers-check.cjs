@@ -154,6 +154,11 @@ const settle = async (marker, label, ms = 180000) => {
 	await waitFor(async () => ((await content('.submitted')) || '').includes(marker), label + ' (task submitted)', 60000, 150);
 	return waitFor(async () => { const s = await status(); return s === 'done' || s === 'failed' ? s : undefined; }, label, ms, 500);
 };
+// The approved UI keeps Encerrar in the session menu and Reabrir on the session card of the side panel; Parar is the send button itself.
+const stoppable = () => editor(doc => { const b = doc.getElementById('send'); return b.classList.contains('interrupt') && !b.disabled; });
+const endSession = id => editor((doc, id) => { const menu = doc.querySelector(`li.session[data-id="${id}"] details.session-menu`); menu.open = true; menu.querySelector('button[data-action="stop"]').click(); }, id, '.navigation');
+const reopenAvailable = id => editor((doc, id) => !!doc.querySelector(`button[data-action="reopen"][data-id="${id}"]`), id, '.navigation');
+const reopenSession = id => editor((doc, id) => doc.querySelector(`button[data-action="reopen"][data-id="${id}"]`).click(), id, '.navigation');
 const lastState = () => editor(doc => ({ target: doc.getElementById('target').textContent, note: doc.getElementById('note').textContent, send: doc.getElementById('send').disabled }));
 
 async function main() {
@@ -218,10 +223,10 @@ async function main() {
 	await activate('#send');
 	await waitFor(async () => ((await content('.submitted')) || '').includes('numbered poem'), 'the poem is submitted', 60000, 150);
 	await waitFor(async () => (await status()) === 'running' && !!(await content('.result')), 'the poem is streaming', 90000, 150);
-	check('5a. while a task runs, the composer offers Cancelar tarefa and Enviar is off', !(await disabled('#cancel')) && (await disabled('#send')));
-	await activate('#cancel');
+	check('5a. while a task runs, the send button becomes Parar', await stoppable());
+	await activate('#send');
 	await waitFor(async () => /Execução interrompida/.test(await content('.session')), 'the task is reported as interrupted', 30000);
-	check('5b. Cancelar tarefa interrupts the execution and the Job Object releases the process', (await live())[0].status === 'idle' && await waitFor(() => claudeFor(first.id) === 0, 'process exit', 15000, 500).then(() => true, () => false));
+	check('5b. Parar interrupts the execution and the Job Object releases the process', (await live())[0].status === 'idle' && await waitFor(() => claudeFor(first.id) === 0, 'process exit', 15000, 500).then(() => true, () => false));
 	const claudeId = first.id;
 
 	// ---------- 5c. Codex CLI: its real capabilities, a task, a continuation and a cancellation ----------
@@ -249,7 +254,6 @@ async function main() {
 	const codexCard = await content('.session');
 	check('5e. the task finished; the card shows Codex CLI, the requested model, the effort and the sandbox', codexDone === 'done' && /Codex CLI/.test(codexCard) && /gpt-5\.6-luna/i.test(codexCard) && /Baixo/.test(codexCard) && /Permissões: Escrever no workspace/.test(codexCard), codexCard.replace(/\s+/g, ' ').slice(0, 200));
 	check('5f. the file was written in the synthetic workspace', fs.existsSync(path.join(workspace, 'hello-codex.txt')) && fs.readFileSync(path.join(workspace, 'hello-codex.txt'), 'utf8').trim() === 'SINGULARITY-CODEX-OK');
-	check('5g. progress was shown step by step (events of the run)', /session\./.test(await content('.events')));
 	check('5h. no Codex CLI process is left after the task', await waitFor(() => codexFor() === 0, 'process exit', 20000, 500).then(() => true, () => false));
 	await snap('c04b-codex-concluido.png');
 	await typePrompt('Which exact text did you write into hello-codex.txt? Answer with only that text.');
@@ -261,10 +265,10 @@ async function main() {
 	await waitFor(async () => ((await content('.submitted')) || '').includes('numbered poem'), 'the poem is submitted', 60000, 150);
 	await waitFor(async () => (await status()) === 'running', 'the Codex poem is running', 90000, 150);
 	await sleep(3500);
-	check('5j. while a Codex task runs, the composer offers Cancelar tarefa and Enviar is off', !(await disabled('#cancel')) && (await disabled('#send')));
-	await activate('#cancel');
+	check('5j. while a Codex task runs, the send button becomes Parar', await stoppable());
+	await activate('#send');
 	await waitFor(async () => /Execução interrompida/.test(await content('.session')), 'the Codex task is reported as interrupted', 40000);
-	check('5k. Cancelar tarefa interrupts the Codex execution and the Job Object releases the process', (await live()).find(s => s.id === codexId).status === 'idle' && await waitFor(() => codexFor() === 0, 'process exit', 20000, 500).then(() => true, () => false));
+	check('5k. Parar interrupts the Codex execution and the Job Object releases the process', (await live()).find(s => s.id === codexId).status === 'idle' && await waitFor(() => codexFor() === 0, 'process exit', 20000, 500).then(() => true, () => false));
 
 	// ---------- 6. an independent OpenCode session in the same workspace, next to the other two ----------
 	await activate('#new');
@@ -303,12 +307,12 @@ async function main() {
 	await pick('service', 'claude-code');
 
 	// ---------- 8. end the Claude Code session; history is kept per provider ----------
-	await editor(doc => doc.querySelector('[data-action="stop"]').click());
+	await endSession(claudeId);
 	await click(page.getByRole('button', { name: /^Encerrar/ }).last());
 	await waitFor(async () => (await sessionsOnHub()).some(s => s.id === claudeId && s.historical), 'the Hub archives the Claude Code session', 60000);
 	await navigate(codexId);
 	await waitFor(async () => (await cardId()) === codexId, 'the editor shows the Codex CLI session to end it');
-	await editor(doc => doc.querySelector('[data-action="stop"]').click());
+	await endSession(codexId);
 	await click(page.getByRole('button', { name: /^Encerrar/ }).last());
 	await waitFor(async () => (await sessionsOnHub()).some(s => s.id === codexId && s.historical), 'the Hub archives the Codex CLI session', 60000);
 	check('8a. Encerrar archives the Claude Code and Codex CLI sessions; OpenCode is untouched', (await live()).map(s => s.id).join() === openCodeId);
@@ -324,14 +328,14 @@ async function main() {
 	await open();
 	await waitFor(() => editor(doc => !!doc.querySelector('#composer')), 'Agentes editor after reopening', 60000);
 	await waitFor(() => editor(doc => !!doc.querySelector('.session-link'), undefined, '.navigation'), 'the sidebar lists sessions after reopening', 60000);
-	const reopenButton = await waitFor(() => editor((doc, id) => !!doc.querySelector(`button[data-action="reopen"][data-id="${id}"]`), claudeId, '.navigation'), 'the archived Claude Code session offers Reabrir', 30000);
+	const reopenButton = await waitFor(() => reopenAvailable(claudeId), 'the archived Claude Code session offers Reabrir', 30000);
 	check('9b. after reopening the IDE the archived Claude Code session is listed with Reabrir; the OpenCode session is still live', !!reopenButton && (await live()).some(s => s.id === openCodeId));
 	await navigate(claudeId);
 	await waitFor(async () => (await cardId()) === claudeId, 'the archived session opens read-only');
 	await waitFor(async () => /Você/.test(await content('.session').then(() => editor(doc => doc.getElementById('sessions').innerText))), 'the protected history is shown', 20000).catch(() => undefined);
 	check('9c. the archived conversation is read-only and shows its history', (await disabled('#send')) && /SINGULARITY-CLAUDE-OK/.test(await editor(doc => doc.getElementById('sessions').innerText)));
 	await snap('c05-historico-claude.png');
-	await editor(doc => doc.querySelector('button[data-action="reopen"]').click());
+	await reopenSession(claudeId);
 	await waitFor(async () => (await sessionsOnHub()).some(s => s.id === claudeId && !s.historical && s.status === 'idle'), 'the Hub reopens the session', 60000);
 	check('9d. Reabrir makes the session usable without starting any execution', claudeFor(claudeId) === 0);
 	await typePrompt('What exact text is in hello.txt? Answer with only that text.');
@@ -344,9 +348,9 @@ async function main() {
 	// the archived Codex CLI session: history shown per provider, reopened, resumed
 	await navigate(codexId);
 	await waitFor(async () => (await cardId()) === codexId, 'the archived Codex CLI session opens read-only');
-	check('9f. the archived Codex CLI conversation is read-only, shows its own history and offers Reabrir', (await disabled('#send')) && /SINGULARITY-CODEX-OK/.test(await editor(doc => doc.getElementById('sessions').innerText)) && await editor(doc => !!doc.querySelector('button[data-action="reopen"]')));
+	check('9f. the archived Codex CLI conversation is read-only, shows its own history and offers Reabrir', (await disabled('#send')) && /SINGULARITY-CODEX-OK/.test(await editor(doc => doc.getElementById('sessions').innerText)) && await reopenAvailable(codexId));
 	await snap('c06a-historico-codex.png');
-	await editor(doc => doc.querySelector('button[data-action="reopen"]').click());
+	await reopenSession(codexId);
 	await waitFor(async () => (await sessionsOnHub()).some(s => s.id === codexId && !s.historical && s.status === 'idle'), 'the Hub reopens the Codex CLI session', 60000);
 	check('9g. Reabrir makes the Codex session usable without starting any execution', codexFor() === 0);
 	await typePrompt('What exact text is in hello-codex.txt? Answer with only that text.');

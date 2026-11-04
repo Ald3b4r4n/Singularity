@@ -206,12 +206,12 @@ function avatarDataUri(account) {
 	}
 }
 
-function publishContext(account, publishAuthorized) {
+function publishContext(account, publishAuthorized, avatar) {
 	void setContext('singularity.account.ready', true);
 	void setContext('singularity.account.signedIn', !!account);
 	void setContext('singularity.account.login', account ? account.login : '');
 	void setContext('singularity.account.name', account ? account.name : '');
-	void setContext('singularity.account.avatar', avatarDataUri(account));
+	void setContext('singularity.account.avatar', avatar);
 	void setContext('singularity.account.publishAuthorized', !!account && !!publishAuthorized);
 }
 
@@ -222,8 +222,17 @@ function activate(context) {
 	const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
 	item.name = 'Singularity: GitHub';
 	context.subscriptions.push(item);
+	const profileChanges = new vscode.EventEmitter();
+	context.subscriptions.push(profileChanges);
+	let profile;
 	const render = async () => {
 		const account = context.globalState.get(ACCOUNT_KEY);
+		const avatar = avatarDataUri(account);
+		const next = account ? { name: account.name || account.login, avatar } : undefined;
+		if (profile?.name !== next?.name || profile?.avatar !== next?.avatar) {
+			profile = next;
+			profileChanges.fire(profile);
+		}
 		const publish = account ? await context.secrets.get(PUBLISH_KEY) : undefined;
 		item.text = account ? `$(github) ${account.login}` : `$(github) ${vscode.l10n.t('Entrar no GitHub')}`;
 		item.tooltip = account
@@ -231,7 +240,7 @@ function activate(context) {
 			: vscode.l10n.t('Nenhuma conta GitHub conectada. Clique para entrar.');
 		item.command = 'singularity.account.manage';
 		item.show();
-		publishContext(account, publish);
+		publishContext(account, publish, avatar);
 	};
 
 	require('./publishing.js').registerPublishing(context, output);
@@ -261,6 +270,8 @@ function activate(context) {
 
 	// public surface for other Singularity components: the login and the authorization state, never a token
 	return {
+		getPublicProfile: () => profile,
+		onDidChangePublicProfile: profileChanges.event,
 		getAccountLogin: () => (context.globalState.get(ACCOUNT_KEY) || {}).login,
 	};
 }

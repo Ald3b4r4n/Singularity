@@ -181,8 +181,6 @@ async function main() {
 	check('2b. Explorer is on the left and Sessões is on the right',
 		await page.locator('.part.sidebar').isVisible() && /Sessões/.test(await page.locator('.part.auxiliarybar').innerText()));
 	const draft = 'Rascunho que não pode ser perdido ao trocar as opções.';
-	await activate('[data-action="prepare"]');
-	check('2c. a shortcut prepares a draft', /Implemente/.test(await value('#prompt')));
 
 	await waitFor(() => disabled('#model').then(d => d === false), 'real catalog loaded in the editor', 120000);
 	hub = await HubConnection.connect({ home, clientName: 'agents-e2e' });
@@ -226,13 +224,12 @@ async function main() {
 	check('5b. the card shows the service, the model really used and the effort', /OpenCode/.test(cardText) && cardText.includes((opencode.models.find(m => m.id === withEffort.id)).name) && /Baixo/.test(cardText), cardText.replace(/\s+/g, ' ').slice(0, 160));
 	check('5bb. the submitted prompt is visible above the result', /SINGULARITY_OK/.test(await content('.submitted')));
 	await waitFor(async () => /running|waiting|done|failed/.test(await status()), 'task started', 60000);
-	await waitFor(() => content('.events li'), 'first streaming event', 60000);
 	await waitFor(async () => (await status()) === 'running' && !!(await content('.result')),
 		'a partial result while running', 1800, 80).then(async () => snap('03a-streaming.png')).catch(() => undefined);
 	const final = await waitFor(async () => { const s = await status(); return s === 'done' || s === 'failed' ? s : undefined; }, 'task finished', 150000, 500);
 	const result = await content('.result').catch(() => '');
 	check('5c. the task ran to the end and its answer streamed into the same panel', final === 'done' && /SINGULARITY_OK/.test(result), { final, result: result.slice(0, 60) });
-	check('5d. streaming events were shown', /session\./.test(await content('.events')));
+	check('5d. internal events stay out of the conversation', !(await content('.events')));
 	await snap('03-tarefa-concluida.png');
 
 	// ---------- 6. change the effort and send again: the same session, the model it reports changes ----------
@@ -251,13 +248,15 @@ async function main() {
 	await typePrompt('Write a 100-line numbered poem, one line per number. Do not use tools or read or modify files.');
 	await activate('#send');
 	await waitFor(async () => (await status()) === 'running', 'the poem task is running', 90000, 200);
-	check('7a. while a task runs, the composer offers Cancelar tarefa and Enviar is off', !(await disabled('#cancel')) && (await disabled('#send')));
+	check('7a. while a task runs, the send button becomes Parar', !(await disabled('#send')) && (await content('#send')).trim() === 'Parar');
+	await editor(doc => doc.querySelector('[data-filter="active"]').click(), undefined, '.navigation');
+	await waitFor(() => editor(doc => !!doc.querySelector('.session-link'), undefined, '.navigation'), 'active session in the sidebar');
 	await snap('03b-tarefa-em-execucao.png');
 	await waitFor(async () => (await status()) === 'running' && !!(await content('.result')),
 		'a partial result while running', 4000, 120).then(async () => snap('03a-streaming.png')).catch(() => undefined);
-	await activate('#cancel');
+	await activate('#send');
 	await waitFor(async () => /Execução interrompida/.test(await content('.session')), 'the task is reported as interrupted', 30000);
-	check('7b. Cancelar tarefa interrupts the task from the composer', (await sessionsOnHub())[0].status === 'idle');
+	check('7b. Parar interrupts the task from the composer', (await sessionsOnHub())[0].status === 'idle');
 
 	// ---------- 8. the session survives closing and reopening the IDE ----------
 	const instance = hub.hello.hub.instanceId;
@@ -320,7 +319,7 @@ async function main() {
 	await snap('08-escala-maior.png');
 	setSetting('window.zoomLevel', 0);
 
-	await editor(doc => doc.querySelector('[data-action="stop"]').click());
+	await editor(doc => { doc.querySelector('.session-menu').open = true; doc.querySelector('[data-action="stop"]').click(); }, undefined, '.navigation');
 	await click(page.getByRole('button', { name: /^Encerrar/ }).last());
 	await waitFor(async () => (await sessionsOnHub()).some(session => session.id === before.id && session.historical),
 		'the Hub archives the closed session', 60000);
