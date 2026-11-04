@@ -8,7 +8,7 @@
 	const el = {
 		hub: $('hub'), sessions: $('sessions'), composer: $('composer'), target: $('target'), newSession: $('new'), ws: $('ws'),
 		service: $('service'), model: $('model'), effort: $('effort'), note: $('note'),
-		prompt: $('prompt'), send: $('send'), cancel: $('cancel')
+		prompt: $('prompt'), send: $('send')
 	};
 
 	let state = { hub: { status: 'disconnected' }, sessions: [] };
@@ -22,6 +22,7 @@
 	el.prompt.value = vscode.getState()?.draft || '';
 	let targetSeen = false; // the session in use has been seen in the Hub state at least once
 	let sending = false;
+	let interrupting = false;
 	let submittedDraft;
 	let message = '';
 	let lastMarkup;
@@ -39,10 +40,11 @@
 	function saveDraft() {
 		vscode.setState({ targetId, draft: el.prompt.value, drafts: Object.fromEntries(drafts) });
 	}
+	let profile;
 
 	const target = () => state.sessions.find(s => s.id === targetId);
 	const connected = () => state.hub.status === 'connected';
-	const busy = () => { const s = target(); return !!s && (s.status === 'running' || s.status === 'waiting'); };
+	const busy = () => { const s = target(); return !!s && R.isActive(s); };
 
 	/** Replaces the options of a select and keeps the value when it still exists. Never touches the prompt. */
 	function fill(select, options, value, placeholder) {
@@ -94,8 +96,20 @@
 		el.target.textContent = current ? 'Sessão: ' + R.serviceName(catalog, current.harness) + ' · ' + R.modelLabel(catalog, current.model) : '';
 		el.newSession.hidden = !targetId;
 		const running = busy();
-		el.send.disabled = current?.historical || current?.recovery === 'unrecoverable' || !online || sending || running || !sel.canSend || !el.prompt.value.trim();
-		el.cancel.hidden = !running;
+		el.send.disabled = current?.historical || current?.recovery === 'unrecoverable' || !online || (running ? interrupting : sending || !sel.canSend || !el.prompt.value.trim());
+		el.send.classList.toggle('interrupt', running);
+		el.send.title = running ? 'Parar execução' : 'Enviar (Ctrl+Enter)';
+		const label = running ? (interrupting ? 'Parando…' : 'Parar') : 'Enviar';
+		if (el.send.dataset.label !== label) {
+			el.send.dataset.label = label;
+			el.send.textContent = label;
+			if (!running) {
+				const arrow = document.createElement('span');
+				arrow.setAttribute('aria-hidden', 'true');
+				arrow.textContent = ' ➤';
+				el.send.append(arrow);
+			}
+		}
 		el.newSession.disabled = sending;
 		el.prompt.disabled = false;
 
@@ -119,15 +133,13 @@
 			historyKey = key;
 			if (selected && !selected.recovery) { vscode.postMessage({ type: 'history', id: selected.id, key }); }
 		}
-		const markup = R.renderTarget(state, catalog, targetId, transcript);
+		const markup = R.renderTarget(state, catalog, targetId, transcript, profile);
 		if (markup !== lastMarkup) {
-			const action = el.sessions.contains(document.activeElement) ? document.activeElement.dataset.action : undefined;
 			const scroll = el.sessions.closest('.list');
 			const top = scroll.scrollTop;
 			const atBottom = scroll.scrollHeight - top - scroll.clientHeight < 4;
 			el.sessions.innerHTML = lastMarkup = markup;
 			scroll.scrollTop = atBottom ? scroll.scrollHeight : top;
-			if (action === 'stop') { el.sessions.querySelector('[data-action="stop"]')?.focus({ preventScroll: true }); }
 		}
 		saveDraft();
 	}
@@ -142,8 +154,12 @@
 		const data = event.data || {};
 		if (data.type === 'history') {
 			if (data.id === targetId && data.key === historyKey) { transcript = data.turns; drawSessions(); }
+		} else if (data.type === 'profile') {
+			profile = data.profile;
+			drawSessions();
 		} else if (data.type === 'state') {
 			state = data.state;
+			if (!busy()) { interrupting = false; }
 			// The session in use is dropped only when it was seen and is really gone while the Hub is connected: an update that
 			// arrives before the session shows up (or while the connection is being re-established) must not turn the next
 			// send into a new session.
@@ -158,10 +174,12 @@
 		} else if (data.type === 'use') {
 			if (sending) { return; }
 			selectTarget(data.id);
+			interrupting = false;
 			targetSeen = !!target();
 			const model = target()?.model;
 			if (model) { prefs = { service: 'opencode', providerID: model.providerID, modelID: model.modelID, variant: model.variant || '' }; }
 			drawSessions(); drawComposer();
+			if (data.focusComposer) { el.prompt.focus(); }
 		} else if (data.type === 'catalog') {
 			loading = false; catalog = data.catalog; catalogError = data.error;
 			drawSessions(); drawComposer();
@@ -176,7 +194,10 @@
 			if (data.sessionId) { targetId = data.sessionId; targetSeen = !!target(); }
 			if (el.prompt.value === submittedDraft) { el.prompt.value = ''; }
 			drawSessions(); drawComposer();
+		} else if (data.type === 'interruptComplete') {
+			interrupting = false; drawComposer();
 		} else if (data.type === 'failed') {
+			interrupting = false;
 			sending = false; message = data.message || 'A operação falhou.';
 			drawComposer();
 		}
@@ -198,6 +219,13 @@
 
 	el.composer.addEventListener('submit', event => {
 		event.preventDefault();
+		if (el.send.disabled) { return; }
+		if (busy()) {
+			interrupting = true;
+			vscode.postMessage({ type: 'interrupt', id: targetId });
+			drawComposer();
+			return;
+		}
 		const sel = R.resolve(catalog, prefs);
 		const text = el.prompt.value.trim();
 		if (el.send.disabled || !text || !sel.canSend) { return; }
@@ -210,22 +238,11 @@
 	app.addEventListener('click', event => {
 		const button = event.target instanceof Element ? event.target.closest('button[data-action]') : null;
 		if (!button || button.disabled) { return; }
-		const { action, id } = button.dataset;
-		if (action === 'prepare') {
-			if (!el.prompt.value.trim()) {
-				el.prompt.value = button.dataset.prompt;
-				el.prompt.dispatchEvent(new Event('input'));
-			}
-			el.prompt.focus();
-			el.prompt.setSelectionRange(el.prompt.value.length, el.prompt.value.length);
-		} else if (action === 'new') {
+		const { action } = button.dataset;
+		if (action === 'new') {
 			selectTarget(undefined); targetSeen = false;
 			vscode.postMessage({ type: 'target' });
 			drawSessions(); drawComposer();
-		} else if (action === 'cancel') {
-			if (targetId) { vscode.postMessage({ type: 'interrupt', id: targetId }); }
-		} else if (action === 'stop') {
-			vscode.postMessage({ type: action, id });
 		} else {
 			vscode.postMessage({ type: action });
 		}

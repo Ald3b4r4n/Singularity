@@ -43,10 +43,14 @@ class AgentsViewProvider {
 		view.webview.onDidReceiveMessage(async message => {
 			if (message?.type === 'ready') {
 				this._postSessions();
-			} else if (message?.type === 'use' && !this._sending && this._visibleState().sessions.some(session => session.id === message.id)) {
+			} else if ((message?.type === 'use' || message?.type === 'continue') && !this._sending && this._visibleState().sessions.some(session => session.id === message.id)) {
 				this._targetId = message.id;
+				const wasOpen = !!this._view;
+				this._focusComposerOnReady = !wasOpen && message.type === 'continue';
 				this.open();
-				this._view.webview.postMessage({ type: 'use', id: message.id });
+				if (wasOpen) {
+					this._view.webview.postMessage({ type: 'use', id: message.id, focusComposer: message.type === 'continue' });
+				}
 				this._postSessions();
 			} else if (message?.type === 'deleteHistory') {
 				try {
@@ -82,8 +86,12 @@ class AgentsViewProvider {
 		view.webview.onDidReceiveMessage(async message => {
 			if (message?.type === 'ready') {
 				this._postPrefs();
+				this.setProfile(this._profile);
 				this._post();
-				if (this._targetId) { view.webview.postMessage({ type: 'use', id: this._targetId }); }
+				if (this._targetId) {
+					view.webview.postMessage({ type: 'use', id: this._targetId, focusComposer: this._focusComposerOnReady });
+					this._focusComposerOnReady = false;
+				}
 			} else if (message?.type === 'target') {
 				this._targetId = message.id;
 				this._postSessions();
@@ -201,8 +209,7 @@ class AgentsViewProvider {
 			if (!result.interrupted) {
 				await vscode.window.showInformationMessage('O OpenCode não encontrou uma execução ativa para cancelar.');
 			}
-		} else if (message.type === 'stop') {
-			await this._stop(message.id);
+			this._view?.webview.postMessage({ type: 'interruptComplete' });
 		}
 	}
 
@@ -248,6 +255,11 @@ class AgentsViewProvider {
 		this._view?.webview.postMessage({ type: 'sent', sessionId: id });
 	}
 
+	setProfile(profile) {
+		this._profile = profile;
+		this._view?.webview.postMessage({ type: 'profile', profile });
+	}
+
 	_post() {
 		this._postSessions();
 		if (this._view) {
@@ -281,7 +293,7 @@ class AgentsViewProvider {
 		const media = name => webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', name));
 		const nonce = Array.from({ length: 24 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
 		// No remote content at all: only local script and style, and nothing else is allowed to load.
-		const csp = `default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource};`;
+		const csp = `default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;`;
 		return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -306,6 +318,13 @@ function activate(context) {
 	// Showing the panel is what starts the Hub (when autoStart is on). Reconnecting after a drop never starts one by itself.
 	const ensureHub = () => hub.start(settings().get('hub.autoStart', true));
 	const provider = new AgentsViewProvider(context, hub, () => { void ensureHub(); });
+	const account = vscode.extensions.getExtension('singularity.singularity-account');
+	void account?.activate().then(api => {
+		if (!api?.getPublicProfile || !api.onDidChangePublicProfile) { return; }
+		context.subscriptions.push(api.onDidChangePublicProfile(profile => provider.setProfile(profile)));
+		provider.setProfile(api.getPublicProfile());
+	}, () => { /* The editor still works without a connected account. */ });
+
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),

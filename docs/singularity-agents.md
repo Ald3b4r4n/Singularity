@@ -16,7 +16,7 @@ O compositor oferece três seletores:
 | **Modelo** | Catálogo real do OpenCode. A escolha mantém o ID do provedor de inferência e do modelo. |
 | **Esforço** | Variantes informadas pelo modelo. Padrão do modelo usa a configuração do provedor. |
 
-Os atalhos da tela inicial preparam um rascunho. Use **Ctrl+Enter** ou **Enviar** para iniciar uma sessão ou continuar a atual. O modelo e o esforço podem mudar entre tarefas da mesma sessão. O editor mostra o último prompt enviado, a resposta e os eventos durante a execução. **Cancelar tarefa** interrompe a execução atual.
+Use **Ctrl+Enter** ou **Enviar** para iniciar uma sessão ou continuar a atual. O modelo e o esforço podem mudar entre tarefas da mesma sessão. O editor mostra o último prompt e a resposta em balões separados, com blocos de código formatados. Durante a execução, **Enviar** vira **Parar**. O menu do cartão na lateral permite encerrar a sessão.
 
 ## Arquitetura
 

@@ -87,7 +87,19 @@
 		return parts[parts.length - 1] || String(path || '');
 	}
 
-	function renderSession(s, events, catalog) {
+	// Model output stays escaped, including code and any incomplete fence during streaming.
+	function renderResponse(result) {
+		return String(result).split(/^ {0,3}```[^\r\n]*\r?$/m).map(function (part, i) {
+			if (i % 2) { return '<pre><code>' + esc(part.replace(/^\r?\n|\r?\n$/g, '')) + '</code></pre>'; }
+			return part.trim() ? '<div class="response-text">' + esc(part.trim()) + '</div>' : '';
+		}).join('');
+	}
+
+	function renderSession(s, catalog, profile) {
+		var name = profile?.name?.trim() || 'Você';
+		var avatar = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(profile?.avatar)
+			? '<img src="' + esc(profile.avatar) + '" alt="">' : '';
+		var initial = Array.from(name)[0].toLocaleUpperCase();
 		var label = s.historical ? 'histórico' : s.recovery === 'unrecoverable' ? 'não recuperável' : SESSION_LABEL[s.status] || esc(s.status);
 		var id = esc(s.id);
 		var effort = s.model ? '<span class="effort">' + esc(s.model.variant ? effortLabel(s.model.variant) : 'Padrão do modelo') + '</span>' : '';
@@ -97,40 +109,51 @@
 			'<div class="meta"><span class="model" title="' + esc(s.model ? s.model.providerID + '/' + s.model.modelID : '') + '">' + esc(modelLabel(catalog, s.model)) + '</span>' + effort + '</div>' +
 			(s.createdAt ? '<div class="workspace">' + esc(new Date(s.createdAt).toLocaleString()) + (s.updatedAt ? ' · ' + esc(new Date(s.updatedAt).toLocaleString()) : '') + '</div>' : '') +
 			(s.workspace ? '<div class="workspace" title="' + esc(s.workspace) + '">' + esc(folderName(s.workspace)) + '</div>' : '') +
-			(s.prompt ? '<section class="submitted"><h2>Tarefa enviada</h2><p>' + esc(s.prompt) + '</p></section>' : '') +
-			(s.summary ? '<div class="summary" role="status">' + esc(s.summary) + '</div>' : '') +
-			(s.result ? '<pre class="result" aria-label="Resultado">' + esc(s.result) + '</pre>' : '') +
-			(events.length ? '<ol class="events" aria-label="Eventos">' + events.slice(-3).map(function (e) { return '<li>' + esc(e.name) + '</li>'; }).join('') + '</ol>' : '') +
-			'<div class="session-actions">' +
-			(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + '</div>' +
+			(s.prompt ? '<section class="message message-user submitted"><span class="avatar" aria-hidden="true"><span>' + esc(initial) + '</span>' + avatar + '</span><div class="message-body"><h2>' + esc(name) + '</h2><p class="bubble">' + esc(s.prompt) + '</p></div></section>' : '') +
+			(s.result || s.summary ? '<section class="message message-agent"><span class="avatar" aria-hidden="true">' + BRAND_MARK + '</span><div class="message-body">' +
+				'<h2>' + esc(modelLabel(catalog, s.model).split(' · ').at(-1)) + '</h2><div class="bubble">' +
+				(s.result ? '<div class="result" aria-label="Resultado">' + renderResponse(s.result) + '</div>' : '') +
+				(s.summary ? '<div class="summary" role="status">' + esc(s.summary) + '</div>' : '') + '</div></div></section>' : '') +
 			'</li>';
 	}
 
-	function renderNavigation(state, catalog, targetId, workspace) {
-		return (workspace ? '<p class="nav-workspace">' + esc(folderName(workspace)) + '</p>' : '') +
-			'<h2 class="nav-heading">Sessões recentes</h2>' +
-			(!state.sessions.length ? '<div class="empty"><p class="lead">Nenhuma sessão</p><p>As sessões dos agentes serão exibidas aqui.</p></div>' :
-				'<ul class="sessions">' + state.sessions.map(function (s) {
-					var id = esc(s.id);
-					return '<li class="session" data-id="' + id + '"><button type="button" class="session-link" data-action="use" data-id="' + id +
-						'"' + (s.id === targetId ? ' aria-current="true"' : '') + '><strong>' + (s.recovery === 'unrecoverable' ? 'Sessão não recuperável' : 'Sessão ' + esc(s.id.slice(0, 8))) + '</strong>' +
-						'<span>' + esc(modelLabel(catalog, s.model)) + '</span><span>' + esc(folderName(s.workspace)) + '</span>' +
-						'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + esc(s.historical ? 'histórico' : SESSION_LABEL[s.status] || s.status) + '</span></button>' +
-						(!s.historical && s.recovery !== 'unrecoverable' ? '<button type="button" data-action="stop" data-id="' + id + '">Encerrar</button>' : '') + (s.historical ? '<button type="button" data-action="deleteHistory" data-id="' + id + '">Excluir histórico</button>' : '') + '</li>';
-				}).join('') + '</ul>');
+	function isActive(session) {
+		return session.status === 'running' || session.status === 'waiting';
 	}
 
-	function renderTarget(state, catalog, targetId, transcript) {
+	function renderNavigation(sessions, catalog, targetId) {
+		if (!sessions.length) {
+			return '<div class="empty"><p class="lead">Nenhuma sessão</p><p>As sessões correspondentes serão exibidas aqui.</p></div>';
+		}
+		return '<ul class="sessions">' + sessions.map(function (s) {
+			var id = esc(s.id);
+			var unavailable = s.historical || s.recovery === 'unrecoverable';
+			var title = s.recovery === 'unrecoverable' ? 'Sessão não recuperável' : 'Sessão ' + esc(s.id.slice(0, 8));
+			var active = isActive(s);
+			return '<li class="session' + (s.id === targetId ? ' selected' : '') + '" data-id="' + id + '">' +
+				'<div class="session-card-heading"><strong>' + title + '</strong><span class="state state-' + esc(s.status) + '">' +
+				statusGlyph(s.status) + esc(s.historical ? 'histórico' : SESSION_LABEL[s.status] || s.status) + '</span></div>' +
+				'<div class="session-card-meta">' + esc(modelLabel(catalog, s.model)) + '</div>' +
+				(s.workspace ? '<div class="session-card-meta">' + esc(folderName(s.workspace)) + '</div>' : '') +
+				'<div class="session-card-actions"><button type="button" class="session-link" data-action="use" data-id="' + id +
+				'"' + (s.id === targetId ? ' aria-current="true"' : '') + '>Abrir</button>' +
+				(!active && !unavailable ? '<button type="button" data-action="continue" data-id="' + id + '">Continuar</button>' : '') +
+				(s.historical ? '<button type="button" data-action="deleteHistory" data-id="' + id + '">Excluir histórico</button>' : '') +
+				(!unavailable ? '<details class="session-menu"><summary aria-label="Opções da sessão">…</summary>' +
+				'<button type="button" data-action="stop" data-id="' + id + '">Encerrar sessão</button></details>' : '') + '</div></li>';
+		}).join('') + '</ul>';
+	}
+
+	function renderTarget(state, catalog, targetId, transcript, profile) {
 		var session = state.sessions.find(function (s) { return s.id === targetId; });
 		if (!session) { return welcome(); }
-		var events = (state.events || []).filter(function (event) { return event.sessionId === targetId; });
 		var turns = transcript || [];
 		var prior = session.historical || !session.prompt ? turns : turns.slice(0, -1);
 		var history = prior.map(function (turn) {
 			return '<li class="history-turn"><p><strong>Você</strong></p><div class="response-text">' + esc(turn.prompt) + '</div>' +
 				(turn.result ? '<p><strong>Agente</strong></p><div class="response-text">' + esc(turn.result) + '</div>' : '') + '</li>';
 		}).join('');
-		return '<ul class="sessions">' + history + renderSession(session, events, catalog) + '</ul>';
+		return '<ul class="sessions">' + history + renderSession(session, catalog, profile) + '</ul>';
 	}
 
 	function hubLine(state) {
@@ -138,21 +161,9 @@
 		return '<span class="state state-' + status + '">' + statusGlyph(status) + '</span><span class="k">Hub</span><span class="v">' + HUB_LABEL[status] + '</span>';
 	}
 
-	var shortcuts = [
-		['Implementar um recurso', 'Desenvolva uma nova funcionalidade no projeto.', 'Implemente o seguinte recurso no projeto: ', 'M9 6l-6 6 6 6m6-12l6 6-6 6m-1-15l-4 18'],
-		['Corrigir um problema', 'Investigue e corrija um bug no código.', 'Investigue e corrija o seguinte problema: ', 'M14 7l3 3 5-5a6 6 0 0 1-8 8L6 21a2 2 0 0 1-3-3l8-8a6 6 0 0 1 8-8z'],
-		['Refatorar o código', 'Melhore a estrutura, a performance ou a legibilidade.', 'Refatore o seguinte trecho preservando seu comportamento: ', 'M2 7l10-5 10 5-10 5zm0 5l10 5 10-5m-20 5l10 5 10-5'],
-		['Planejar uma tarefa', 'Analise o projeto e proponha um plano de desenvolvimento.', 'Analise o projeto e proponha um plano para: ', 'M2 5l2 2 4-4m-6 9l2 2 4-4m-6 9l2 2 4-4m3-12h11m-11 7h11m-11 7h11']
-	];
-
 	function welcome() {
 		return '<section class="welcome"><div class="orbit">' + BRAND_MARK + '</div>' +
-			'<h2>Crie uma tarefa para um agente</h2><p>Use agentes de IA para implementar funcionalidades, corrigir problemas, refatorar o código ou planejar o desenvolvimento do seu projeto.</p>' +
-			'<div class="shortcuts">' + shortcuts.map(function ([title, description, prompt, icon]) {
-				return '<button type="button" data-action="prepare" data-prompt="' + esc(prompt) + '">' +
-					'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + icon + '"/></svg>' +
-					'<span><strong>' + title + '</strong><span>' + description + '</span></span></button>';
-			}).join('') + '</div></section>';
+			'<h2>Crie uma tarefa para um agente</h2><p>Use agentes de IA para implementar funcionalidades, corrigir problemas, refatorar o código ou planejar o desenvolvimento do seu projeto.</p></section>';
 	}
 
 	/** The composer is mounted once; streaming only changes the session above it. */
@@ -169,13 +180,13 @@
 			'<div class="field"><label for="service">Provedor</label><select id="service"></select></div>' +
 			'<div class="field"><label for="model">Modelo</label><select id="model"></select></div>' +
 			'<div class="field"><label for="effort">Esforço</label><select id="effort"></select></div></div>' +
-			'<div class="actions"><button type="button" id="cancel" data-action="cancel" hidden>Cancelar tarefa</button>' +
-			'<button type="submit" id="send" class="primary" title="Enviar (Ctrl+Enter)">Enviar</button></div></div>' +
+			'<div class="actions">' +
+			'<button type="submit" id="send" class="primary" title="Enviar (Ctrl+Enter)">Enviar <span aria-hidden="true">➤</span></button></div></div>' +
 			'<p id="note" class="note" role="status"></p></form>';
 	}
 
 	var api = {
-		renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
+		isActive: isActive, renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
 		modelLabel: modelLabel, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE
 	};
 	if (typeof module !== 'undefined' && module.exports) { module.exports = api; } else { root.SingularityAgentsRender = api; }

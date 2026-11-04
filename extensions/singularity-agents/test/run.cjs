@@ -169,7 +169,7 @@ test('one composer: one prompt box, one send button, three selectors, and no sec
 	assert.strictEqual((shell.match(/type="submit"/g) || []).length, 1);
 	for (const id of ['service', 'model', 'effort']) { assert.ok(new RegExp(`<select id="${id}"`).test(shell), id); }
 	const labels = text(shell);
-	for (const label of ['Provedor', 'Modelo', 'Esforço', 'Cancelar tarefa', 'Enviar']) { assert.ok(labels.includes(label), label); }
+	for (const label of ['Provedor', 'Modelo', 'Esforço', 'Enviar']) { assert.ok(labels.includes(label), label); }
 	assert.ok(!/<textarea/.test(R.renderTarget({ hub: { status: 'connected' }, sessions: [{ id: '1', harness: 'opencode', status: 'idle', workspace: 'C:\\w' }] }, catalog)), 'sessions carry no prompt box of their own');
 });
 
@@ -188,10 +188,10 @@ test('Singularity is the orchestrator: no "Harness:" label, and no Copilot or Ch
 	assert.ok(!/copilot/i.test(shell + read('media/main.js')), 'no Copilot wording in the page');
 });
 
-test('empty state has four actionable shortcuts and the Hub state is independent', () => {
+test('empty state shows the welcome message and the Hub state is independent', () => {
 	const empty = R.renderTarget({ sessions: [] });
 	assert.match(empty, /Crie uma tarefa para um agente/);
-	assert.equal((empty.match(/data-action="prepare" data-prompt="[^"]+"/g) || []).length, 4);
+	assert.doesNotMatch(empty, /<button/);
 	assert.match(R.hubLine({ hub: { status: 'weird' } }), /não conectado/);
 	assert.match(R.hubLine({ hub: { status: 'connected' } }), /state-connected/);
 });
@@ -204,7 +204,7 @@ test('each session shows its service, the model it really runs, the effort, the 
 	const t = text(html);
 	assert.ok(/OpenCode/.test(t) && /em execução/.test(t) && /Vercel · Alpha/.test(t) && /Alto/.test(t) && /project/.test(t) && /partial output/.test(t) && /a real task/.test(t), t);
 	assert.match(html, /class="session target"/);
-	assert.match(html, /data-action="stop" data-id="s1"/);
+	assert.doesNotMatch(html, /data-action="stop"/);
 	assert.ok(/<svg class="gl"/.test(html), 'the state has a shape as well as a color');
 });
 
@@ -222,9 +222,27 @@ test('everything that comes from state is escaped', () => {
 	assert.ok(!/<img|<script|<b>|<w>|<i>|<m>|<v>|<e>/.test(html), html);
 });
 
-test('only another session\'s events are left out of a session', () => {
+test('fenced code in a response stays readable and escaped while streaming', () => {
+	const session = { id: 's', harness: 'opencode', status: 'running', prompt: 'Uma tarefa', result: 'Resposta\n```python\nprint("<script>")' };
+	const html = R.renderTarget({ sessions: [session] }, catalog, 's');
+	assert.match(html, /message-user/);
+	assert.match(html, /message-agent/);
+	assert.match(html, /<pre><code>print\(&quot;&lt;script&gt;&quot;\)<\/code><\/pre>/);
+	assert.doesNotMatch(html, /<script>/);
+});
+
+test('the user bubble displays the public profile and falls back without a safe avatar', () => {
+	const state = { sessions: [{ id: 's', harness: 'opencode', status: 'done', prompt: 'Oi' }] };
+	const render = profile => R.renderTarget(state, catalog, 's', [], profile);
+	assert.match(render({ name: 'Ana & Rui', avatar: 'data:image/png;base64,AAAA' }), /Ana &amp; Rui/);
+	assert.match(render({ name: 'Ana', avatar: 'data:image/png;base64,AAAA' }), /<img src="data:image\/png;base64,AAAA"/);
+	assert.doesNotMatch(render({ name: 'Ana', avatar: 'data:image/svg+xml;base64,AAAA' }), /<img/);
+	assert.match(render(), /<h2>Você<\/h2>/);
+});
+
+test('internal events stay out of the conversation', () => {
 	const html = R.renderTarget({ hub: { status: 'connected' }, sessions: [{ id: 's1', harness: 'opencode', status: 'running' }], events: [{ sessionId: 's1', name: 'session.execution.started' }, { sessionId: 'other', name: 'unrelated' }] }, catalog, 's1');
-	assert.ok(/session.execution.started/.test(html) && !/unrelated/.test(html));
+	assert.doesNotMatch(html, /session.execution.started|unrelated/);
 });
 
 test('the page keeps what is typed: the composer is drawn once and sessions are drawn apart', () => {
@@ -245,8 +263,8 @@ test('the session in use survives an update that does not list it yet, and a sen
 
 test('the right view only navigates; the central editor shows the selected result', () => {
 	const state = { sessions: [{ id: 's1', harness: 'opencode', status: 'done', workspace: 'C:/demo', result: 'first result' }, { id: 's2', harness: 'opencode', status: 'idle', result: 'other result' }] };
-	assert.match(R.renderNavigation(state, catalog, 's1', 'C:/demo'), /aria-current="true"/);
-	assert.doesNotMatch(R.renderNavigation(state, catalog, 's1', 'C:/demo'), /textarea|first result|other result/);
+	assert.match(R.renderNavigation(state.sessions, catalog, 's1'), /aria-current="true"/);
+	assert.doesNotMatch(R.renderNavigation(state.sessions, catalog, 's1'), /textarea|first result|other result/);
 	assert.match(R.renderTarget(state, catalog, 's1'), /first result/);
 	assert.doesNotMatch(R.renderTarget(state, catalog, 's1'), /other result/);
 });

@@ -27,7 +27,7 @@ describe('state published to the workbench (title bar account entry)', () => {
 	});
 
 	it('every state change goes through render(), which republishes the state', () => {
-		assert.ok(ext.includes('publishContext(account, publish);'));
+		assert.ok(ext.includes('publishContext(account, publish, avatar);'));
 		const changed = (ext.match(/changed\(\)/g) || []).length;
 		assert.ok(changed >= 4, 'sign in, authorize, revoke and sign out call changed(): ' + changed);
 	});
