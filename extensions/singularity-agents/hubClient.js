@@ -52,6 +52,14 @@ class RealHubClient {
 		await this._supervisor.stopHub();
 	}
 
+	/** Services, providers, models and effort levels read from the service itself (never any secret: see the Hub's catalog.ts). */
+	async catalog(params) {
+		if (!this._supervisor) {
+			throw new Error(this._unavailable);
+		}
+		return this._supervisor.catalog(params);
+	}
+
 	async sessionRequest(method, params) {
 		if (!this._supervisor) {
 			throw new Error(this._unavailable);

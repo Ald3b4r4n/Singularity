@@ -5,7 +5,9 @@ import { realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { Session, HubEvent } from './protocol';
+import { homedir } from 'node:os';
+import { CatalogResult, ModelSelection, sanitizeCatalog, serviceList, validateSelection } from './catalog';
+import { HubEvent, ModelInfo, Session } from './protocol';
 
 const methods = {
 	create: ['/api/session', 'POST', 'session.create'],
@@ -15,7 +17,11 @@ const methods = {
 	interrupt: ['/api/session/{sessionID}/interrupt', 'POST', 'session.interrupt'],
 	wait: ['/api/experimental/session/{sessionID}/wait', 'POST', 'experimental.session.wait'],
 	messages: ['/api/session/{sessionID}/message', 'GET', 'session.message.list'],
-	events: ['/api/event', 'GET', 'event.subscribe']
+	events: ['/api/event', 'GET', 'event.subscribe'],
+	providers: ['/api/provider', 'GET', 'provider.list'],
+	models: ['/api/model', 'GET', 'model.list'],
+	defaultModel: ['/api/model/default', 'GET', 'model.default'],
+	switchModel: ['/api/session/{sessionID}/model', 'POST', 'session.switchModel']
 } as const;
 
 const helper = join(__dirname, 'singularity-job.exe');
@@ -24,6 +30,29 @@ const maxSessions = 8;
 const outputLimit = 12000;
 
 export class OpenCodeError extends Error { }
+
+interface RawModel { id?: unknown; providerID?: unknown; variant?: unknown }
+
+/** The model a session reports, reduced to the three fields the IDE shows. Never the raw object: it can carry settings. */
+function modelOf(raw: RawModel | undefined): ModelInfo | undefined {
+	if (!raw || typeof raw.id !== 'string' || typeof raw.providerID !== 'string') {
+		return undefined;
+	}
+	return { providerID: raw.providerID, modelID: raw.id, ...(typeof raw.variant === 'string' && raw.variant ? { variant: raw.variant } : {}) };
+}
+
+/** Reads the real catalog from a running OpenCode server and reduces it to the allow-listed form. */
+async function readCatalog(server: OpenCodeProcess): Promise<ReturnType<typeof sanitizeCatalog>> {
+	const [providers, models, fallback] = await Promise.all([
+		server.request('providers'), server.request('models'), server.request('defaultModel').catch(() => undefined)
+	]);
+	return sanitizeCatalog(providers, models, fallback);
+}
+
+/** Whether the OpenCode adapter can run on this machine, with the reason when it cannot. */
+export function openCodeRunnable(): { ok: boolean; reason?: string } {
+	return executable() ? { ok: true } : { ok: false, reason: 'OpenCode v2 ou o helper Windows do Singularity não foi encontrado.' };
+}
 
 function executable(): string | undefined {
 	if (process.platform !== 'win32' || !existsSync(helper)) {
@@ -189,6 +218,7 @@ export class OpenCodeSessions {
 	private readonly sessions = new Map<string, Managed>();
 	private creating = 0;
 	private closed = false;
+	private readonly catalogs = new Map<string, { at: number; result: Promise<CatalogResult> }>();
 
 	constructor(private readonly publish: (event: Omit<HubEvent, 'seq'>) => void) { }
 
@@ -198,7 +228,7 @@ export class OpenCodeSessions {
 
 	has(id: string): boolean { return this.sessions.has(id); }
 
-	async create(directory: string): Promise<Session> {
+	async create(directory: string, selection?: ModelSelection): Promise<Session> {
 		const exe = executable();
 		if (!exe) {
 			throw new OpenCodeError('OpenCode v2 ou o helper Windows do Singularity não foi encontrado.');
@@ -215,14 +245,19 @@ export class OpenCodeSessions {
 			}
 			server = new OpenCodeProcess(exe, workspace, await localPort());
 			const version = await server.ready();
-			const created = await server.request<{ data: { id: string; location: { directory: string } } }>('create', undefined, { location: { directory: workspace } });
+			// the OpenCode API accepts any model and variant without checking: the choice is validated against the real catalog first
+				const chosen = selection ? validateSelection((await readCatalog(server)).providers, selection) : undefined;
+				const created = await server.request<{ data: { id: string; model?: RawModel; location: { directory: string } } }>('create', undefined, {
+					location: { directory: workspace },
+					...(chosen ? { model: { id: chosen.modelID, providerID: chosen.providerID, ...(chosen.variant ? { variant: chosen.variant } : {}) } } : {})
+				});
 			const remoteId = created.data.id;
 			if (!remoteId || (await realpath(created.data.location.directory)).toLowerCase() !== workspace.toLowerCase() || this.closed) {
 				throw new OpenCodeError('O OpenCode não confirmou o workspace selecionado.');
 			}
 			const item: Managed = {
 				server, remoteId,
-				view: { id: randomUUID(), harness: 'opencode', title: 'OpenCode', status: 'idle', workspace, version }
+				view: { id: randomUUID(), harness: 'opencode', title: 'OpenCode', status: 'idle', workspace, version, model: modelOf(created.data.model) }
 			};
 			await server.events(event => {
 				if (event.data?.sessionID !== remoteId || !/^session\.[a-z.]+$/.test(event.type)) {
@@ -277,7 +312,7 @@ export class OpenCodeSessions {
 		try {
 			await server.request('prompt', remoteId, { text });
 			await server.request('wait', remoteId, undefined, AbortSignal.timeout(15 * 60 * 1000));
-			const { data } = await server.request<{ data: { outcome?: string } }>('state', remoteId);
+			const { data } = await server.request<{ data: { outcome?: string; model?: RawModel } }>('state', remoteId);
 			const { data: messages } = await server.request<{ data: Array<{ type: string; error?: { status?: number }; content?: Array<{ type: string; text?: string }> }> }>('messages', remoteId);
 			const userIndex = messages.findIndex(message => message.type === 'user');
 			const result = messages.slice(0, userIndex < 0 ? 0 : userIndex).find(message => message.type === 'assistant')?.content
@@ -285,13 +320,75 @@ export class OpenCodeSessions {
 			const providerStatus = messages[0]?.error?.status;
 			const http = Number.isInteger(providerStatus) && providerStatus! >= 400 && providerStatus! <= 599 ? ` (HTTP ${providerStatus})` : '';
 			const status = data.outcome === 'succeeded' ? 'done' : data.outcome === 'interrupted' ? 'idle' : 'failed';
-			this.update(item, { status, result, summary: data.outcome === 'interrupted' ? 'Execução interrompida.'
+			this.update(item, { status, result, model: modelOf(data.model) ?? item.view.model, summary: data.outcome === 'interrupted' ? 'Execução interrompida.'
 				: status === 'failed' ? `O OpenCode informou falha${http}. Confira o modelo e a autenticação na sua configuração do OpenCode.` : undefined });
 		} catch (error) {
 			if (!item.closing) {
 				this.update(item, { status: 'failed', summary: error instanceof OpenCodeError ? error.message : 'A execução não pôde ser confirmada pelo OpenCode.' });
 			}
 		}
+	}
+
+	/**
+	 * Services, providers, models and effort levels, read from a real OpenCode server for this workspace and reduced to the
+	 * allow-listed form (see catalog.ts). A short-lived server is started in a Job Object for the read and stopped right after;
+	 * the answer is cached for a minute.
+	 */
+	async catalog(directory?: string, refresh = false): Promise<CatalogResult> {
+		const runnable = openCodeRunnable();
+		const services = serviceList(runnable);
+		const exe = executable();
+		if (!exe) {
+			return { services, service: 'opencode', providers: [], hiddenModels: 0, unavailable: runnable.reason };
+		}
+		const base = directory ?? homedir();
+		if (!isAbsolute(base)) {
+			throw new OpenCodeError('Escolha um workspace local absoluto.');
+		}
+		const workspace = await realpath(base).catch(() => undefined);
+		if (!workspace || !(await stat(workspace)).isDirectory()) {
+			throw new OpenCodeError('O diretório do workspace não existe.');
+		}
+		const key = workspace.toLowerCase();
+		const cached = this.catalogs.get(key);
+		if (cached && !refresh && Date.now() - cached.at < 60_000) {
+			return cached.result;
+		}
+		if (this.closed) {
+			throw new OpenCodeError('Hub is shutting down.');
+		}
+		const result = (async (): Promise<CatalogResult> => {
+			const server = new OpenCodeProcess(exe, workspace, await localPort());
+			try {
+				await server.ready();
+				return { services, service: 'opencode', ...(await readCatalog(server)) };
+			} finally {
+				await server.stop().catch(() => undefined);
+			}
+		})();
+		this.catalogs.set(key, { at: Date.now(), result });
+		result.catch(() => { if (this.catalogs.get(key)?.result === result) { this.catalogs.delete(key); } });
+		return result;
+	}
+
+	/**
+	 * Changes the model and effort of a session for the tasks that follow. The choice is validated against the real catalog
+	 * (the OpenCode API would accept anything), and what the session reports afterwards is what the IDE shows.
+	 */
+	async setModel(id: string, selection: ModelSelection): Promise<ModelInfo | undefined> {
+		const item = this.item(id);
+		if (item.run) {
+			throw new OpenCodeError('Aguarde a tarefa terminar para trocar o modelo ou o esforço.');
+		}
+		const chosen = validateSelection((await readCatalog(item.server)).providers, selection);
+		if (item.run) {
+			throw new OpenCodeError('Aguarde a tarefa terminar para trocar o modelo ou o esforço.');
+		}
+		await item.server.request('switchModel', item.remoteId, { model: { id: chosen.modelID, providerID: chosen.providerID, ...(chosen.variant ? { variant: chosen.variant } : {}) } });
+		const { data } = await item.server.request<{ data: { model?: RawModel } }>('state', item.remoteId);
+		const model = modelOf(data.model);
+		this.update(item, { model });
+		return model;
 	}
 
 	async interrupt(id: string): Promise<boolean> {
@@ -318,6 +415,7 @@ export class OpenCodeSessions {
 
 	async close(): Promise<void> {
 		this.closed = true;
+		await Promise.allSettled([...this.catalogs.values()].map(entry => entry.result));
 		while (this.creating) {
 			await delay(50);
 		}

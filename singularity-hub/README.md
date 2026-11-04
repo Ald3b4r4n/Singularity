@@ -51,7 +51,11 @@ Pasta de estado: `%LOCALAPPDATA%\Singularity\Hub` (`SINGULARITY_HUB_HOME` troca 
 | Método | Descrição |
 |---|---|
 | `hub.hello` | `{ client:{name,version?}, protocol:{min,max} }` → `{ protocol, hub:{name,version,instanceId,pid,startedAt}, capabilities, seq }`. Obrigatório antes de qualquer outro método (`-32002`). Versão incompatível: `-32001` com `data.supported`. |
-| `sessions.list` | → `[]` nesta versão. |
+| `sessions.list` | → sessões abertas: `{ id, harness, status, workspace?, model?, result?, summary?, version? }`. `model` é o `{ providerID, modelID, variant? }` que o próprio serviço informa. |
+| `catalog.get` | `{ service?, workspace?, refresh? }` → `{ services, service, providers, default?, hiddenModels, unavailable? }`: serviços de agentes (só o OpenCode tem adapter; os demais vêm como `planned`), provedores, modelos e níveis de esforço, **lidos do próprio serviço** (um servidor OpenCode curto, em Job Object, no workspace; cache de 1 min). A resposta é montada por lista de permissão (`catalog.ts`): nunca leva `settings`, `headers` nem chaves. |
+| `session.create` | `{ workspace, model?: { providerID, modelID, variant? } }` → sessão. O modelo é validado contra o catálogo real (a API do OpenCode aceita qualquer modelo e variante sem verificar). Escolha inválida: `-32006`. |
+| `session.setModel` | `{ id, model }` → `{ model }`: troca modelo e esforço para as próximas tarefas, validado como acima. Recusado enquanto há tarefa ativa. |
+| `session.prompt` · `session.interrupt` · `session.stop` | `{ id, text }` · `{ id }` · `{ id }`. |
 | `session.subscribe` | `{ sessionId?, fromSeq? }` → `{ subscriptionId, seq, replayed }`. Sessão inexistente: `-32004`. `fromSeq` já descartado: `-32005`. Eventos chegam como notificações `session.event { subscriptionId, event:{seq,type,sessionId?,data?}, replay? }`. |
 | `hub.shutdown` | Responde `{ ok:true }`, avisa os clientes com `hub.shuttingDown` e encerra. |
 
@@ -103,7 +107,7 @@ O modelo vem da configuração do OpenCode para essa pasta. Os eventos
 SSE da sessão atualizam o estado e o texto da resposta no painel. A
 reabertura da IDE consulta a sessão existente no Hub.
 
-O E2E do pacote Windows fica em `scripts/e2e/opencode-panel.cjs`.
+O E2E do pacote Windows fica em `scripts/e2e/agents-check.cjs` (painel Agentes, OpenCode real, teclado e mouse reais).
 A variável `SINGULARITY_E2E_OPENCODE_MODEL` pode indicar um modelo
 disponível. Ela escreve a escolha somente no workspace sintético.
 A variável `SINGULARITY_E2E_POWERSHELL` aceita o caminho do PowerShell

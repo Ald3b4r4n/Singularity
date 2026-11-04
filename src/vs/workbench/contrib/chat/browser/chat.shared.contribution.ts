@@ -2437,7 +2437,7 @@ configurationRegistry.registerConfiguration({
 		[ChatAIDisabledSettingId]: {
 			type: 'boolean',
 			description: nls.localize('chat.disableAIFeatures', "Disable and hide built-in AI features provided by GitHub Copilot, including chat and inline suggestions."),
-			default: false,
+			default: true, // Singularity: no Copilot chat, no Chat tab; the Singularity Agents panel is the only agent surface (upstream default: false)
 			scope: ConfigurationScope.WINDOW,
 		},
 		[ChatConfiguration.CopilotCliCommandEnabled]: {

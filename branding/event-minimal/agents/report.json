@@ -1,0 +1,250 @@
+{
+  "build": "packaged",
+  "results": [
+    {
+      "name": "1a. no Chat tab or Copilot control in the default UI (labels, status bar, empty editor)",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "1b. no Copilot \"Sign In\" button; the Singularity GitHub entry is there",
+      "ok": true
+    },
+    {
+      "name": "1c. the status bar offers one agents entry",
+      "ok": true,
+      "detail": [
+        "remote",
+        "workspace (Git) - main*, Checkout Branch/Tag...",
+        "workspace (Git) - Publish to GitHub",
+        "No Problems",
+        "Notifications",
+        "github Entrar no GitHub, Nenhuma conta GitHub conectada. Clique para entrar.",
+        "circle-large-outline Agentes, Singularity Hub não conectado. Clique para abrir os agentes."
+      ]
+    },
+    {
+      "name": "2a. the Agentes panel opens from the status bar",
+      "ok": true,
+      "detail": [
+        "Active View Switcher",
+        "Agentes",
+        "Agentes",
+        "Agentes",
+        "Agentes"
+      ]
+    },
+    {
+      "name": "2b. the secondary side bar offers only Agentes (no Chat tab)",
+      "ok": true,
+      "detail": [
+        "Active View Switcher",
+        "Agentes",
+        "Agentes",
+        "Agentes",
+        "Agentes"
+      ]
+    },
+    {
+      "name": "3a. Serviço de agentes: OpenCode is selectable; Claude Code, Codex CLI and Gemini CLI are listed as \"em breve\" and cannot be chosen",
+      "ok": true,
+      "detail": [
+        {
+          "value": "opencode",
+          "text": "OpenCode",
+          "disabled": false
+        },
+        {
+          "value": "claude-code",
+          "text": "Claude Code (em breve)",
+          "disabled": true
+        },
+        {
+          "value": "codex-cli",
+          "text": "Codex CLI (em breve)",
+          "disabled": true
+        },
+        {
+          "value": "gemini-cli",
+          "text": "Gemini CLI (em breve)",
+          "disabled": true
+        }
+      ]
+    },
+    {
+      "name": "3b. Provedor: exactly the providers the Hub read from OpenCode",
+      "ok": true,
+      "detail": [
+        "opencode",
+        "inception",
+        "muse",
+        "opencode-go",
+        "vercel"
+      ]
+    },
+    {
+      "name": "3c. the service default model is preselected",
+      "ok": true,
+      "detail": {
+        "selectedProvider": "opencode",
+        "selectedModel": "crouton-alpha-free"
+      }
+    },
+    {
+      "name": "3d. Modelo: exactly the models of the selected provider",
+      "ok": true
+    },
+    {
+      "name": "4a. a draft is typed with the real keyboard",
+      "ok": true
+    },
+    {
+      "name": "4b. changing the provider replaces the models with those of that provider",
+      "ok": true
+    },
+    {
+      "name": "4c. OpenCode offers a free model with effort levels to test with",
+      "ok": true,
+      "detail": "beam-free"
+    },
+    {
+      "name": "4d. the model filter narrows the list and keeps the selected model",
+      "ok": true
+    },
+    {
+      "name": "4e. changing the model replaces the effort levels with that model's own",
+      "ok": true,
+      "detail": [
+        "Padrão do modelo",
+        "Baixo",
+        "Médio",
+        "Alto",
+        "Extra alto",
+        "Máximo"
+      ]
+    },
+    {
+      "name": "4f. effort levels use readable names",
+      "ok": true,
+      "detail": [
+        "Padrão do modelo",
+        "Baixo",
+        "Médio",
+        "Alto",
+        "Extra alto",
+        "Máximo"
+      ]
+    },
+    {
+      "name": "4g. a model without effort control disables the selector and says so",
+      "ok": true
+    },
+    {
+      "name": "4h. the draft survived every change of service, provider, model and effort",
+      "ok": true
+    },
+    {
+      "name": "5a. the session was created at send time, in the chosen workspace, with the chosen model and effort",
+      "ok": true,
+      "detail": {
+        "providerID": "opencode",
+        "modelID": "beam-free",
+        "variant": "low"
+      }
+    },
+    {
+      "name": "5b. the card shows the service, the model really used and the effort",
+      "ok": true,
+      "detail": "OpenCode em execução Default / OpenCode · Beam Free Baixo workspace session.execution.started session.instructions.updated session.inbox.delivered Em uso no com"
+    },
+    {
+      "name": "5c. the task ran to the end and its answer streamed into the same panel",
+      "ok": true,
+      "detail": {
+        "final": "done",
+        "result": "SINGULARITY_OK"
+      }
+    },
+    {
+      "name": "5d. streaming events were shown",
+      "ok": true
+    },
+    {
+      "name": "6a. changing the effort changes the effort of the session in use (same session, no new one)",
+      "ok": true
+    },
+    {
+      "name": "6b. the card shows the new effort level",
+      "ok": true,
+      "detail": "medium"
+    },
+    {
+      "name": "7a. while a task runs, the composer offers Cancelar tarefa and Enviar is off",
+      "ok": true
+    },
+    {
+      "name": "7b. Cancelar tarefa interrupts the task from the composer",
+      "ok": true
+    },
+    {
+      "name": "8a. the IDE closes normally",
+      "ok": true,
+      "detail": {
+        "forced": 0
+      }
+    },
+    {
+      "name": "8b. the Hub and the session keep running without the IDE",
+      "ok": true
+    },
+    {
+      "name": "8c. after reopening, the same Hub and the same session are shown, with the same model and effort",
+      "ok": true
+    },
+    {
+      "name": "8d. the preferences were remembered (provider, model, effort)",
+      "ok": true
+    },
+    {
+      "name": "9a. narrow panel: the composer and the sessions fit without horizontal scroll",
+      "ok": true,
+      "detail": {
+        "width": 159,
+        "overflow": 0
+      }
+    },
+    {
+      "name": "9b. narrow panel: every control stays inside and usable",
+      "ok": true,
+      "detail": 159
+    },
+    {
+      "name": "9c. Event Minimal Light applies to the panel (the webview body switches to the light theme)",
+      "ok": true,
+      "detail": "vscode-light"
+    },
+    {
+      "name": "9d. high contrast: fields keep a visible border",
+      "ok": true,
+      "detail": "1px"
+    },
+    {
+      "name": "10. Encerrar ends the session and the Hub releases it",
+      "ok": true
+    },
+    {
+      "name": "11a. the GitHub account entry is still in the title bar",
+      "ok": true
+    },
+    {
+      "name": "11b. the Singularity Browser opens",
+      "ok": true
+    },
+    {
+      "name": "11c. the integrated terminal runs Git",
+      "ok": true
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-04T10:48:25.260Z"
+}

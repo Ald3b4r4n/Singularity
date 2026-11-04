@@ -1,0 +1,58 @@
+{
+  "build": "packaged",
+  "results": [
+    {
+      "name": "the probe extension ran in both profiles",
+      "ok": true
+    },
+    {
+      "name": "the Singularity default has the AI features switched off",
+      "ok": true,
+      "detail": true
+    },
+    {
+      "name": "the upstream default is unchanged when the user turns them on",
+      "ok": true,
+      "detail": false
+    },
+    {
+      "name": "the public Chat and language-model API is present in the Singularity default",
+      "ok": true,
+      "detail": {
+        "chat": "object",
+        "createChatParticipant": "function",
+        "lm": "object",
+        "selectChatModels": "function",
+        "registerTool": "function",
+        "tools": true,
+        "ChatRequestTurn": "function",
+        "LanguageModelChatMessage": "function",
+        "authentication": "function"
+      }
+    },
+    {
+      "name": "the API surface is identical to the upstream default",
+      "ok": true
+    },
+    {
+      "name": "a third-party extension can still register a chat participant and a language-model tool",
+      "ok": true,
+      "detail": {
+        "participantCreated": true,
+        "toolRegistered": true,
+        "models": 0
+      }
+    },
+    {
+      "name": "no API call failed in the Singularity default",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "behavior matches the upstream default (same errors, same capabilities)",
+      "ok": true
+    }
+  ],
+  "ok": true,
+  "finished": "2026-11-04T10:48:56.365Z"
+}

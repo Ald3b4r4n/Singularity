@@ -13,6 +13,16 @@ Saída: `report.json` e capturas PNG em `--out`. Código de saída 0 se tudo pas
 
 Abertura e foco da janela, Ctrl+P e digitação num arquivo (conferido no disco), troca Dark/Light/Dark, terminal (`git status`), visão de Controle de Código-Fonte, Command Palette ("Singularity:"), extensões embutidas, painel Singularity Agents, fechamento como usuário, reabertura (workspace e arquivo restaurados) e, com `--hub`, o Hub: conectado com 0 sessões, vivo depois de fechar a IDE, mesma instância depois de reabrir, encerramento explícito liberando os arquivos.
 
+## Scripts de cada funcionalidade
+
+| Script | O que prova |
+|---|---|
+| `run.cjs` | abertura, arquivos, temas, terminal, Git, extensões, painel Agentes e Hub |
+| `agents-check.cjs` | **Agentes**: sem Chat nem Copilot; seletores Serviço → Provedor → Modelo → Esforço iguais ao catálogo do Hub; tarefa real no OpenCode com streaming; trocar esforço; cancelar; encerrar; sobreviver a fechar e reabrir; painel estreito, Dark, Light e alto contraste |
+| `chat-compat-check.cjs` | a infraestrutura de Chat continua para extensões de terceiros (extensão de sonda em `chat-compat-ext/`) |
+| `browser-check.cjs` | Singularity Browser |
+| `titlebar-account-check.cjs`, `login-live.cjs`, `push-check.cjs` | conta GitHub, login e push real (o proprietário aprova os códigos) |
+
 ## Segurança contra janela errada
 
 Toda entrada do sistema (`keys`, `paste`, `click`, `runCommand` em `lib.cjs`) passa por `guard()`: se a janela em primeiro plano não for a janela principal **desta instância** (identificada pela linha de comando com o diretório do perfil), nada é enviado e a execução termina com erro. Antes de cada bloco de passos, `front()` tenta trazer a janela para frente uma vez; se não conseguir, aborta. Cliques fora da janela são recusados.
@@ -22,5 +32,5 @@ Se o computador estiver sendo usado por outra pessoa durante o teste, o guard va
 ## Limites
 
 - A confirmação do que a interface mostra usa o DevTools (`--remote-debugging-port`), só para leitura (título, classes do tema, texto das visões). As ações são entradas reais.
-- O conteúdo do painel Singularity Agents (webview) não é lido pelo DevTools do workbench; o estado do Hub é conferido pela CLI do Hub.
+- O conteúdo do painel Agentes (webview) não é lido pelo DevTools do workbench puro; `agents-check.cjs` o alcança com Playwright por CDP (`page.frames()`), só para ler, e confere o estado também pelo próprio Hub. As ações são cliques e teclas reais.
 - Os atrasos entre passos (`sleep`) são fixos e foram ajustados para esta máquina; em outra, pode ser preciso aumentá-los.

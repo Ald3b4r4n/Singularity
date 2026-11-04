@@ -78,11 +78,19 @@ export class HubSupervisor extends EventEmitter {
 		}
 	}
 
-	async sessionRequest(method: 'session.create' | 'session.prompt' | 'session.interrupt' | 'session.stop', params: unknown): Promise<unknown> {
+	async sessionRequest(method: 'session.create' | 'session.prompt' | 'session.setModel' | 'session.interrupt' | 'session.stop', params: unknown): Promise<unknown> {
 		if (!this.connection) {
 			throw new Error('Connect to the Singularity Hub first.');
 		}
 		return this.connection.request(method, params, 45000);
+	}
+
+	/** Services, providers, models and effort levels the Hub can really offer for a workspace (read from the service itself). */
+	async catalog(params: { service?: string; workspace?: string; refresh?: boolean }): Promise<unknown> {
+		if (!this.connection) {
+			throw new Error('Connect to the Singularity Hub first.');
+		}
+		return this.connection.request('catalog.get', params, 60000);
 	}
 
 	dispose(): void {

@@ -156,11 +156,11 @@ async function launchAndWait(files) {
 			await page.screenshot(path.join(outDir, '04-extensions.png'));
 		});
 
-		await step('Singularity Agents panel opens', async () => {
+		await step('Singularity Agentes panel opens', async () => {
 			await front();
 			await lib.runCommand(profile, 'Singularity: Abrir painel de agentes', 7000);
 			const text = await page.evaluate("document.body.innerText");
-			assert(/Singularity Agents/.test(text), 'Singularity Agents panel not visible');
+			assert(/Agentes/i.test(text), 'the Agentes panel is not visible');
 			await page.screenshot(path.join(outDir, '05-agents.png'));
 			if (withHub) {
 				const st = hubCli(); assert(st.running && st.sessions === 0, 'Hub is not running with 0 sessions: ' + JSON.stringify(st));

@@ -3,6 +3,7 @@ import type { Duplex } from 'stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { bearerToken, FailureLimiter, identityProof, isNonce, newId, RateBucket, tokenMatches } from './auth';
 import { EventLog } from './eventlog';
+import { CatalogError, parseSelection } from './catalog';
 import { OpenCodeError, OpenCodeSessions } from './opencode';
 import { Logger } from './logger';
 import {
@@ -48,7 +49,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.interrupt', 'session.stop', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'catalog.get', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -291,8 +292,11 @@ export class HubServer {
 		switch (method) {
 			case 'sessions.list':
 				return this.sessions.list();
+			case 'catalog.get':
+				return this.catalog(request.params);
 			case 'session.create':
 			case 'session.prompt':
+			case 'session.setModel':
 			case 'session.interrupt':
 			case 'session.stop':
 				return this.operateSession(method, request.params);
@@ -305,11 +309,27 @@ export class HubServer {
 		}
 	}
 
+	/** catalog.get { service?, workspace?, refresh? }: what can be run here, read from the service itself. */
+	private async catalog(params: unknown): Promise<unknown> {
+		const p = (params ?? {}) as { service?: unknown; workspace?: unknown; refresh?: unknown };
+		if ((p.service !== undefined && p.service !== 'opencode') || (p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) || (p.refresh !== undefined && typeof p.refresh !== 'boolean')) {
+			throw new RpcError(ErrorCode.InvalidParams, 'Invalid catalog parameters');
+		}
+		try {
+			return await this.sessions.catalog(p.workspace as string | undefined, p.refresh === true);
+		} catch (error) {
+			if (error instanceof OpenCodeError) {
+				throw new RpcError(-32006, error.message);
+			}
+			throw error;
+		}
+	}
+
 	private async operateSession(method: string, params: unknown): Promise<unknown> {
-		const p = params as { workspace?: unknown; id?: unknown; text?: unknown } | undefined;
+		const p = params as { workspace?: unknown; id?: unknown; text?: unknown; model?: unknown } | undefined;
 		try {
 			if (method === 'session.create' && typeof p?.workspace === 'string') {
-				return await this.sessions.create(p.workspace);
+				return await this.sessions.create(p.workspace, parseSelection(p.model));
 			}
 			if (method !== 'session.create' && typeof p?.id === 'string') {
 				if (!this.sessions.has(p.id)) {
@@ -318,6 +338,12 @@ export class HubServer {
 				if (method === 'session.prompt' && typeof p.text === 'string') {
 					this.sessions.prompt(p.id, p.text);
 					return { accepted: true };
+				}
+				if (method === 'session.setModel') {
+					const selection = parseSelection(p.model);
+					if (selection) {
+						return { model: await this.sessions.setModel(p.id, selection) };
+					}
 				}
 				if (method === 'session.interrupt') {
 					return { interrupted: await this.sessions.interrupt(p.id) };
@@ -328,7 +354,7 @@ export class HubServer {
 				}
 			}
 		} catch (error) {
-			if (error instanceof OpenCodeError) {
+			if (error instanceof OpenCodeError || error instanceof CatalogError) {
 				throw new RpcError(-32006, error.message);
 			}
 			throw error;
@@ -350,7 +376,7 @@ export class HubServer {
 		return {
 			protocol: version,
 			hub: { name: HUB_NAME, version: HUB_VERSION, instanceId: this.opts.instanceId, pid: process.pid, startedAt: this.opts.startedAt },
-			capabilities: ['opencode.v2'],
+			capabilities: ['opencode.v2', 'catalog.v1', 'session.model.v1'],
 			seq: this.events.seq,
 		};
 	}

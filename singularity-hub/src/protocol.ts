@@ -26,9 +26,19 @@ export const ErrorCode = {
 
 export type SessionStatus = 'running' | 'waiting' | 'done' | 'failed' | 'idle';
 
+/** The model a session really runs, as the service itself reports it (not just what was asked for). */
+export interface ModelInfo {
+	providerID: string;
+	modelID: string;
+	/** Effort level (the service's "variant"). Absent: the model's own default. */
+	variant?: string;
+}
+
 export interface Session {
 	id: string;
+	/** Id of the agent service that runs the session (today only `opencode`). */
 	harness: string;
+	model?: ModelInfo;
 	title?: string;
 	status: SessionStatus;
 	summary?: string;
