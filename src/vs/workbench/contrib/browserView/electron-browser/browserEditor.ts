@@ -38,7 +38,7 @@ export const CONTEXT_BROWSER_HAS_ERROR = new RawContextKey<boolean>('browserHasE
 export const BROWSER_EDITOR_ACTIVE = ContextKeyExpr.equals('activeEditor', BrowserEditorInput.EDITOR_ID);
 
 /** Localized "Browser" category for command palette grouping. */
-export const BrowserActionCategory = localize2('browserCategory', "Browser");
+export const BrowserActionCategory = localize2('browserCategory', "Singularity Browser");
 
 /** Menu groups used by browser-editor actions. */
 export enum BrowserActionGroup {

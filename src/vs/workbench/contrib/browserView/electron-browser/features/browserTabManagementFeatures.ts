@@ -71,7 +71,7 @@ const closeAllButtonItem: IQuickInputButton = {
 
 /**
  * Manages a quick pick that lists all open browser tabs grouped by editor group,
- * with close buttons, live updates, and an always-visible "New Integrated Browser Tab" entry.
+ * with close buttons, live updates, and an always-visible "New Singularity Browser Tab" entry.
  */
 class BrowserTabQuickPick extends Disposable {
 
@@ -81,7 +81,7 @@ class BrowserTabQuickPick extends Disposable {
 	private readonly _openNewTabPick: IBrowserQuickPickItem = {
 		groupId: -1,
 		editor: undefined!,
-		label: localize('browser.openNewTab', "New Integrated Browser Tab"),
+		label: localize('browser.openNewTab', "New Singularity Browser Tab"),
 		iconClass: ThemeIcon.asClassName(Codicon.add),
 		alwaysShow: true,
 	};
@@ -279,7 +279,7 @@ class OpenIntegratedBrowserAction extends Action2 {
 	constructor() {
 		super({
 			id: BrowserViewCommandId.Open,
-			title: localize2('browser.openAction', "Open Integrated Browser"),
+			title: localize2('browser.openAction', "Open Browser"),
 			category: BrowserActionCategory,
 			icon: Codicon.globe,
 			f1: true,
@@ -354,7 +354,7 @@ class OpenFileInIntegratedBrowserAction extends Action2 {
 		);
 		super({
 			id: BrowserViewCommandId.OpenFile,
-			title: localize2('browser.openFileAction', "Open in Integrated Browser"),
+			title: localize2('browser.openFileAction', "Open in Singularity Browser"),
 			category: BrowserActionCategory,
 			icon: Codicon.globe,
 			f1: true,
@@ -563,7 +563,7 @@ registerAction2(CloseAllBrowserTabsInGroupAction);
 
 registerAction2(class ToggleBrowserTitleBarButton extends ToggleTitleBarConfigAction {
 	constructor() {
-		super('workbench.browser.showInTitleBar', localize('toggle.browser', 'Integrated Browser'), localize('toggle.browserDescription', "Toggle visibility of the Integrated Browser button in title bar"), 8);
+		super('workbench.browser.showInTitleBar', localize('toggle.browser', 'Singularity Browser'), localize('toggle.browserDescription', "Toggle visibility of the Integrated Browser button in title bar"), 8);
 	}
 });
 
@@ -682,7 +682,7 @@ class LinkOpenedHintPill extends BrowserEditorContribution {
 		this._pill.appendChild(label);
 
 		const hoverOptions = () => ({
-			content: new MarkdownString(localize('browser.linkOpenedHint.detail', "**Integrated Browser**\n\nLocalhost links automatically open in the integrated browser.")),
+			content: new MarkdownString(localize('browser.linkOpenedHint.detail', "**Singularity Browser**\n\nLocalhost links automatically open in the integrated browser.")),
 			actions: [
 				{
 					label: localize('browser.linkOpenedHint.openSettings', "Open Settings"),

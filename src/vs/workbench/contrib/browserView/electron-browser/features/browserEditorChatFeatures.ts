@@ -1121,7 +1121,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 	properties: {
 		'workbench.browser.enableChatTools': {
 			type: 'boolean',
-			default: true,
+			default: false, // Singularity: agents never drive browser pages unless the user turns this on (upstream default: true)
 			markdownDescription: localize(
 				{ comment: ['This is the description for a setting.'], key: 'browser.enableChatTools' },
 				'When enabled, chat agents can use browser tools to open and interact with pages in the Integrated Browser.'

@@ -108,7 +108,7 @@ class BrowserEditorResolverContribution implements IWorkbenchContribution {
 				`${Schemas.file}:/**/*.${extension}`,
 				{
 					id: BrowserEditorInput.EDITOR_ID,
-					label: localize('browser.htmlEditorLabel', "Integrated Browser"),
+					label: localize('browser.htmlEditorLabel', "Singularity Browser"),
 					priority: RegisteredEditorPriority.option
 				},
 				{

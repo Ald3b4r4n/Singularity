@@ -1,0 +1,188 @@
+{
+  "build": "packaged",
+  "results": [
+    {
+      "name": "1. the Singularity Browser opens as an editor tab",
+      "ok": true,
+      "detail": [
+        {
+          "label": "Browser, preview",
+          "active": true,
+          "group": 0
+        }
+      ]
+    },
+    {
+      "name": "1b. the browser presents itself as \"Singularity Browser\" (welcome title)",
+      "ok": true
+    },
+    {
+      "name": "1c. no tab starts shared with an agent (sharing is an explicit per-tab opt-in)",
+      "ok": true,
+      "detail": "Share with Agent"
+    },
+    {
+      "name": "1d. agents cannot drive browser pages by default (enableChatTools is off)",
+      "ok": true,
+      "detail": "false"
+    },
+    {
+      "name": "2. the address bar loads a local page (server received GET /a.html)",
+      "ok": true,
+      "detail": [
+        "GET /a.html",
+        "GET /favicon.ico"
+      ]
+    },
+    {
+      "name": "2b. the tab title follows the page title",
+      "ok": true,
+      "detail": "Singularity Test A (127.0.0.1:59869)"
+    },
+    {
+      "name": "3. a real mouse click on a link navigates (server received GET /b.html)",
+      "ok": true,
+      "detail": [
+        "GET /a.html",
+        "GET /favicon.ico",
+        "GET /b.html"
+      ]
+    },
+    {
+      "name": "4a. Alt+Left goes back to page A",
+      "ok": true,
+      "detail": "Singularity Test A (127.0.0.1:59869)"
+    },
+    {
+      "name": "4b. Alt+Right goes forward to page B",
+      "ok": true,
+      "detail": "Singularity Test B (127.0.0.1:59869)"
+    },
+    {
+      "name": "4c. F5 reloads the page (a new request reached the server)",
+      "ok": true,
+      "detail": {
+        "before": 1,
+        "requests": 1
+      }
+    },
+    {
+      "name": "5a. the page cannot reach Node/Electron/VS Code APIs",
+      "ok": true,
+      "detail": {
+        "require": "undefined",
+        "process": "undefined",
+        "module": "undefined",
+        "vscode": "undefined",
+        "acquireVsCodeApi": "undefined",
+        "electron": "undefined",
+        "ipcRenderer": "undefined",
+        "helpers": "getElement,getFrameToken",
+        "fileFetch": "blocked",
+        "cookiesBefore": ""
+      }
+    },
+    {
+      "name": "5a2. the only bridge visible to the page is the helper pair (no IPC, no IDE API)",
+      "ok": true,
+      "detail": "getElement,getFrameToken"
+    },
+    {
+      "name": "5b. the page cannot read local files through file://",
+      "ok": true,
+      "detail": "blocked"
+    },
+    {
+      "name": "5c. no GitHub credential or token reached the page",
+      "ok": true
+    },
+    {
+      "name": "6. a second browser tab can be opened",
+      "ok": true,
+      "detail": [
+        "Isolation probe (127.0.0.1:59869)",
+        "Browser, preview"
+      ]
+    },
+    {
+      "name": "7. the browser (left) and the editor (right) are visible side by side",
+      "ok": true,
+      "detail": [
+        "Isolation probe (127.0.0.1:59869), Editor Group 1",
+        "hello.txt, Editor Group 2"
+      ]
+    },
+    {
+      "name": "8. F12 opens Developer Tools for the page",
+      "ok": true,
+      "detail": {
+        "before": 0,
+        "after": 1
+      }
+    },
+    {
+      "name": "9a. Event Minimal Light applies to the browser UI",
+      "ok": true,
+      "detail": "monaco-enable-motion modern-ui modern-ui-tabs modern-ui-connected-editor-tabs mo"
+    },
+    {
+      "name": "9b. Event Minimal Dark applies back",
+      "ok": true
+    },
+    {
+      "name": "10. resizing the window re-lays out the browser without horizontal overflow",
+      "ok": true,
+      "detail": {
+        "before": 1440,
+        "after": {
+          "w": 984,
+          "scroll": 984
+        }
+      }
+    },
+    {
+      "name": "12a. regression: the integrated terminal still opens",
+      "ok": true
+    },
+    {
+      "name": "12b. regression: the Source Control view still opens",
+      "ok": true
+    },
+    {
+      "name": "12c. regression: the Extensions view still opens",
+      "ok": true
+    },
+    {
+      "name": "11a. the IDE closes normally (no forced kill)",
+      "ok": true,
+      "detail": {
+        "forced": 0
+      }
+    },
+    {
+      "name": "11. after closing and reopening, the browser tabs are restored",
+      "ok": true,
+      "detail": [
+        "Isolation probe (127.0.0.1:59869), Editor Group 1",
+        "Browser, preview, Editor Group 1"
+      ]
+    },
+    {
+      "name": "11b. the restored page loads again when its tab is shown",
+      "ok": true,
+      "detail": {
+        "newRequests": 1
+      }
+    }
+  ],
+  "requests": [
+    "GET /a.html",
+    "GET /favicon.ico",
+    "GET /b.html",
+    "GET /b.html",
+    "GET /iso.html",
+    "GET /iso.html"
+  ],
+  "ok": true,
+  "finished": "2026-11-04T00:07:17.625Z"
+}

@@ -34,7 +34,7 @@ export class BrowserWelcomeFeature extends BrowserEditorContribution {
 
 		const chatEnabled = contextKeyService.getContextKeyValue<boolean>(ChatContextKeys.enabled.key);
 		this._container = createBrowserWelcome(
-			localize('browser.welcomeTitle', "Browser"),
+			localize('browser.welcomeTitle', "Singularity Browser"),
 			chatEnabled
 				? localize('browser.welcomeSubtitleChat', "Use Add Element to Chat to reference UI elements in chat prompts.")
 				: localize('browser.welcomeSubtitle', "Enter a URL above to get started."),
