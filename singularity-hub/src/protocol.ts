@@ -36,7 +36,7 @@ export interface ModelInfo {
 
 export interface Session {
 	id: string;
-	/** Id of the agent service that runs the session (`opencode` or `claude-code`). */
+	/** Id of the agent service that runs the session (`opencode`, `claude-code` or `codex-cli`). */
 	harness: string;
 	model?: ModelInfo;
 	title?: string;
@@ -50,11 +50,13 @@ export interface Session {
 	version?: string;
 	prompt?: string;
 	result?: string;
-	/** Claude Code: permission mode the session was created with (never a bypass mode). */
+	/** Claude Code / Codex CLI: permission mode the session was created with (never a bypass mode). */
 	permissionMode?: string;
-	/** Claude Code: the CLI conversation exists, so the session can be resumed after it is archived. */
+	/** Claude Code / Codex CLI: the CLI conversation exists, so the session can be resumed after it is archived. */
 	resumable?: boolean;
-	/** Claude Code: why the last run failed, when the CLI says so. */
+	/** Codex CLI: id of the CLI conversation (thread) the next prompt resumes. Not a secret; not sent to the webview. */
+	resumeId?: string;
+	/** Claude Code and Codex CLI: why the last run failed, when the CLI says so. */
 	failure?: 'authentication' | 'usage-limit' | 'model' | 'other';
 }
 

@@ -219,7 +219,7 @@ export class HubSupervisor extends EventEmitter {
 		} else if (type === 'session.removed') {
 			this.set({ ...this.state, sessions: this.state.sessions.filter(item => item.id !== sessionId),
 				events: this.state.events?.filter(item => item.sessionId !== sessionId) });
-		} else if (type === 'opencode.event' || type === 'claude.event') {
+		} else if (type === 'opencode.event' || type === 'claude.event' || type === 'codex.event') {
 			const { name } = data as { name: string };
 			this.set({ ...this.state, events: [...(this.state.events ?? []), { sessionId, name, seq: event.seq }].slice(-80) });
 		}
