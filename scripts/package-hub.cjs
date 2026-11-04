@@ -84,6 +84,7 @@ async function main() {
 
 	console.log('1/5 compile the Hub');
 	run('npm', ['run', 'build'], { cwd: hub });
+	run('cmd.exe', ['/d', '/c', 'native\\build.cmd'], { cwd: hub });
 
 	console.log('2/5 production dependencies in a clean staging folder');
 	const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'singularity-hub-stage-'));

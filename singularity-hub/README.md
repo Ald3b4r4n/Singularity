@@ -73,4 +73,24 @@ No pacote do Windows o Hub fica em `resources/app/singularity-hub` com um Node.j
 
 - A remoção de uma trava velha tem uma janela mínima entre ler e apagar (o `nonce` é conferido antes de apagar). Duas tentativas simultâneas de remover a mesma trava velha são tratadas, mas não há exclusão mútua do sistema operacional.
 - A prova de identidade protege contra impostores e arquivos adulterados, **não** contra outro processo do mesmo usuário, que já poderia ler o token.
-- O Hub ainda usa o Node do PATH; não há helper nativo, Job Objects nem adapters.
+
+## Adapter OpenCode no Windows
+
+O Hub detecta `opencode.exe` no PATH, incluindo o layout do pacote npm
+`@opencode/cli`. O servidor privado usa loopback, uma porta exclusiva e
+uma senha Basic efêmera via `OPENCODE_PASSWORD`. A inicialização confirma
+HTTP 401 sem credencial e confere a especificação em `/openapi.json`.
+O contrato implementado é o v2 observado em OpenCode 2.2.5.
+
+Cada sessão tem um servidor próprio associado a um Windows Job Object
+antes de executar. Cancelar usa o endpoint de interrupção. Encerrar
+pede interrupção e remoção da sessão, termina o Job e confirma zero
+processos ativos. Fechar a IDE apenas desconecta seu cliente. Recuperar
+sessões após a perda do próprio Hub fica para outro ciclo.
+
+Compile com `npm --prefix singularity-hub run build` e
+`singularity-hub\native\build.cmd` (Visual Studio Build Tools com C++ x64).
+O empacotamento Windows já compila e inclui o helper. Para testar com a
+configuração real do OpenCode, execute `node scripts/e2e/opencode-hub.cjs`.
+O teste usa um workspace temporário e registra somente nomes de eventos,
+estado final, diagnóstico sanitizado e resultado da limpeza.

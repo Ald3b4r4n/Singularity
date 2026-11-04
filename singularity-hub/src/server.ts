@@ -3,10 +3,11 @@ import type { Duplex } from 'stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { bearerToken, FailureLimiter, identityProof, isNonce, newId, RateBucket, tokenMatches } from './auth';
 import { EventLog } from './eventlog';
+import { OpenCodeError, OpenCodeSessions } from './opencode';
 import { Logger } from './logger';
 import {
 	ErrorCode, HelloParams, HelloResult, HUB_NAME, HUB_VERSION, HubEvent, IDENTITY_PATH, JsonRpcError, JsonRpcRequest,
-	negotiate, PROTOCOL, Session, SubscribeParams, SubscribeResult, WS_PATH
+	negotiate, PROTOCOL, SubscribeParams, SubscribeResult, WS_PATH
 } from './protocol';
 
 export interface ServerLimits {
@@ -47,7 +48,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.interrupt', 'session.stop', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -57,7 +58,7 @@ class RpcError extends Error {
 
 export class HubServer {
 	readonly events = new EventLog();
-	private readonly sessions: Session[] = [];
+	private readonly sessions = new OpenCodeSessions(event => this.publish(event));
 	private readonly limits: ServerLimits;
 	private readonly authFailures = new FailureLimiter();
 	private readonly identityFailures = new FailureLimiter(30, 60_000, 10_000);
@@ -118,6 +119,7 @@ export class HubServer {
 			return;
 		}
 		this.closed = true;
+		await this.sessions.close();
 		if (this.pingTimer) {
 			clearInterval(this.pingTimer);
 		}
@@ -288,7 +290,12 @@ export class HubServer {
 		}
 		switch (method) {
 			case 'sessions.list':
-				return [...this.sessions];
+				return this.sessions.list();
+			case 'session.create':
+			case 'session.prompt':
+			case 'session.interrupt':
+			case 'session.stop':
+				return this.operateSession(method, request.params);
 			case 'session.subscribe':
 				return this.subscribe(client, request.params);
 			case 'hub.shutdown':
@@ -296,6 +303,37 @@ export class HubServer {
 			default:
 				throw new RpcError(ErrorCode.MethodNotFound, 'Method not found');
 		}
+	}
+
+	private async operateSession(method: string, params: unknown): Promise<unknown> {
+		const p = params as { workspace?: unknown; id?: unknown; text?: unknown } | undefined;
+		try {
+			if (method === 'session.create' && typeof p?.workspace === 'string') {
+				return await this.sessions.create(p.workspace);
+			}
+			if (method !== 'session.create' && typeof p?.id === 'string') {
+				if (!this.sessions.has(p.id)) {
+					throw new RpcError(ErrorCode.SessionNotFound, 'Session not found');
+				}
+				if (method === 'session.prompt' && typeof p.text === 'string') {
+					this.sessions.prompt(p.id, p.text);
+					return { accepted: true };
+				}
+				if (method === 'session.interrupt') {
+					return { interrupted: await this.sessions.interrupt(p.id) };
+				}
+				if (method === 'session.stop') {
+					await this.sessions.stop(p.id);
+					return { stopped: true };
+				}
+			}
+		} catch (error) {
+			if (error instanceof OpenCodeError) {
+				throw new RpcError(-32006, error.message);
+			}
+			throw error;
+		}
+		throw new RpcError(ErrorCode.InvalidParams, 'Invalid OpenCode session parameters');
 	}
 
 	private hello(client: ClientState, params: unknown): HelloResult {
@@ -312,7 +350,7 @@ export class HubServer {
 		return {
 			protocol: version,
 			hub: { name: HUB_NAME, version: HUB_VERSION, instanceId: this.opts.instanceId, pid: process.pid, startedAt: this.opts.startedAt },
-			capabilities: [],
+			capabilities: ['opencode.v2'],
 			seq: this.events.seq,
 		};
 	}
@@ -322,7 +360,7 @@ export class HubServer {
 		if ((p.sessionId !== undefined && typeof p.sessionId !== 'string') || (p.fromSeq !== undefined && (!Number.isInteger(p.fromSeq) || p.fromSeq < 0))) {
 			throw new RpcError(ErrorCode.InvalidParams, 'Invalid params');
 		}
-		if (p.sessionId !== undefined && !this.sessions.some(s => s.id === p.sessionId)) {
+		if (p.sessionId !== undefined && !this.sessions.has(p.sessionId)) {
 			throw new RpcError(ErrorCode.SessionNotFound, 'Session not found');
 		}
 		let replayed = 0;

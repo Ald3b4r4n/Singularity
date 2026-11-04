@@ -32,6 +32,9 @@ export interface Session {
 	title?: string;
 	status: SessionStatus;
 	summary?: string;
+	workspace?: string;
+	version?: string;
+	result?: string;
 }
 
 export interface HelloParams {

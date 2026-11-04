@@ -65,7 +65,7 @@ check('no bin/copilot-shim', !fs.existsSync(path.join(dest, 'bin', 'copilot-shim
 check('compiled workbench bootstrap with the opening', fs.readFileSync(path.join(app, 'out', 'vs', 'code', 'electron-browser', 'workbench', 'workbench.js'), 'utf8').includes('singularity-intro'));
 if (!process.argv.includes('--no-hub')) {
 	const hubDir = path.join(app, 'singularity-hub');
-	for (const f of ['dist/main.js', 'dist/index.js', 'dist/cli.js', 'node_modules/ws/package.json', 'runtime/node.exe', 'LICENSES/node-LICENSE.txt', 'LICENSES/ws-LICENSE.txt', 'LICENSES/THIRD-PARTY.md']) {
+	for (const f of ['dist/main.js', 'dist/index.js', 'dist/cli.js', 'dist/singularity-job.exe', 'node_modules/ws/package.json', 'runtime/node.exe', 'LICENSES/node-LICENSE.txt', 'LICENSES/ws-LICENSE.txt', 'LICENSES/THIRD-PARTY.md']) {
 		check(`hub file ${f}`, fs.existsSync(path.join(hubDir, f)));
 	}
 	check('hub tests are not shipped', !fs.existsSync(path.join(hubDir, 'dist', 'test')));
