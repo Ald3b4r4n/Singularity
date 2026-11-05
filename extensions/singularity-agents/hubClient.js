@@ -53,6 +53,10 @@ class RealHubClient {
 	}
 
 	/** Services, providers, models and effort levels read from the service itself (never any secret: see the Hub's catalog.ts). */
+	async cancelProviderInstall(id) {
+		return this._supervisor?.cancelProviderInstall(id);
+	}
+
 	async installProvider(params) {
 		if (!this._supervisor) { throw new Error('O Singularity Hub não está disponível.'); }
 		return this._supervisor.installProvider(params);

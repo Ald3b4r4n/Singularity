@@ -35,7 +35,13 @@ export type InstallProviderId = keyof typeof packages;
 const overrides: Record<InstallProviderId, string> = {
 	opencode: 'SINGULARITY_OPENCODE', 'claude-code': 'SINGULARITY_CLAUDE_CODE', 'codex-cli': 'SINGULARITY_CODEX_CLI'
 };
-const installing = new Set<InstallProviderId>();
+const installing = new Map<InstallProviderId, AbortController>();
+
+export function cancelProviderInstall(id: InstallProviderId): boolean {
+	const running = installing.get(id);
+	running?.abort();
+	return !!running;
+}
 
 export function installOffer(id: string): { version: string; url: string } | undefined {
 	if (process.platform !== 'win32' || process.arch !== 'x64' || !Object.hasOwn(packages, id)) { return undefined; }
@@ -57,6 +63,14 @@ export function managedProviderPath(id: InstallProviderId, env: NodeJS.ProcessEn
 
 export class ProviderInstallError extends Error { }
 
+export async function verifyProviderArchive(id: InstallProviderId, archive: string): Promise<void> {
+	const hash = createHash('sha512');
+	for await (const chunk of createReadStream(archive)) { hash.update(chunk); }
+	if (hash.digest('base64') !== packages[id].digest) {
+		throw new ProviderInstallError('O pacote falhou na verificação de integridade.');
+	}
+}
+
 export async function installProvider(id: InstallProviderId, version: string, existing: () => string | undefined): Promise<void> {
 	const offer = installOffer(id);
 	if (!offer || offer.version !== version) { throw new ProviderInstallError('Versão ou plataforma não suportada.'); }
@@ -67,7 +81,8 @@ export async function installProvider(id: InstallProviderId, version: string, ex
 	const selected = packages[id];
 	const directory = dirname(target);
 	const system = join(process.env.SystemRoot ?? 'C:\Windows', 'System32');
-	installing.add(id);
+	const cancellation = new AbortController();
+	installing.set(id, cancellation);
 	let staging: string | undefined;
 	try {
 		ensureSecureDir(directory);
@@ -75,24 +90,28 @@ export async function installProvider(id: InstallProviderId, version: string, ex
 		const archive = join(staging, 'provider.tgz');
 		try {
 			await run(join(system, 'curl.exe'), ['--disable', '--fail', '--silent', '--show-error', '--proto', '=https', '--connect-timeout', '15',
-				'--max-time', '180', '--max-filesize', '314572800', '--output', archive, selected.url], { windowsHide: true, timeout: 185000 });
-		} catch { throw new ProviderInstallError('O download oficial falhou. Confira a conexão e tente novamente.'); }
-		const hash = createHash('sha512');
-		for await (const chunk of createReadStream(archive)) { hash.update(chunk); }
-		if (hash.digest('base64') !== selected.digest) { throw new ProviderInstallError('O pacote falhou na verificação de integridade.'); }
+				'--max-time', '180', '--max-filesize', '314572800', '--output', archive, selected.url], { windowsHide: true, timeout: 185000, signal: cancellation.signal });
+		} catch {
+			throw new ProviderInstallError(cancellation.signal.aborted ? 'Instalação cancelada.' : 'O download oficial falhou. Confira a conexão e tente novamente.');
+		}
+		await verifyProviderArchive(id, archive);
 		// Extract only the immutable, digest-verified vendor subtree with the Windows archive tool.
 		await run(join(system, 'tar.exe'), ['-xf', archive, '-C', staging, selected.prefix], {
-			windowsHide: true, timeout: 60000
+			windowsHide: true, timeout: 60000, signal: cancellation.signal
 		});
 		const payload = join(staging, selected.prefix);
 		const candidate = join(payload, selected.executable);
 		if (!isOwnerOnly(candidate)) { throw new ProviderInstallError('O executável não está protegido pela ACL esperada.'); }
-		const check = await run(candidate, ['--version'], { cwd: payload, windowsHide: true, timeout: 20000 });
+		const check = await run(candidate, ['--version'], { cwd: payload, windowsHide: true, timeout: 20000, signal: cancellation.signal });
 		if (/\b(\d+\.\d+\.\d+)\b/.exec(check.stdout.replace(/v(?=\d)/g, ''))?.[1] !== version) {
 			throw new ProviderInstallError('A versão do executável oficial não foi confirmada.');
 		}
 		if (existing() || existsSync(target)) { throw new ProviderInstallError('Outra instalação foi encontrada.'); }
+		cancellation.signal.throwIfAborted();
 		await rename(payload, target);
+	} catch (error) {
+		if (cancellation.signal.aborted) { throw new ProviderInstallError('Instalação cancelada.'); }
+		throw error;
 	} finally {
 		installing.delete(id);
 		if (staging) { await rm(staging, { recursive: true, force: true }); }

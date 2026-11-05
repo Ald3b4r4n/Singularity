@@ -38,8 +38,12 @@ async function manageProviders(hub, workspace, useProvider) {
 				`Instalar ${provider.name} ${provider.install.version}?`,
 				{ modal: true, detail: `Origem oficial: ${provider.install.url}` }, 'Instalar');
 			if (confirm !== 'Instalar') { return; }
-			await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Instalando ' + provider.name },
-				() => hub.installProvider({ id: provider.id, version: provider.install.version }));
+			await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Instalando ' + provider.name, cancellable: true },
+				async (_progress, token) => {
+					const pending = hub.installProvider({ id: provider.id, version: provider.install.version });
+					const listener = token.onCancellationRequested(() => { void hub.cancelProviderInstall(provider.id).catch(() => undefined); });
+					try { await pending; } finally { listener.dispose(); }
+				});
 			void vscode.window.showInformationMessage(provider.name + ' instalado.');
 			continue;
 		}

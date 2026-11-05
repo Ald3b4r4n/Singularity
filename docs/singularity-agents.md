@@ -72,3 +72,8 @@ node scripts/e2e/chat-compat-check.cjs --out <pasta> [--exe <exe>] # compatibili
 ## Histórico local
 
 O Hub guarda até 20 turnos por sessão em arquivos DPAPI no subdiretório `history` do diretório de dados do Hub. Por padrão, esse diretório é `%LOCALAPPDATA%/Singularity/Hub`. O usuário pode excluir o histórico de uma sessão encerrada pelo cartão na lateral. Históricos encerrados expiram após 30 dias e são removidos na inicialização do Hub. Os logs técnicos seguem uma política separada. O histórico abre no workspace de origem e sessões encerradas são somente leitura.
+
+
+## Configurar o primeiro provedor
+
+Na aba Agentes, use **Configurar primeiro provedor** ou **Gerenciar provedores**. No Windows x64, o Singularity oferece OpenCode 2.2.5, Claude Code 2.1.292 e Codex CLI 0.166.0. A instalação por usuário verifica o SHA-512 do pacote oficial antes de extrair os executáveis, publica em `%LOCALAPPDATA%/Singularity/Providers` e reutiliza instalações existentes. **Conectar conta** inicia o fluxo do próprio CLI. Depois de autenticar, use **Testar conexão** e **Utilizar**. Atualização e reparação gerenciadas estão indisponíveis nesta versão.

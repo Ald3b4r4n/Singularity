@@ -1,6 +1,6 @@
 import { claudeExecutable } from './claude';
 import { codexExecutable } from './codex';
-import { installProvider, ProviderInstallError } from './providerInstall';
+import { cancelProviderInstall, installProvider, ProviderInstallError } from './providerInstall';
 import { openCodeExecutable } from './opencode';
 import { inspectProviders } from './providers';
 import * as http from 'http';
@@ -58,7 +58,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -309,6 +309,13 @@ export class HubServer {
 		switch (method) {
 			case 'sessions.list':
 				return [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()];
+			case 'providers.cancelInstall': {
+				const p = request.params as { id?: string } | undefined;
+				if (p?.id !== 'opencode' && p?.id !== 'claude-code' && p?.id !== 'codex-cli') {
+					throw new RpcError(ErrorCode.InvalidParams, 'Invalid provider');
+				}
+				return { cancelled: cancelProviderInstall(p.id) };
+			}
 			case 'providers.install': {
 				const p = request.params as { id?: string; version?: string } | undefined;
 				if ((p?.id !== 'opencode' && p?.id !== 'claude-code' && p?.id !== 'codex-cli') || typeof p.version !== 'string') {

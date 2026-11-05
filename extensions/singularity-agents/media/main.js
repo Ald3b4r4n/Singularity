@@ -7,7 +7,7 @@
 	const $ = id => document.getElementById(id);
 	const el = {
 		hub: $('hub'), sessions: $('sessions'), composer: $('composer'), target: $('target'), newSession: $('new'), ws: $('ws'),
-		service: $('service'), model: $('model'), effort: $('effort'), permission: $('permission'), permissionField: $('permission-field'), note: $('note'),
+		manageProviders: $('manage-providers'), service: $('service'), model: $('model'), effort: $('effort'), permission: $('permission'), permissionField: $('permission-field'), note: $('note'),
 		prompt: $('prompt'), send: $('send')
 	};
 
@@ -123,12 +123,18 @@
 		el.newSession.disabled = sending;
 		el.prompt.disabled = false;
 
+		const needsSetup = online && !loading && !!catalog && !sel.canSend &&
+			!sel.services.some(service => service.status === 'available' && service.id !== catalog.service);
+		el.manageProviders.classList.toggle('primary', needsSetup);
+		el.manageProviders.textContent = needsSetup ? 'Configurar primeiro provedor' : 'Gerenciar provedores';
+
 		let note = message;
 		if (!note) {
 			if (!online) { note = 'Conecte o Singularity Hub para escolher modelos.'; }
 			else if (crossed) { note = 'A sessão em uso é do ' + R.serviceName(catalog, current.harness) + '. Use "Nova sessão" para trocar de provedor.'; }
 			else if (loading) { note = 'Lendo serviços, provedores e modelos…'; }
 			else if (catalogError) { note = catalogError; }
+			else if (needsSetup) { note = 'Escolha, instale ou conecte um provedor de IA para começar.'; }
 			else if (catalog && catalog.unavailable) { note = catalog.unavailable; }
 			else if (sel.service && sel.model && !sel.efforts.length) { note = 'Este modelo usa seu esforço padrão.'; }
 			else if (current && current.model && sel.model && (current.model.modelID !== sel.model.id || current.model.providerID !== sel.model.providerID || (current.model.variant || '') !== sel.effort)) { note = 'A escolha será aplicada a esta sessão ao enviar.'; }

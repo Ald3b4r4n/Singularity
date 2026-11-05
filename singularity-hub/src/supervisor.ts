@@ -93,6 +93,10 @@ export class HubSupervisor extends EventEmitter {
 		return this.connection.request('catalog.get', params, 60000);
 	}
 
+	async cancelProviderInstall(id: string): Promise<unknown> {
+		return this.connection?.request('providers.cancelInstall', { id });
+	}
+
 	async installProvider(params: { id: string; version: string }): Promise<unknown> {
 		if (!this.connection) { throw new Error('Conecte-se ao Singularity Hub primeiro.'); }
 		return this.connection.request('providers.install', params, 240000);
