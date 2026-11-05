@@ -2,7 +2,7 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { promises as fs, realpathSync } from 'node:fs';
-import { join, resolve, sep, isAbsolute } from 'node:path';
+import { join, resolve, dirname, basename, sep, isAbsolute } from 'node:path';
 import { SessionHistory } from './history';
 import { ensureSecureDir, currentWindowsUser } from './secure';
 import type { Comparison, Participant } from './comparisons';
@@ -19,7 +19,7 @@ export interface Solution {
 	provider: string; model: Participant['model']; createdAt: number; sourceFingerprint: string; indexHash: string;
 	files: SolutionFile[]; tree: string; patchHash: string; integrity: boolean; validation: Validation;
 	state: 'prepared' | 'validating' | 'applying' | 'applied' | 'rolling-back' | 'rolled-back' | 'conflict';
-	progress: number; error?: string;
+	progress: number; error?: string; lockToken?: string; lockPid?: number; directories?: string[];
 }
 export type SolutionSource = (comparisonId: string, workspace: string, participantId: string) => Promise<{ comparison: Comparison; participant: Participant }>;
 
@@ -82,7 +82,7 @@ export class Solutions {
 	private readonly records = new Map<string, Solution>();
 	private readonly storage: SessionHistory;
 	private readonly busy = new Set<string>();
-	constructor(private readonly directory: string, private readonly source: SolutionSource) {
+	constructor(private readonly directory: string, private readonly source: SolutionSource, private readonly fault?: (index: number) => void) {
 		this.storage = new SessionHistory(join(directory, 'records'), join(__dirname, 'singularity-job.exe'), 'solution');
 	}
 	private location(id: string): string { return join(this.directory, id); }
@@ -98,7 +98,13 @@ export class Solutions {
 				const record = JSON.parse(this.storage.turns(session.id).at(-1)?.result ?? 'null') as Solution;
 				if (record?.id !== session.id || !Array.isArray(record.files) || record.files.length > maxFiles || !isAbsolute(record.workspace)) { continue; }
 				for (const file of record.files) { safeSolutionPath(file.path); }
+				if (record.directories?.some(path => !resolve(path).toLowerCase().startsWith((record.workspace + sep).toLowerCase()))) { continue; }
 				this.records.set(record.id, record);
+				if (record.state === 'applying' || record.state === 'rolling-back') { await this.recoverTransaction(record); }
+				else if (record.lockToken) {
+					try { await this.releaseLock(record, true); if (record.state === 'applied') { await this.removeArtifacts(record); } }
+					catch (error) { record.state = 'conflict'; record.error = String(error); this.save(record); }
+				}
 				if (record.state === 'validating') { record.state = 'prepared'; record.validation.state = 'interrupted'; this.save(record); }
 			} catch { /* Corrupt protected data never authorizes an application. */ }
 		}
@@ -110,8 +116,9 @@ export class Solutions {
 		return record;
 	}
 	private async indexHash(root: string): Promise<string> {
-		const path = resolve(root, await textGit(root, ['rev-parse', '--git-path', 'index']));
-		return digest(await fs.readFile(path));
+		const entries = await git(root, ['ls-files', '--stage', '-z']);
+		const flags = await git(root, ['ls-files', '-v', '-z']);
+		return digest(Buffer.concat([entries, flags]));
 	}
 	private async clean(root: string, base: string): Promise<string> {
 		if (await textGit(root, ['rev-parse', 'HEAD']) !== base) { throw new Error('HEAD divergente do commit-base.'); }
@@ -209,6 +216,168 @@ export class Solutions {
 		} catch (error) { record.state = 'prepared'; record.validation.state = 'failed'; record.error = error instanceof Error ? error.message : 'Teste não confirmado.'; this.save(record); throw error; }
 		finally { this.busy.delete(record.workspace); }
 	}
+	private async lockPath(record: Solution): Promise<string> {
+		return resolve(record.workspace, await textGit(record.workspace, ['rev-parse', '--git-path', 'singularity-solution.lock']));
+	}
+	private async acquireLock(record: Solution): Promise<void> {
+		record.lockToken = randomBytes(32).toString('hex'); record.lockPid = process.pid; this.save(record);
+		const handle = await fs.open(await this.lockPath(record), 'wx', 0o600).catch(() => { throw new Error('Outra operação detém o bloqueio deste projeto.'); });
+		try { await handle.writeFile(JSON.stringify({ id: record.id, token: record.lockToken, pid: process.pid })); await handle.sync(); }
+		finally { await handle.close(); }
+	}
+	private async releaseLock(record: Solution, recovery = false): Promise<void> {
+		const path = await this.lockPath(record);
+		let lock: { id?: string; token?: string; pid?: number };
+		try { lock = JSON.parse(await fs.readFile(path, 'utf8')); }
+		catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return; } throw error; }
+		if (lock.id !== record.id || lock.token !== record.lockToken) { throw new Error('O bloqueio pertence a outra operação.'); }
+		if (recovery && lock.pid !== process.pid) {
+			let alive = true;
+			try { process.kill(lock.pid!, 0); } catch (error) { alive = (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+			if (alive) { throw new Error('O proprietário do bloqueio ainda pode estar ativo.'); }
+		}
+		await fs.unlink(path);
+	}
+	private sibling(record: Solution, index: number, side: 'before' | 'after'): string {
+		const path = join(record.workspace, record.files[index].path);
+		return join(dirname(path), '.' + basename(path) + '.singularity-' + record.id + '-' + index + '.' + side);
+	}
+	private async raw(path: string): Promise<{ data: Buffer; mode: number } | undefined> {
+		const stat = await fs.lstat(path).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') { return undefined; } throw error; });
+		if (!stat) { return undefined; }
+		if (!stat.isFile() || stat.isSymbolicLink() || stat.size > maxBytes) { throw new Error('Tipo de arquivo alterado durante a operação.'); }
+		return { data: await fs.readFile(path), mode: stat.mode & 0o777 };
+	}
+	private matches(actual: { data: Buffer; mode: number } | undefined, expected: FileState | undefined): boolean {
+		return expected ? !!actual && digest(actual.data) === expected.hash && actual.mode === expected.mode : !actual;
+	}
+	private async snapshot(record: Solution, index: number, side: 'before' | 'after'): Promise<Buffer> {
+		const expected = record.files[index][side];
+		const data = await fs.readFile(join(this.location(record.id), side, String(index)));
+		if (!expected || digest(data) !== expected.hash) { throw new Error('O conteúdo protegido da solução foi alterado.'); }
+		return data;
+	}
+	private async assertRepository(record: Solution): Promise<void> {
+		if (await textGit(record.workspace, ['rev-parse', 'HEAD']) !== record.base || await this.indexHash(record.workspace) !== record.indexHash) { throw new Error('HEAD ou índice mudou desde a preparação.'); }
+	}
+	private async assertParents(record: Solution, index: number, create: boolean): Promise<void> {
+		let cursor = record.workspace;
+		for (const part of record.files[index].path.split('/').slice(0, -1)) {
+			cursor = join(cursor, part);
+			let stat = await fs.lstat(cursor).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') { return undefined; } throw error; });
+			if (!stat && create) {
+				record.directories ??= []; if (!record.directories.includes(cursor)) { record.directories.push(cursor); this.save(record); }
+				await fs.mkdir(cursor); stat = await fs.lstat(cursor);
+			}
+			if (stat && (!stat.isDirectory() || stat.isSymbolicLink())) { throw new Error('Diretório de destino inseguro.'); }
+			if (!stat) { return; }
+		}
+	}
+	private async createExclusive(path: string, data: Buffer, mode: number): Promise<void> {
+		const handle = await fs.open(path, 'wx', mode);
+		try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+		await fs.chmod(path, mode);
+	}
+	private async publishExclusive(temporary: string, target: string): Promise<void> {
+		// Creating a hard link refuses an existing destination, including a concurrent user edit.
+		await fs.link(temporary, target); await fs.unlink(temporary);
+	}
+	private async checkBeforeApply(record: Solution): Promise<void> {
+		await this.assertRepository(record); await this.clean(record.workspace, record.base);
+		const origin = await this.source(record.comparisonId, record.workspace, record.participantId);
+		if (origin.comparison.base !== record.base || origin.participant.workspace.toLowerCase() !== record.source.toLowerCase() || await this.fingerprint(record.source, record.base) !== record.sourceFingerprint) { throw new Error('A solução selecionada mudou. Prepare uma nova revisão.'); }
+		if (digest(await fs.readFile(join(this.location(record.id), 'solution.patch'))) !== record.patchHash) { throw new Error('O patch preparado foi alterado.'); }
+		for (let index = 0; index < record.files.length; index++) {
+			await this.assertParents(record, index, false);
+			const file = record.files[index];
+			if (!this.matches(await this.raw(join(record.workspace, file.path)), file.before)) { throw new Error('O destino mudou: ' + file.path); }
+			if (file.before) { await this.snapshot(record, index, 'before'); }
+			if (file.after) { await this.snapshot(record, index, 'after'); }
+		}
+	}
+	async apply(id: string, workspace: string, confirmation: { confirmed?: unknown; patchHash?: unknown; allowUntested?: unknown }): Promise<Solution> {
+		const record = this.get(id, workspace);
+		if (record.state === 'applied') { return structuredClone(record); }
+		if (!['prepared', 'rolled-back'].includes(record.state) || this.busy.has(record.workspace) || confirmation?.confirmed !== true || confirmation.patchHash !== record.patchHash || !record.integrity) { throw new Error('Revise e confirme esta versão da solução.'); }
+		if (record.validation.state !== 'passed' && !(record.validation.state === 'unavailable' && confirmation.allowUntested === true)) { throw new Error('A validação independente falhou, foi interrompida ou ainda não foi autorizada.'); }
+		this.busy.add(record.workspace); let locked = false;
+		try {
+			await this.checkBeforeApply(record); await this.acquireLock(record); locked = true; await this.checkBeforeApply(record);
+			record.state = 'applying'; record.progress = 0; record.error = undefined; this.save(record);
+			for (let index = 0; index < record.files.length; index++) {
+				const file = record.files[index], target = join(record.workspace, file.path);
+				await this.assertRepository(record); await this.assertParents(record, index, true);
+				if (!this.matches(await this.raw(target), file.before)) { throw new Error('Arquivo modificado durante a aplicação: ' + file.path); }
+				if (file.after) { await this.createExclusive(this.sibling(record, index, 'after'), await this.snapshot(record, index, 'after'), file.after.mode); }
+				if (file.before) {
+					await fs.rename(target, this.sibling(record, index, 'before'));
+					if (!this.matches(await this.raw(this.sibling(record, index, 'before')), file.before)) { throw new Error('O original mudou durante a aplicação: ' + file.path); }
+				}
+				if (file.after) { await this.publishExclusive(this.sibling(record, index, 'after'), target); }
+				if (!this.matches(await this.raw(target), file.after)) { throw new Error('O resultado não corresponde ao manifesto.'); }
+				record.progress = index + 1; this.save(record); this.fault?.(index);
+			}
+			await this.assertRepository(record);
+			for (const file of record.files) { if (!this.matches(await this.raw(join(record.workspace, file.path)), file.after)) { throw new Error('O resultado mudou durante a aplicação.'); } }
+			record.state = 'applied'; this.save(record); await this.removeArtifacts(record); return structuredClone(record);
+		} catch (error) {
+			if (record.state === 'applying') {
+				try { await this.restore(record, false); } catch (restoreError) { record.state = 'conflict'; record.error = String(restoreError); this.save(record); }
+			}
+			throw error;
+		} finally { if (locked && record.state !== 'conflict') { await this.releaseLock(record); } this.busy.delete(record.workspace); }
+	}
+	private async removeArtifacts(record: Solution): Promise<void> {
+		for (let index = 0; index < record.files.length; index++) {
+			for (const side of ['before', 'after'] as const) {
+				const path = this.sibling(record, index, side), actual = await this.raw(path);
+				if (actual) { if (!this.matches(actual, record.files[index][side])) { throw new Error('Arquivo temporário modificado. Preserve-o para revisão.'); } await fs.unlink(path); }
+			}
+		}
+	}
+	private async restore(record: Solution, explicit: boolean): Promise<void> {
+		await this.assertRepository(record);
+		for (let index = 0; index < record.files.length; index++) {
+			await this.assertParents(record, index, false);
+			const file = record.files[index], actual = await this.raw(join(record.workspace, file.path)), held = await this.raw(this.sibling(record, index, 'before'));
+			if (held && !this.matches(held, file.before)) { throw new Error('Conflito no original preservado: ' + file.path); }
+			if (explicit ? !this.matches(actual, file.after) : !this.matches(actual, file.after) && !this.matches(actual, file.before) && !(held && !actual)) { throw new Error('Conflito após a aplicação: ' + file.path); }
+			if (file.before) { await this.snapshot(record, index, 'before'); }
+		}
+		record.state = 'rolling-back'; this.save(record);
+		for (let index = record.files.length - 1; index >= 0; index--) {
+			const file = record.files[index], target = join(record.workspace, file.path), actual = await this.raw(target);
+			if (this.matches(actual, file.before)) { continue; }
+			if (!this.matches(actual, file.after) && actual) { throw new Error('Conflito durante o rollback: ' + file.path); }
+			if (actual) {
+				const removal = this.sibling(record, index, 'after');
+				const existing = await this.raw(removal);
+				if (existing) { if (!this.matches(existing, file.after)) { throw new Error('Conflito no temporário de rollback.'); } await fs.unlink(removal); }
+				await fs.rename(target, removal);
+				if (!this.matches(await this.raw(removal), file.after)) { throw new Error('O arquivo mudou durante o rollback: ' + file.path); }
+			}
+			if (file.before) {
+				const held = this.sibling(record, index, 'before');
+				if (!await this.raw(held)) { await this.createExclusive(held, await this.snapshot(record, index, 'before'), file.before.mode); }
+				await this.publishExclusive(held, target);
+			}
+			this.save(record);
+		}
+		await this.removeArtifacts(record);
+		for (const directory of [...(record.directories ?? [])].reverse()) { await fs.rmdir(directory).catch((error: NodeJS.ErrnoException) => { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code ?? '')) { throw error; } }); }
+		record.state = 'rolled-back'; record.progress = 0; record.error = undefined; this.save(record);
+	}
+	async undo(id: string, workspace: string): Promise<Solution> {
+		const record = this.get(id, workspace);
+		if (record.state === 'rolled-back') { return structuredClone(record); }
+		if (record.state !== 'applied' || this.busy.has(record.workspace)) { throw new Error('Nenhuma aplicação confirmada está disponível para desfazer.'); }
+		this.busy.add(record.workspace); let locked = false;
+		try { await this.acquireLock(record); locked = true; await this.restore(record, true); return structuredClone(record); }
+		catch (error) { record.error = error instanceof Error ? error.message : 'Rollback não confirmado.'; if (this.records.get(id)?.state === 'rolling-back') { record.state = 'conflict'; } this.save(record); throw error; }
+		finally { if (locked && record.state !== 'conflict') { await this.releaseLock(record); } this.busy.delete(record.workspace); }
+	}
+	private async recoverTransaction(record: Solution): Promise<void> {
+		try { await this.releaseLock(record, true); await this.acquireLock(record); await this.restore(record, false); await this.releaseLock(record); }
+		catch (error) { record.state = 'conflict'; record.error = 'Recuperação bloqueada. ' + (error instanceof Error ? error.message : 'Inspecione os arquivos.'); this.save(record); }
+	}
 }
-
-

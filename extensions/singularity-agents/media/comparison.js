@@ -19,9 +19,11 @@
 		const results = document.createElement('section');
 		results.id = 'comparison-results'; results.hidden = true;
 		$('sessions').after(results);
+		const solution = window.SingularitySolution(vscode, R, results);
 		function requestCatalog(index) { vscode.postMessage({ type: 'comparisonCatalog', index, service: choices[index].service }); }
 		function setMode(value) {
 			active = value;
+			if (!active) { solution.close(); }
 			if (active) { choices.slice(0, count).forEach((c, i) => { if (!c.catalog) { requestCatalog(i); } }); vscode.postMessage({ type: 'comparisonList' }); }
 			drawConfig(); draw();
 			window.dispatchEvent(new Event('comparisonMode'));
@@ -55,7 +57,7 @@
 			$('send').classList.toggle('interrupt', !!running());
 			$('send').title = running() ? 'Cancelar todos os participantes ativos' : 'Enviar a tarefa aos agentes selecionados';
 			if (!run) { results.innerHTML = '<div class="comparison-empty"><h2>Compare soluções em paralelo</h2><p>Selecione dois ou três agentes, escolha seus modelos e descreva uma tarefa. A origem Git deve estar limpa.</p>' + (runs.length ? '<button type="button" data-cmp="history">Voltar às comparações</button>' : '') + '</div>'; return; }
-			results.innerHTML = '<div class="comparison-run"><label>Execução<select id="comparison-run">' + runs.map(r => '<option value="' + esc(r.id) + '"' + (r.id === run.id ? ' selected' : '') + '>' + esc(r.prompt.slice(0, 70)) + '</option>').join('') + '</select></label><code title="Commit-base">' + esc(run.base.slice(0, 12)) + '</code><button type="button" data-cmp="new">Nova comparação</button><button type="button" data-cmp="cleanup">Limpar worktrees limpos</button></div><p class="comparison-task">' + esc(run.prompt) + '</p><div class="comparison-columns">' + run.participants.map(p => {
+			results.innerHTML = '<div class="comparison-run"><label>Execução<select id="comparison-run">' + runs.map(r => '<option value="' + esc(r.id) + '"' + (r.id === run.id ? ' selected' : '') + '>' + esc(r.prompt.slice(0, 70)) + '</option>').join('') + '</select></label><code title="Commit-base">' + esc(run.base.slice(0, 12)) + '</code>' + (solution.previous(run.id) ? '<button type="button" data-cmp="reviewSolution">Revisar aplicação</button>' : '') + '<button type="button" data-cmp="new">Nova comparação</button><button type="button" data-cmp="cleanup">Limpar worktrees limpos</button></div><p class="comparison-task">' + esc(run.prompt) + '</p><div class="comparison-columns">' + run.participants.map(p => {
 				const session = state.sessions.find(s => s.id === p.sessionId);
 				const detail = details.get(p.id);
 				const usage = session?.usage || detail?.usage;
@@ -63,10 +65,11 @@
 				const duration = p.startedAt ? Math.max(0, Math.round(((p.endedAt || Date.now()) - p.startedAt) / 1000)) + ' s' : '';
 				return '<article class="comparison-card' + (run.selected === p.id ? ' chosen' : '') + '"><h2>' + esc(R.serviceName(undefined, p.service)) + '</h2><p>' + esc(p.model.modelID) + (p.model.variant ? ' · ' + esc(p.model.variant) : '') + '</p><p role="status">' + esc(states[p.status]) + ' · ' + duration + '</p>' +
 					'<div class="comparison-actions">' + (p.status === 'running' ? '<button type="button" data-cmp="cancel" data-participant="' + esc(p.id) + '">Parar</button>' : '') +
-					'<button type="button" data-cmp="inspect" data-participant="' + esc(p.id) + '"' + (p.removed ? ' disabled' : '') + '>Inspecionar diff</button><button type="button" data-cmp="select" data-participant="' + esc(p.id) + '"' + (p.removed ? ' disabled' : '') + '>' + (run.selected === p.id ? 'Selecionado' : 'Escolher para revisão') + '</button></div>' +
+					'<button type="button" data-cmp="inspect" data-participant="' + esc(p.id) + '"' + (p.removed ? ' disabled' : '') + '>Inspecionar diff</button><button type="button" data-cmp="select" data-participant="' + esc(p.id) + '"' + (p.removed ? ' disabled' : '') + '>' + (run.selected === p.id ? 'Selecionado' : 'Escolher para revisão') + '</button>' + (run.selected === p.id && p.status === 'done' && !p.removed ? '<button type="button" data-cmp="prepareSolution" data-participant="' + esc(p.id) + '">Aplicar ao projeto</button>' : '') + '</div>' +
 					'<p class="note">' + esc(metrics) + '</p><pre class="comparison-output">' + esc(session?.result || detail?.result || p.error || session?.summary || (['running', 'preparing'].includes(p.status) ? 'Aguardando resposta do agente…' : 'Nenhuma resposta registrada.')) + '</pre>' +
 					(detail ? '<details open><summary>Arquivos e diff</summary><pre>' + esc(detail.files + (detail.untracked ? '\nNovos arquivos\n' + detail.untracked : '') || 'Nenhuma alteração') + '</pre><pre class="comparison-diff">' + esc(detail.diff || 'Nenhum diff') + '</pre><p>' + esc(detail.tests) + '</p><button type="button" data-cmp="openDiff" data-participant="' + esc(p.id) + '">Abrir diff no editor</button><button type="button" data-cmp="openTree" data-participant="' + esc(p.id) + '">Abrir worktree</button></details>' : '') + '</article>';
 			}).join('') + '</div>';
+			solution.draw(run);
 		}
 		mode.addEventListener('click', e => { if (e.target.id === 'mode-comparison') { setMode(true); } if (e.target.id === 'mode-single') { setMode(false); } });
 		config.addEventListener('change', e => {
@@ -84,6 +87,8 @@
 		results.addEventListener('click', e => {
 			const button = e.target.closest('button[data-cmp]'); if (!button) { return; }
 			const operation = button.dataset.cmp;
+			if (operation === 'prepareSolution') { solution.prepare(); vscode.postMessage({ type: 'solutionPrepare', comparisonId: current().id, participantId: button.dataset.participant }); return; }
+			if (operation === 'reviewSolution') { solution.review(solution.previous(current().id).id); return; }
 			if (operation === 'history') { drafting = false; draw(); return; }
 			if (operation === 'new') { selected = undefined; drafting = true; draw(); return; }
 			const names = { cancel: 'comparisonCancel', inspect: 'comparisonInspect', select: 'comparisonSelect', cleanup: 'comparisonCleanup', openDiff: 'comparisonOpenDiff', openTree: 'comparisonOpenTree' };
@@ -91,6 +96,7 @@
 		});
 		window.addEventListener('message', event => {
 			const data = event.data || {};
+			if (data.type === 'solutionRecords') { draw(); }
 			if (data.type === 'state') { state = data.state; draw(); }
 			if (data.type === 'use') { setMode(false); }
 			if (data.type === 'comparisons') { runs = data.runs.sort((a, b) => b.createdAt - a.createdAt); state = data.state; draw(); }

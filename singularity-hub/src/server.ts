@@ -62,7 +62,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -334,15 +334,19 @@ export class HubServer {
 			throw new RpcError(ErrorCode.NotInitialized, 'Call hub.hello first');
 		}
 		switch (method) {
+			case 'solutions.apply':
+			case 'solutions.undo':
 			case 'solutions.prepare':
 			case 'solutions.list':
 			case 'solutions.review':
 			case 'solutions.validate': {
-				const p = request.params as { workspace?: unknown; id?: unknown; comparisonId?: unknown; participantId?: unknown; command?: unknown };
+				const p = request.params as { workspace?: unknown; id?: unknown; comparisonId?: unknown; participantId?: unknown; command?: unknown; confirmation?: unknown };
 				if (typeof p?.workspace !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Workspace required'); }
 				if (method === 'solutions.list') { return this.solutions.list(p.workspace); }
 				if (method === 'solutions.prepare' && typeof p.comparisonId === 'string' && typeof p.participantId === 'string') { return this.solutions.prepare(p.comparisonId, p.workspace, p.participantId); }
 				if (typeof p.id !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Solution required'); }
+				if (method === 'solutions.apply') { return this.solutions.apply(p.id, p.workspace, p.confirmation as { confirmed?: unknown; patchHash?: unknown; allowUntested?: unknown }); }
+				if (method === 'solutions.undo') { return this.solutions.undo(p.id, p.workspace); }
 				if (method === 'solutions.review') { return this.solutions.review(p.id, p.workspace); }
 				if (method === 'solutions.validate') { return this.solutions.validate(p.id, p.workspace, p.command as { executable?: unknown; args?: unknown; approved?: unknown }); }
 				throw new RpcError(ErrorCode.InvalidParams, 'Invalid solution parameters');

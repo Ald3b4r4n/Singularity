@@ -217,3 +217,14 @@ body[data-vscode-theme-id="Event Minimal Dark"] button.primary.interrupt {
 
 #comparison-config { max-height: 45vh; overflow: auto; }
 .comparison-mode { flex: 0 0 auto; }
+
+#solution-review { padding-block: 8px; }
+.solution-heading, .solution-actions { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.solution-heading h2 { font-size: 18px; }
+.solution-files { max-height: 28vh; overflow: auto; }
+.solution-diff, .solution-test-output { overflow: auto; max-height: 55vh; padding: 12px; border: 1px solid var(--line); white-space: pre; }
+.solution-validation { margin-block: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.solution-validation label { display: block; margin-block: 8px; }
+.solution-validation input { display: block; width: 100%; }
+.solution-warning { color: var(--vscode-descriptionForeground); }
+#solution-error { color: var(--vscode-errorForeground); white-space: pre-wrap; }

@@ -78,11 +78,11 @@ export class HubSupervisor extends EventEmitter {
 		}
 	}
 
-	async sessionRequest(method: 'solutions.prepare' | 'solutions.list' | 'solutions.review' | 'solutions.validate' | 'comparisons.create' | 'comparisons.list' | 'comparisons.cancel' | 'comparisons.inspect' | 'comparisons.select' | 'comparisons.cleanup' | 'session.create' | 'session.prompt' | 'session.setModel' | 'session.interrupt' | 'session.stop' | 'session.history' | 'session.deleteHistory' | 'session.reopen', params: unknown): Promise<unknown> {
+	async sessionRequest(method: 'solutions.apply' | 'solutions.undo' | 'solutions.prepare' | 'solutions.list' | 'solutions.review' | 'solutions.validate' | 'comparisons.create' | 'comparisons.list' | 'comparisons.cancel' | 'comparisons.inspect' | 'comparisons.select' | 'comparisons.cleanup' | 'session.create' | 'session.prompt' | 'session.setModel' | 'session.interrupt' | 'session.stop' | 'session.history' | 'session.deleteHistory' | 'session.reopen', params: unknown): Promise<unknown> {
 		if (!this.connection) {
 			throw new Error('Connect to the Singularity Hub first.');
 		}
-		return this.connection.request(method, params, 45000);
+		return this.connection.request(method, params, method.startsWith('solutions.') ? 180000 : 45000);
 	}
 
 	/** Services, providers, models and effort levels the Hub can really offer for a workspace (read from the service itself). */

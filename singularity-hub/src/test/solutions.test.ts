@@ -70,3 +70,36 @@ test('links and case collisions cannot become application files', async () => {
 	symlinkSync(outside, join(f.source, 'junction'), 'junction');
 	await assert.rejects(f.solutions.prepare(f.comparison.id, f.workspace, f.p.id), /Links|tipo|Tipo/);
 });
+
+test('apply, exact undo and reapply preserve HEAD, index, binaries, additions, removals and independent worktrees', async () => {
+	const f = fixture();
+	writeFileSync(join(f.source, 'sample.txt'), 'solution\n');
+	writeFileSync(join(f.source, 'binary.bin'), Buffer.from([0, 2, 255]));
+	execFileSync('git', ['-C', f.source, 'rm', 'removed.txt'], { stdio: 'ignore' });
+	const record = await f.solutions.prepare(f.comparison.id, f.workspace, f.p.id);
+	const confirmed = { confirmed: true, patchHash: record.patchHash, allowUntested: true };
+	await assert.rejects(f.solutions.apply(record.id, f.workspace, { ...confirmed, confirmed: false }), /confirme/);
+	assert.equal((await f.solutions.apply(record.id, f.workspace, confirmed)).state, 'applied');
+	assert.equal(f.git('rev-parse', 'HEAD'), record.base); assert.equal(f.git('diff', '--cached', '--name-only'), '');
+	assert.equal(readFileSync(join(f.workspace, 'sample.txt'), 'utf8'), 'solution\n');
+	assert.deepEqual(readFileSync(join(f.workspace, 'binary.bin')), Buffer.from([0, 2, 255]));
+	assert.equal((await f.solutions.apply(record.id, f.workspace, confirmed)).state, 'applied');
+	await f.solutions.undo(record.id, f.workspace); assert.equal(f.git('status', '--porcelain'), '');
+	assert.equal(readFileSync(join(f.source, 'sample.txt'), 'utf8'), 'solution\n');
+	await f.solutions.apply(record.id, f.workspace, confirmed);
+	writeFileSync(join(f.workspace, 'sample.txt'), 'user changed after apply\n');
+	await assert.rejects(f.solutions.undo(record.id, f.workspace), /Conflito/);
+	assert.equal(readFileSync(join(f.workspace, 'sample.txt'), 'utf8'), 'user changed after apply\n');
+});
+
+test('partial application failure rolls back without reset and stale preparation refuses every write', async () => {
+	const f = fixture(); writeFileSync(join(f.source, 'sample.txt'), 'solution\n'); writeFileSync(join(f.source, 'added.txt'), 'new');
+	const solutions = new Solutions(f.store, f.origin, () => { throw new Error('Injected write failure.'); });
+	const record = await solutions.prepare(f.comparison.id, f.workspace, f.p.id);
+	await assert.rejects(solutions.apply(record.id, f.workspace, { confirmed: true, patchHash: record.patchHash, allowUntested: true }), /Injected/);
+	assert.equal(f.git('status', '--porcelain'), '');
+	assert.equal(solutions.list(f.workspace)[0].state, 'rolled-back');
+	writeFileSync(join(f.source, 'sample.txt'), 'changed after review\n');
+	await assert.rejects(solutions.apply(record.id, f.workspace, { confirmed: true, patchHash: record.patchHash, allowUntested: true }), /solução selecionada mudou/);
+	assert.equal(f.git('status', '--porcelain'), '');
+});
