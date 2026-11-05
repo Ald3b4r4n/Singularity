@@ -1,7 +1,7 @@
 import { Teams } from './teams';
 import { Solutions } from './solutions';
 import { Comparisons } from './comparisons';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { hubHome } from './paths';
 import { claudeExecutable } from './claude';
 import { codexExecutable } from './codex';
@@ -419,12 +419,14 @@ export class HubServer {
 			case 'providers.profile': {
 				const p = (request.params ?? {}) as { id?: unknown; workspace?: unknown; profile?: unknown; approved?: unknown };
 				if (p.id !== 'opencode' || typeof p.workspace !== 'string' || p.workspace.length > 1024 || !['normal', 'isolated'].includes(p.profile as string) || p.approved !== true) { throw new RpcError(ErrorCode.InvalidParams, 'Invalid explicit profile selection'); }
-				if (this.sessionRequests || this.teams.active() || this.comparisons.active()) { throw new RpcError(-32006, 'Encerre a equipe ou comparação antes de trocar o perfil de novas sessões.'); }
+				let pausedTeam = false;
+				if (this.teams.active()) { try { const active = this.teams.list(p.workspace).filter(t => !['completed','failed','cancelled','exhausted','unrecoverable'].includes(t.state)); pausedTeam = active.length > 0 && active.every(t => t.state === 'paused'); } catch { /* Invalid workspace is refused by selectProfile below. */ } }
+				if (this.sessionRequests || (!pausedTeam && (this.teams.active() || this.comparisons.active()))) { throw new RpcError(-32006, 'Aguarde ou pause a equipe antes de trocar o perfil de novas sessões.'); }
 				try { return await this.opencode.selectProfile(p.workspace, p.profile as 'normal' | 'isolated', true); } catch (error) { throw new RpcError(-32006, error instanceof OpenCodeError ? error.message : 'Não foi possível alterar o perfil.'); }
 			}
 			case 'providers.diagnose': {
 				const p = (request.params ?? {}) as { id?: unknown; workspace?: unknown; refresh?: unknown };
-				if (p.id !== 'opencode' || (p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) || (p.refresh !== undefined && typeof p.refresh !== 'boolean')) { throw new RpcError(ErrorCode.InvalidParams, 'Invalid diagnosis parameters'); }
+				if (p.id !== 'opencode' || (p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024 || !isAbsolute(p.workspace))) || (p.refresh !== undefined && typeof p.refresh !== 'boolean')) { throw new RpcError(ErrorCode.InvalidParams, 'Invalid diagnosis parameters'); }
 				return this.opencode.diagnose(p.workspace as string | undefined, p.refresh === true);
 			}
 			case 'providers.inspect': {

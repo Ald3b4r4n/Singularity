@@ -31,7 +31,10 @@ function openProviderDiagnostics(hub, workspace, useProvider, manage, changed = 
      if (choice !== 'Iniciar configuração isolada') { return; }
     }
     const result = await hub.selectProviderProfile({ id: 'opencode', workspace, profile: message.action, approved: true });
-    if (!result?.selected) { post({ type: 'notice', message: result?.reason || 'O perfil não foi alterado.' }); }
+    if (!result?.selected) {
+     const d = result?.diagnostic;
+     post({ type: 'notice', message: (result?.reason || 'O perfil não foi alterado.') + (d ? '\nResultado da sondagem: catálogo ' + (d.catalog === 'available' ? 'disponível' : 'indisponível') + '; conexão ' + (d.authentication === 'configured' ? 'configurada' : 'não verificada') + '. O perfil ativo permanece ' + (result.profile === 'isolated' ? 'isolado' : 'normal') + '.' : '') });
+    }
     else { post({ type: 'notice', message: result.profile === 'isolated' ? 'Configuração isolada ativa para novas sessões deste workspace. Use Voltar aos Agentes para selecionar um modelo.' : 'Perfil normal restaurado para novas sessões. Sessões isoladas existentes permanecem identificadas.' }); changed(); }
    } else if (message.action === 'diagnose' || message.action === 'retry') {
     const diagnostic = await hub.diagnoseProvider({ id: 'opencode', workspace, refresh: true });

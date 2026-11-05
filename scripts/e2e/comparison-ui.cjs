@@ -48,6 +48,11 @@ const { chromium } = require('playwright');
 		await page.click('#mode-single');
 		assert.equal(await page.isVisible('#comparison-config'), false);
 		assert.equal(await page.inputValue('#prompt'), 'One task');
+		await post({type:'catalog',catalog:{service:'opencode',services:[{id:'opencode',name:'OpenCode',status:'available'}],providers:[{id:'opencode-go',name:'OpenCode Go',models:[{id:'muse-spark-1.3-contributor',name:'Muse',efforts:[]},{id:'deepseek-v4.1-flash',name:'DeepSeek',efforts:[]}]}],default:{providerID:'opencode-go',modelID:'deepseek-v4.1-flash'}}});
+		await page.selectOption('#model',JSON.stringify(['opencode-go','muse-spark-1.3-contributor']));
+		await post({type:'prefs',prefs:{service:'opencode',providerID:'opencode-go',modelID:'deepseek-v4.1-flash'}});
+		assert.equal(await page.inputValue('#model'),JSON.stringify(['opencode-go','muse-spark-1.3-contributor']),'A delayed preference update must not replace the explicit model choice.');
+
 		assert.deepEqual(errors, []);
 		const navigation = await browser.newPage();
 		await navigation.setContent('<html><body><div id="app"></div></body></html>');

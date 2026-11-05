@@ -67,8 +67,8 @@ class RealHubClient {
 		return this._supervisor.inspectProviders(params);
 	}
 
-	async diagnoseProvider(params) { return this._supervisor?.diagnoseProvider(params); }
-	async selectProviderProfile(params) { return this._supervisor?.selectProviderProfile(params); }
+	async diagnoseProvider(params) { if (!this._supervisor) { throw new Error('O Singularity Hub não está disponível.'); } return this._supervisor.diagnoseProvider(params); }
+	async selectProviderProfile(params) { if (!this._supervisor) { throw new Error('O Singularity Hub não está disponível.'); } return this._supervisor.selectProviderProfile(params); }
 
 	async catalog(params) {
 		if (!this._supervisor) {

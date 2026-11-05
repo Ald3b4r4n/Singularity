@@ -78,4 +78,12 @@ describe('catalog and model requests are validated by the Hub', () => {
 		assert.equal(await code('session.setModel', { model: { providerID: 'a', modelID: 'b' } }), ErrorCode.InvalidParams);
 		assert.equal(await code('session.setModel', 'nope'), ErrorCode.InvalidParams);
 	});
+	it('provider diagnosis and isolation refuse malformed or implicit profile choices before invoking a provider', async () => {
+		assert.equal(await code('providers.diagnose', { id: 'opencode', workspace: 42 }), ErrorCode.InvalidParams);
+		assert.equal(await code('providers.diagnose', { id: 'opencode', workspace: 'relative' }), ErrorCode.InvalidParams);
+		assert.equal(await code('providers.diagnose', { id: 'claude-code' }), ErrorCode.InvalidParams);
+		assert.equal(await code('providers.profile', { id: 'opencode', workspace: 'relative', profile: 'isolated', approved: false }), ErrorCode.InvalidParams);
+		assert.equal(await code('providers.profile', { id: 'opencode', workspace: 'relative', profile: 'unknown', approved: true }), ErrorCode.InvalidParams);
+	});
+
 });

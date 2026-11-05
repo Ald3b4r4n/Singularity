@@ -5,7 +5,7 @@ export interface ProviderDiagnostic {
  authentication: 'configured' | 'not-configured' | 'unknown'; catalog: 'available' | 'unavailable';
  message: string; recommendation: string; httpStatus?: number; operation?: string;
  cause: 'activation-phase' | 'undetermined' | 'confirmed';
- integrations: Array<{ id: string; authentication: 'configured' | 'not-configured' }>;
+ integrations: Array<{ id: string; authentication: 'configured' | 'not-configured' | 'unknown' }>;
 }
 const messages: Record<DiagnosticCode, [string, string]> = {
  ready: ['Catálogo disponível.', 'Selecione um modelo disponível. A presença de credencial não comprova acesso ao modelo.'],
@@ -31,7 +31,7 @@ export function connectionFacts(raw: unknown): ProviderDiagnostic['integrations'
  const data = (raw as { data?: unknown })?.data;
  if (!Array.isArray(data)) { return []; }
  return data.filter(p => p && (p.id === 'opencode' || p.id === 'opencode-go')).slice(0, 2).map(p => ({ id: p.id as string,
-  authentication: Array.isArray(p.connections) && p.connections.some((c: { type?: string }) => c && c.type === 'credential') ? 'configured' : 'not-configured' }));
+  authentication: Array.isArray(p.connections) && p.connections.some((c: { type?: string }) => c && c.type === 'credential') ? 'configured' : Array.isArray(p.connections) && p.connections.some((c: { type?: string }) => c?.type === 'env') ? 'unknown' : 'not-configured' }));
 }
 /** Never return upstream text, headers, config, plugin paths, credential identifiers or labels. */
 export async function pluginActivationFailure(response: Response): Promise<boolean> {

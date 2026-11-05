@@ -556,7 +556,7 @@ export class OpenCodeSessions {
 				version = await server.ready();
 				const catalog = { services, service: 'opencode', profile, ...(await readCatalog(server)) };
 				const integrations = await server.integrationFacts();
-				const authentication = integrations.some(i => i.authentication === 'configured') ? 'configured' : integrations.length ? 'not-configured' : 'unknown';
+				const authentication = integrations.some(i => i.authentication === 'configured') ? 'configured' : integrations.some(i => i.authentication === 'unknown') ? 'unknown' : integrations.length ? 'not-configured' : 'unknown';
 				this.diagnostics.set(key, providerDiagnostic(catalog.providers.length ? 'ready' : 'catalog', { version, authentication, integrations, profile }));
 				return catalog;
 			} catch (error) {
@@ -567,9 +567,11 @@ export class OpenCodeSessions {
 				await server.stop().catch(() => undefined);
 			}
 		})();
+		if (this.catalogs.size >= 128) { const oldest = [...this.catalogs].find(([, entry]) => !entry.pending); if (oldest) { this.catalogs.delete(oldest[0]); this.diagnostics.delete(oldest[0]); } }
 		this.catalogs.set(key, { at: Date.now(), pending: true, result });
 		void result.finally(() => { const entry = this.catalogs.get(key); if (entry?.result === result) { entry.pending = false; } }).catch(() => {});
-		result.catch(() => { if (this.catalogs.get(key)?.result === result) { this.catalogs.delete(key); } });
+		// Cache failures too: rendering diagnostics must not start a second process. Explicit refresh bypasses settled entries.
+		void result.catch(() => {});
 		return result;
 	}
 

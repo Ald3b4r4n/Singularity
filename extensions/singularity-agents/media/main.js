@@ -19,6 +19,7 @@
 	let loading = false;
 	let requested = false;
 	let prefs = {};
+	let prefsTouched = false;
 	let workspace = '';
 	let targetId = vscode.getState()?.targetId;
 	el.prompt.value = vscode.getState()?.draft || '';
@@ -166,6 +167,7 @@
 	}
 
 	function remember() {
+		prefsTouched = true;
 		const sel = R.resolve(catalog, prefs);
 		prefs = { service: sel.service, providerID: sel.model?.providerID, modelID: sel.model && sel.model.id, variant: sel.effort, permissionMode: prefs.permissionMode || '' };
 		vscode.postMessage({ type: 'prefs', prefs });
@@ -206,7 +208,8 @@
 		} else if (data.type === 'providerProfileChanged') {
 			requestCatalog(true, prefs.service || 'opencode');
 		} else if (data.type === 'selectProvider') {
-			prefs = { service: data.service };
+			prefsTouched = true;
+			prefs = prefs.service === data.service ? prefs : { service: data.service };
 			vscode.postMessage({ type: 'prefs', prefs });
 			requestCatalog(true, data.service);
 		} else if (data.type === 'catalog') {
@@ -217,7 +220,8 @@
 			drawSessions(); drawComposer();
 		} else if (data.type === 'prefs') {
 			const changedWorkspace = data.workspace !== undefined && data.workspace !== workspace;
-			prefs = data.prefs || prefs;
+			if (changedWorkspace) { prefsTouched = false; }
+			if (!prefsTouched) { prefs = data.prefs || prefs; }
 			if (data.workspace !== undefined) { workspace = data.workspace; }
 			if (changedWorkspace && connected()) { requestCatalog(false); }
 			drawComposer();

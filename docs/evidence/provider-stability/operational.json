@@ -1,0 +1,322 @@
+{
+  "checks": [
+    {
+      "name": "Normal profile reproduces classified plugin activation failure without claiming failed account login",
+      "ok": true,
+      "detail": {
+        "service": "opencode",
+        "profile": "normal",
+        "code": "plugins",
+        "at": 1793905618426,
+        "authentication": "unknown",
+        "catalog": "unavailable",
+        "message": "A ativação dos plugins do OpenCode não terminou (HTTP 503).",
+        "recommendation": "Verifique compatibilidade e dependências dos plugins. O plugin responsável ainda não foi identificado. Não reinstale nem altere sua conta para contornar este erro.",
+        "cause": "activation-phase",
+        "integrations": [],
+        "version": "2.2.5",
+        "httpStatus": 503,
+        "operation": "providers"
+      }
+    },
+    {
+      "name": "The Windows manager shows installed version, authentication, catalogue, problem and recommendation",
+      "ok": true
+    },
+    {
+      "name": "Dismissing the explicit confirmation preserves the normal profile",
+      "ok": true
+    },
+    {
+      "name": "Explicit isolation verifies catalogue and configured official connection without copying credentials",
+      "ok": true,
+      "detail": {
+        "service": "opencode",
+        "profile": "isolated",
+        "code": "ready",
+        "at": 1793905634069,
+        "authentication": "configured",
+        "catalog": "available",
+        "message": "Catálogo disponível.",
+        "recommendation": "Selecione um modelo disponível. A presença de credencial não comprova acesso ao modelo.",
+        "cause": "confirmed",
+        "integrations": [
+          {
+            "id": "opencode",
+            "authentication": "configured"
+          },
+          {
+            "id": "opencode-go",
+            "authentication": "configured"
+          }
+        ],
+        "version": "2.2.5"
+      }
+    },
+    {
+      "name": "Both mandatory Go models are obtained from the authenticated catalogue",
+      "ok": true
+    },
+    {
+      "name": "One synthetic Muse Go task executes in an explicitly identified isolated session",
+      "ok": true,
+      "detail": {
+        "id": "68120aea-9fd0-4d03-b91d-a4b60864c899",
+        "model": {
+          "providerID": "opencode-go",
+          "modelID": "muse-spark-1.3-contributor",
+          "variant": "default"
+        },
+        "profile": "isolated"
+      }
+    },
+    {
+      "name": "Independent fixture assertions pass; only the intended synthetic file changes and HEAD/index remain intact",
+      "ok": true
+    },
+    {
+      "name": "Returning to normal affects new sessions while the existing session stays isolated",
+      "ok": true
+    },
+    {
+      "name": "Hub crash preserves the same isolated helper/session identity without repeating its prompt",
+      "ok": true,
+      "detail": {
+        "id": "68120aea-9fd0-4d03-b91d-a4b60864c899",
+        "turns": 1
+      }
+    },
+    {
+      "name": "A restarted Hub defaults new sessions to the normal profile",
+      "ok": true
+    },
+    {
+      "name": "The recovered isolated helper can be interrupted and safely closed",
+      "ok": true
+    },
+    {
+      "name": "Synthetic workspace returns exactly to its baseline",
+      "ok": true
+    },
+    {
+      "name": "Personal configuration and global plugin file bytes and mtimes are unchanged",
+      "ok": true
+    },
+    {
+      "name": "Repeated diagnostic reads reuse the failed probe until an explicit retry",
+      "ok": true
+    },
+    {
+      "name": "Final UI preserves the actual chosen Go model; capture refinement creates no new inference or session",
+      "ok": true
+    },
+    {
+      "name": "Capture refinement preserves personal configuration",
+      "ok": true
+    }
+  ],
+  "base": "a4572e59ac50931be5b2574bfc31acd0389d5487",
+  "inferenceServices": [
+    "opencode-go"
+  ],
+  "model": "muse-spark-1.3-contributor",
+  "effort": "default",
+  "inferenceRequests": 1,
+  "sessionId": "68120aea-9fd0-4d03-b91d-a4b60864c899",
+  "normalProfilePreserved": true,
+  "interruptScenario": "Completed isolated session: interruption request and full helper stop. Active cancellation and team correction are deterministic regressions; prior gate proved active OpenCode recovery.",
+  "regressions": {
+    "hubFull": {
+      "passed": 125,
+      "failed": 0
+    },
+    "finalTargetedProviderPolicyAndContracts": {
+      "passed": 14,
+      "failed": 0
+    },
+    "teamCanonicalProfileOrigin": {
+      "passed": 1,
+      "failed": 0
+    },
+    "extension": {
+      "passed": 37,
+      "failed": 0
+    },
+    "uiScripts": [
+      "provider-diagnostics-ui.cjs",
+      "comparison-ui.cjs",
+      "team-ui.cjs",
+      "solution-ui.cjs"
+    ],
+    "packagedCore": [
+      {
+        "name": "temporary workspace with a git repository",
+        "ok": true
+      },
+      {
+        "name": "launch, opening plays and leaves, window comes to the front",
+        "ok": true
+      },
+      {
+        "name": "open a file with Ctrl+P and type into it",
+        "ok": true
+      },
+      {
+        "name": "switch to Event Minimal Light and back to Dark",
+        "ok": true
+      },
+      {
+        "name": "terminal runs a command",
+        "ok": true
+      },
+      {
+        "name": "Source Control view shows the change",
+        "ok": true
+      },
+      {
+        "name": "Command Palette lists Singularity commands",
+        "ok": true
+      },
+      {
+        "name": "built-in extensions are present",
+        "ok": true
+      },
+      {
+        "name": "Singularity Agentes panel opens",
+        "ok": true
+      },
+      {
+        "name": "close the window like a user",
+        "ok": true
+      },
+      {
+        "name": "reopen: workspace and the edited file are restored",
+        "ok": true
+      },
+      {
+        "name": "explicit Hub shutdown releases its files",
+        "ok": true
+      },
+      {
+        "name": "final close and cleanup",
+        "ok": true
+      }
+    ],
+    "packagedBrowser": [
+      {
+        "name": "1. the Singularity Browser opens as an editor tab",
+        "ok": true
+      },
+      {
+        "name": "1b. the browser presents itself as \"Singularity Browser\" (welcome title)",
+        "ok": true
+      },
+      {
+        "name": "1c. no tab starts shared with an agent (sharing is an explicit per-tab opt-in)",
+        "ok": true
+      },
+      {
+        "name": "1d. agents cannot drive browser pages by default (enableChatTools is off)",
+        "ok": true
+      },
+      {
+        "name": "2. the address bar loads a local page (server received GET /a.html)",
+        "ok": true
+      },
+      {
+        "name": "2b. the tab title follows the page title",
+        "ok": true
+      },
+      {
+        "name": "3. a real mouse click on a link navigates (server received GET /b.html)",
+        "ok": true
+      },
+      {
+        "name": "4a. Alt+Left goes back to page A",
+        "ok": true
+      },
+      {
+        "name": "4b. Alt+Right goes forward to page B",
+        "ok": true
+      },
+      {
+        "name": "4c. F5 reloads the page (a new request reached the server)",
+        "ok": true
+      },
+      {
+        "name": "5a. the page cannot reach Node/Electron/VS Code APIs",
+        "ok": true
+      },
+      {
+        "name": "5a2. the only bridge visible to the page is the helper pair (no IPC, no IDE API)",
+        "ok": true
+      },
+      {
+        "name": "5b. the page cannot read local files through file://",
+        "ok": true
+      },
+      {
+        "name": "5c. no GitHub credential or token reached the page",
+        "ok": true
+      },
+      {
+        "name": "6. a second browser tab can be opened",
+        "ok": true
+      },
+      {
+        "name": "7. the browser (left) and the editor (right) are visible side by side",
+        "ok": true
+      },
+      {
+        "name": "8. F12 opens Developer Tools for the page",
+        "ok": true
+      },
+      {
+        "name": "9a. Event Minimal Light applies to the browser UI",
+        "ok": true
+      },
+      {
+        "name": "9b. Event Minimal Dark applies back",
+        "ok": true
+      },
+      {
+        "name": "10. resizing the window re-lays out the browser without horizontal overflow",
+        "ok": true
+      },
+      {
+        "name": "12a. regression: the integrated terminal still opens",
+        "ok": true
+      },
+      {
+        "name": "12b. regression: the Source Control view still opens",
+        "ok": true
+      },
+      {
+        "name": "12c. regression: the Extensions view still opens",
+        "ok": true
+      },
+      {
+        "name": "11a. the IDE closes normally (no forced kill)",
+        "ok": true
+      },
+      {
+        "name": "11. after closing and reopening, the browser tabs are restored",
+        "ok": true
+      },
+      {
+        "name": "11b. the restored page loads again when its tab is shown",
+        "ok": true
+      }
+    ]
+  },
+  "fixtureOpenCodeAndHelperProcessesAfterShutdown": 0,
+  "limits": [
+    "The activation phase is confirmed; the specific plugin/dependency remains undetermined.",
+    "Isolation filters non-native namespaces by a process-only official configuration overlay; it does not repair or rewrite the personal profile.",
+    "Configured official connection metadata is not proof of remote model access. Environment declarations alone remain unverified; isolated inference is blocked without an official registered connection.",
+    "Existing inline configuration is never overwritten.",
+    "Only one real Muse Go task was required. DeepSeek Go availability was confirmed in the catalogue; team correction, active cancellation and application/rollback were regressed with local deterministic fixtures, preserving prior real E2E evidence.",
+    "The current real crash test recovered a completed isolated helper. The previous gate proved live OpenCode recovery; no prompt was restarted here.",
+    "Isolated execution currently recognises official registered OpenCode/OpenCode Go connection metadata; other integrations remain unverified in this assisted mode. Normal provider flows are unchanged."
+  ]
+}

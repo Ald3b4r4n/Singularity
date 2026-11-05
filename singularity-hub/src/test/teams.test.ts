@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -17,10 +17,10 @@ function fixture(correct = false, neverFix = false) {
 	writeFileSync(join(workspace, '.gitattributes'), '* -text\n'); writeFileSync(join(workspace, 'sum.cjs'), 'module.exports=(a,b)=>0;\n');
 	writeFileSync(join(workspace, 'sum.test.cjs'), "require('node:test').test('sum',()=>require('node:assert/strict').equal(require('./sum.cjs')(2,3),5));\n");
 	execFileSync('git', ['-C', workspace, 'add', '.']); execFileSync('git', ['-C', workspace, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'base']);
-	const sessions: Session[] = [], prompts: string[] = [];
+	const sessions: Session[] = [], prompts: string[] = [], profileSources: Array<string | undefined> = [];
 	let team: Teams;
 	const comparisons = new Comparisons(join(root, 'groups'), {
-		create: async (directory, service, model) => { const s: Session = { id: randomUUID(), harness: service, model, workspace: directory, status: 'idle' }; sessions.push(s); return s; },
+		create: async (directory, service, model, _role, profileWorkspace) => { profileSources.push(profileWorkspace); const s: Session = { id: randomUUID(), harness: service, model, workspace: directory, status: 'idle' }; sessions.push(s); return s; },
 		list: () => sessions,
 		stop: async id => { sessions.find(s => s.id === id)!.historical = true; },
 		prompt: (id, text) => {
@@ -36,13 +36,13 @@ function fixture(correct = false, neverFix = false) {
 	const solutions = new Solutions(join(root, 'solutions'), (id, workspace, participant) => comparisons.solutionSource(id, workspace, participant));
 	team = new Teams(join(root, 'teams'), comparisons, solutions, () => sessions, () => {});
 	const participants = [0, 1, 2].map(() => ({ service: 'opencode', model: { providerID: 'opencode', modelID: 'fixture' } }));
-	return { root, workspace, sessions, prompts, comparisons, solutions, team, participants };
+	return { root, workspace, sessions, prompts, profileSources, comparisons, solutions, team, participants };
 }
 
 test('team runs sequential roles with separate identical-model sessions, immutable snapshots and real independent tests', async () => {
 	const f = fixture(); const run = await f.team.start({ workspace: f.workspace, text: 'Implement sum.', participants: f.participants });
 	await until(() => f.team.list(run.workspace)[0].state === 'awaiting-validation');
-	const assessed = f.team.list(run.workspace)[0]; assert.equal(assessed.steps.length, 3); assert.equal(assessed.versions.length, 1);
+	const assessed = f.team.list(run.workspace)[0]; assert.equal(assessed.steps.length, 3); assert.deepEqual(f.profileSources, Array(3).fill(realpathSync.native(f.workspace))); assert.equal(assessed.versions.length, 1);
 	assert.equal(assessed.versions[0].review?.verdict, 'approve'); assert.equal(assessed.versions[0].testPlan?.verdict, 'approve');
 	assert.equal(readFileSync(join(f.workspace, 'sum.cjs'), 'utf8'), 'module.exports=(a,b)=>0;\n');
 	const completed = await f.team.validate(run.id, run.workspace, { executable: process.execPath, args: ['--test'], approved: true });

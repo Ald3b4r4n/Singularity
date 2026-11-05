@@ -21,6 +21,7 @@ test('untrusted errors, huge bodies, credential IDs, labels and private paths ne
  assert(!value.includes(secret)); assert(!value.includes('apiKey')); assert(!value.includes('connections'));
  assert.equal(providerDiagnostic('ready', { authentication: 'unknown' }).authentication, 'unknown');
  assert.equal(connectionFacts({ data: [{ id: 'opencode-go', connections: [] }] })[0].authentication, 'not-configured');
+ assert.equal(connectionFacts({ data: [{ id: 'opencode-go', connections: [{ type: 'env', name: secret }] }] })[0].authentication, 'unknown');
 });
 
 import { profileEnvironment, ISOLATED_CONFIG } from '../providerProfiles';
