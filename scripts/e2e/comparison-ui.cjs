@@ -10,7 +10,7 @@ const { chromium } = require('playwright');
 		const errors = []; page.on('pageerror', e => errors.push(e.message));
 		await page.setContent('<html><body><div id="app"></div></body></html>');
 		await page.evaluate(() => { window.messages = []; window.acquireVsCodeApi = () => ({ getState: () => ({}), setState() {}, postMessage: m => window.messages.push(m) }); });
-		for (const file of ['render.js', 'solution.js', 'comparison.js', 'main.js']) { await page.addScriptTag({ path: path.resolve(__dirname, '../../extensions/singularity-agents/media', file) }); }
+		for (const file of ['render.js', 'solution.js', 'team.js', 'comparison.js', 'main.js']) { await page.addScriptTag({ path: path.resolve(__dirname, '../../extensions/singularity-agents/media', file) }); }
 		const post = data => page.evaluate(data => window.postMessage(data, '*'), data);
 		await post({ type: 'state', state: { hub: { status: 'connected' }, sessions: [] } });
 		await page.click('#mode-comparison');

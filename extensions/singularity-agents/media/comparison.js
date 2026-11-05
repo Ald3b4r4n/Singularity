@@ -11,7 +11,7 @@
 		const states = { preparing: 'Preparando', running: 'Em execução', done: 'Concluída', failed: 'Falhou', cancelled: 'Cancelada', unrecoverable: 'Sessão não recuperável' };
 		const mode = document.createElement('nav');
 		mode.className = 'comparison-mode'; mode.setAttribute('aria-label', 'Modo de execução');
-		mode.innerHTML = '<button type="button" id="mode-single" aria-pressed="true">Sessão individual</button><button type="button" id="mode-comparison" aria-pressed="false">Modo Comparação</button>';
+		mode.innerHTML = '<button type="button" id="mode-single" aria-pressed="true">Sessão individual</button><button type="button" id="mode-comparison" aria-pressed="false">Modo Comparação</button><button type="button" id="mode-team" aria-pressed="false">Modo Equipe</button>';
 		app.querySelector('.hd').after(mode);
 		const config = document.createElement('section');
 		config.id = 'comparison-config'; config.hidden = true;
@@ -20,8 +20,10 @@
 		results.id = 'comparison-results'; results.hidden = true;
 		$('sessions').after(results);
 		const solution = window.SingularitySolution(vscode, R, results);
+		const team = window.SingularityTeam(vscode, R, app, solution);
 		function requestCatalog(index) { vscode.postMessage({ type: 'comparisonCatalog', index, service: choices[index].service }); }
 		function setMode(value) {
+			team.setActive(false); $('mode-team').setAttribute('aria-pressed', 'false');
 			active = value;
 			if (!active) { solution.close(); }
 			if (active) { choices.slice(0, count).forEach((c, i) => { if (!c.catalog) { requestCatalog(i); } }); vscode.postMessage({ type: 'comparisonList' }); }
@@ -44,6 +46,7 @@
 		function current() { if (drafting) { return undefined; } return runs.find(r => r.id === selected) ?? runs[0]; }
 		function running() { return current()?.participants.some(p => ['running', 'preparing'].includes(p.status)); }
 		function draw() {
+			if (team.active()) { team.draw(); return; }
 			$('mode-single').setAttribute('aria-pressed', String(!active)); $('mode-comparison').setAttribute('aria-pressed', String(active));
 			config.hidden = !active || !!current(); results.hidden = !active; $('sessions').hidden = active;
 			$('composer').querySelector('.selectors').hidden = active;
@@ -71,7 +74,7 @@
 			}).join('') + '</div>';
 			solution.draw(run);
 		}
-		mode.addEventListener('click', e => { if (e.target.id === 'mode-comparison') { setMode(true); } if (e.target.id === 'mode-single') { setMode(false); } });
+		mode.addEventListener('click', e => { if (e.target.id === 'mode-team') { active = false; solution.close(); team.setActive(true); window.dispatchEvent(new Event('comparisonMode')); return; } if (e.target.id === 'mode-comparison') { setMode(true); } if (e.target.id === 'mode-single') { setMode(false); } });
 		config.addEventListener('change', e => {
 			if (e.target.id === 'comparison-count') { count = Number(e.target.value); if (count === 3 && !choices[2].catalog) { requestCatalog(2); } }
 			else {
@@ -99,7 +102,7 @@
 			if (data.type === 'solutionRecords') { draw(); }
 			if (data.type === 'state') { state = data.state; draw(); }
 			if (data.type === 'use') { setMode(false); }
-			if (data.type === 'comparisons') { runs = data.runs.sort((a, b) => b.createdAt - a.createdAt); state = data.state; draw(); }
+			if (data.type === 'comparisons') { runs = data.runs.filter(r => !r.team).sort((a, b) => b.createdAt - a.createdAt); state = data.state; draw(); }
 			if (data.type === 'failed' || data.type === 'comparisonError') { pending = false; error = data.message; draw(); }
 			if (data.type === 'comparisonCatalog') {
 				const c = choices[data.index]; if (c && (!data.catalog || data.catalog.service === c.service)) { c.catalog = data.catalog; c.error = data.error; drawConfig(); draw(); }
@@ -114,6 +117,7 @@
 		return {
 			draw, active: () => active,
 			submit: () => {
+				if (team.active()) { return team.submit(); }
 				if (!active) { return false; }
 				if (running()) { vscode.postMessage({ type: 'comparisonCancel', id: current().id }); return true; }
 				if (current()) { drafting = true; selected = undefined; error = ''; drawConfig(); draw(); return true; }

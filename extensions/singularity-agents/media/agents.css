@@ -229,3 +229,16 @@ body[data-vscode-theme-id="Event Minimal Dark"] button.primary.interrupt {
 .solution-warning { color: var(--vscode-descriptionForeground); }
 #solution-error { color: var(--vscode-errorForeground); white-space: pre-wrap; }
 .solution-validation input { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 6px; padding: 6px 8px; font: inherit; }
+
+.comparison-mode { flex-wrap: wrap; }
+.team-roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 10px; }
+.team-roles fieldset, .team-role, .team-version { border: 1px solid var(--line); border-radius: 8px; min-width: 0; padding: 10px; }
+.team-roles label { display: block; margin-block: 6px; }
+.team-roles select { width: 100%; }
+#team-config { max-height: 45vh; overflow: auto; }
+.team-heading, .team-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.team-live { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 25vh; overflow: auto; }
+.team-version { margin-top: 12px; }
+.team-version pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 35vh; overflow: auto; }
+.team-version code, .team-task { overflow-wrap: anywhere; }
+@media (max-width: 500px) { .team-roles { grid-template-columns: minmax(0, 1fr); } }

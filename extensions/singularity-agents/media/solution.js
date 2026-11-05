@@ -35,7 +35,7 @@
 		panel.addEventListener('click', e => {
 			const button = e.target.closest('button[data-solution]'); if (!button || button.disabled) { return; }
 			const action = button.dataset.solution;
-			if (action === 'close') { open = false; panel.hidden = true; results.hidden = false; document.getElementById('composer').hidden = false; return; }
+			if (action === 'close') { open = false; panel.hidden = true; results.hidden = false; document.getElementById('composer').hidden = false; window.dispatchEvent(new Event('solutionClosed')); return; }
 			if (action === 'validate') {
 				let args;
 				try { args = JSON.parse(argumentsJson); if (!Array.isArray(args)) { throw new Error(); } } catch { error = 'Informe os argumentos como uma lista JSON.'; draw(); return; }
@@ -52,7 +52,7 @@
 			if (data?.type === 'failed' && open) { error = data.message; pending = false; draw(); }
 		});
 		return {
-			draw,
+			draw, isOpen: () => open,
 			prepare() { open = true; record = undefined; pending = true; error = ''; draw(); },
 			previous(comparisonId) { return records.filter(r => r.comparisonId === (comparisonId || run?.id)).at(-1); },
 			review(id) { vscode.postMessage({ type: 'solutionReview', id }); },

@@ -183,6 +183,30 @@ class AgentsViewProvider {
 
 	async _operate(message) {
 		const post = payload => this._view?.webview.postMessage(payload);
+		if (message?.type?.startsWith('team')) {
+			const workspace = this._workspace();
+			if (!workspace || !vscode.workspace.isTrusted) { throw new Error('Abra um workspace confiável para a equipe.'); }
+			if (message.type === 'teamCatalog') {
+				try { post({ type: 'teamCatalog', index: message.index, catalog: await this._hub.catalog({ service: serviceOf(message.service), workspace }) }); }
+				catch (error) { post({ type: 'teamCatalog', index: message.index, error: error.message }); } return;
+			}
+			if (message.type === 'teamInspect') {
+				if (!this._visibleState().sessions.some(s => s.id === message.sessionId)) { throw new Error('Participante indisponível.'); }
+				this._targetId = message.sessionId; post({ type: 'use', id: message.sessionId }); return;
+			}
+			const methods = { teamStart: 'teams.start', teamCancel: 'teams.cancel', teamResume: 'teams.resume', teamChoose: 'teams.choose', teamPrepare: 'teams.prepare', teamValidate: 'teams.validate' };
+			const method = methods[message.type];
+			if (!method) { await this._refreshComparisons(); return; }
+			let command;
+			if (message.type === 'teamValidate') {
+				const executable = message.executable === 'node' ? require('node:path').join(__dirname, '..', '..', 'singularity-hub', 'runtime', 'node.exe') : message.executable;
+				const answer = await vscode.window.showWarningMessage('Autorizar este comando para esta versão e as correções configuradas, na cópia Git temporária e com as permissões da sua conta? ' + executable + ' ' + JSON.stringify(message.args), { modal: true }, 'Executar testes');
+				if (answer !== 'Executar testes') { return; } command = { executable, args: message.args, approved: true };
+			}
+			const result = await this._hub.sessionRequest(method, { workspace, id: message.id, role: message.role, text: message.text, participants: message.participants, maxCorrections: message.maxCorrections, command });
+			if (message.type === 'teamPrepare') { post({ type: 'solutionReview', record: result }); }
+			post({ type: 'teamReply', operation: message.type, result }); await this._refreshComparisons(); return;
+		}
 		if (message?.type?.startsWith('solution')) {
 			const workspace = this._workspace();
 			if (!workspace || !vscode.workspace.isTrusted) { throw new Error('Abra um workspace confiável para revisar a aplicação.'); }
@@ -351,6 +375,7 @@ class AgentsViewProvider {
 		try {
 			this._comparisons = await this._hub.sessionRequest('comparisons.list', { workspace: this._workspace() });
 			this._view?.webview.postMessage({ type: 'comparisons', runs: this._comparisons, state: this._visibleState() });
+			this._view?.webview.postMessage({ type: 'teams', runs: await this._hub.sessionRequest('teams.list', { workspace: this._workspace() }), state: this._visibleState() });
 			this._view?.webview.postMessage({ type: 'solutionRecords', records: await this._hub.sessionRequest('solutions.list', { workspace: this._workspace() }) });
 			this._postSessions();
 		} catch (error) { this._view?.webview.postMessage({ type: 'comparisonError', message: error.message }); }
@@ -398,6 +423,7 @@ class AgentsViewProvider {
 <div id="app"></div>
 <script nonce="${nonce}" src="${media('render.js')}"></script>
 <script nonce="${nonce}" src="${media('solution.js')}"></script>
+<script nonce="${nonce}" src="${media('team.js')}"></script>
 <script nonce="${nonce}" src="${media('comparison.js')}"></script>
 <script nonce="${nonce}" src="${media(script)}"></script>
 </body>
