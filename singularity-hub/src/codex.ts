@@ -114,11 +114,11 @@ export interface CodexFacts {
 	login: 'chatgpt' | 'api-key' | 'other';
 }
 
-let cachedFacts: { at: number; promise: Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string }> } | undefined;
+let cachedFacts: { at: number; promise: Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }> } | undefined;
 
-export function inspectCodex(refresh = false): Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string }> {
+export function inspectCodex(refresh = false): Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }> {
 	if (cachedFacts && !refresh && Date.now() - cachedFacts.at < factsTtlMs) { return cachedFacts.promise; }
-	const promise = (async (): Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string }> => {
+	const promise = (async (): Promise<CodexFacts | { reason: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }> => {
 		const executable = codexExecutable();
 		if (!executable) { return { reason: 'Codex CLI ou o helper Windows do Singularity não foi encontrado.' }; }
 		const [version, login, models] = await Promise.all([capture(executable, ['--version']), capture(executable, ['login', 'status']), capture(executable, ['debug', 'models'], 30000)]);
@@ -127,10 +127,14 @@ export function inspectCodex(refresh = false): Promise<CodexFacts | { reason: st
 		// `codex login status` prints its answer on stderr.
 		const loginText = `${login.stdout}
 ${login.stderr}`.trim();
-		if (login.code !== 0 || !/^Logged in/im.test(loginText)) { return { authenticationRequired: true, version: versionText, reason: 'Entre no Codex CLI (`codex login`) antes de usar este serviço.' }; }
+		if (login.code !== 0 || !/^Logged in/im.test(loginText)) {
+			return /not logged in|not signed in/i.test(loginText)
+				? { authenticationRequired: true, version: versionText, reason: 'Conecte a conta no Codex CLI antes de usar este provedor.' }
+				: { version: versionText, reason: 'Não foi possível verificar a conta no Codex CLI.' };
+		}
 		let parsed: CodexModel[] = [];
 		try { parsed = parseCodexModels(JSON.parse(models.stdout)); } catch { /* an unreadable catalog offers nothing */ }
-		if (models.code !== 0 || !parsed.length) { return { reason: 'O catálogo de modelos desta versão do Codex CLI não pôde ser confirmado.' }; }
+		if (models.code !== 0 || !parsed.length) { return { authenticated: true, version: versionText, reason: 'O catálogo de modelos desta versão do Codex CLI não pôde ser confirmado.' }; }
 		const method = /ChatGPT/i.test(loginText) ? 'chatgpt' : /API key/i.test(loginText) ? 'api-key' : 'other';
 		return { executable, version: versionText, models: parsed, login: method };
 	})();

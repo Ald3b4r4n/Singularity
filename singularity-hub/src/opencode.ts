@@ -458,7 +458,13 @@ export class OpenCodeSessions {
 			const prompt = text === undefined && userIndex >= 0 ? messages[userIndex].content
 				?.filter(part => part.type === 'text').map(part => part.text ?? '').join('').slice(0, 16000) : undefined;
 			this.update(item, { ...(prompt ? { prompt } : {}), status, result, updatedAt: Date.now(), model: modelOf(data.model) ?? item.view.model, summary: data.outcome === 'interrupted' ? 'Execução interrompida.'
-				: status === 'failed' ? `O OpenCode informou falha${http}. Confira o modelo e a autenticação na sua configuração do OpenCode.` : undefined });
+				: status === 'failed' ? providerStatus === 401
+					? 'A conta do modelo foi recusada (HTTP 401). Reconecte-a em Gerenciar provedores.'
+					: providerStatus === 403
+						? 'A conta ou integração não tem acesso ao modelo selecionado (HTTP 403). Escolha outro modelo ou verifique sua conta.'
+						: providerStatus === 429
+							? 'O provedor atingiu um limite de uso (HTTP 429). Tente mais tarde ou selecione outro modelo.'
+							: `O OpenCode informou falha${http}. Confira a conexão e a disponibilidade do modelo.` : undefined });
 			const savedPrompt = text ?? prompt ?? this.history?.turns(item.view.id).at(-1)?.prompt;
 			if (savedPrompt) { this.saveTurn(item, savedPrompt); }
 		} catch (error) {

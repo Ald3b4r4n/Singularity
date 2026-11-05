@@ -89,22 +89,27 @@ export function parseClaudeHelp(help: string): { aliases: string[]; efforts: str
 	return { aliases, efforts };
 }
 
-let cachedFacts: { at: number; promise: Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string }> } | undefined;
+let cachedFacts: { at: number; promise: Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }> } | undefined;
 
 /** Version, documented models and efforts, and whether the CLI is logged in. Cached for a minute. */
-export function inspectClaude(refresh = false): Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string }> {
+export function inspectClaude(refresh = false): Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }> {
 	if (cachedFacts && !refresh && Date.now() - cachedFacts.at < factsTtlMs) { return cachedFacts.promise; }
-	const promise = (async (): Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string }> => {
+	const promise = (async (): Promise<ClaudeFacts | { reason: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }> => {
 		const executable = claudeExecutable();
 		if (!executable) { return { reason: 'Claude Code CLI ou o helper Windows do Singularity não foi encontrado.' }; }
 		const [version, help, auth] = await Promise.all([capture(executable, ['--version']), capture(executable, ['--help']), capture(executable, ['auth', 'status', '--json'])]);
 		const versionText = /^\d+\.\d+\.\d+/.exec(version.stdout.trim())?.[0];
 		if (version.code !== 0 || !versionText) { return { reason: 'Não foi possível confirmar a versão do Claude Code.' }; }
 		const { aliases, efforts } = parseClaudeHelp(help.stdout);
-		if (help.code !== 0 || !aliases.length || !efforts.length) { return { reason: 'O catálogo headless desta versão do Claude Code não pôde ser confirmado.' }; }
-		let loggedIn = false;
-		try { loggedIn = JSON.parse(auth.stdout).loggedIn === true; } catch { /* the CLI answered something unusable: treated as not logged in */ }
+
+		let loggedIn: boolean | undefined;
+		try {
+			const state = JSON.parse(auth.stdout).loggedIn;
+			if (typeof state === 'boolean') { loggedIn = state; }
+		} catch { /* An unreadable response is not proof the user signed out. */ }
+		if (loggedIn === undefined) { return { version: versionText, reason: 'Não foi possível verificar a conta no Claude Code.' }; }
 		if (!loggedIn) { return { authenticationRequired: true, version: versionText, reason: 'Entre no Claude Code CLI (`claude auth login`) antes de usar este serviço.' }; }
+		if (help.code !== 0 || !aliases.length || !efforts.length) { return { authenticated: true, version: versionText, reason: 'O catálogo headless desta versão do Claude Code não pôde ser confirmado.' }; }
 		return { executable, version: versionText, aliases, efforts, loggedIn };
 	})();
 	cachedFacts = { at: Date.now(), promise };

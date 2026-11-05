@@ -23,7 +23,7 @@ async function officialVersion(id: InstallProviderId): Promise<string | undefine
 
 export async function inspectProviders(probeOpenCode: () => Promise<boolean>, refresh: boolean) {
 	const inspect = async (id: string, name: string, source: string, executable: string | undefined,
-		probe: () => Promise<{ reason?: string; authenticationRequired?: boolean; version?: string }>) => {
+		probe: () => Promise<{ reason?: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }>) => {
 		const latest = refresh ? await officialVersion(id as InstallProviderId) : undefined;
 		const base = { id, name, source, executable, latest, maintenance: providerMaintenance(id as InstallProviderId, executable), verifiedVersion: installOffer(id)?.version };
 		if (!executable) {
@@ -58,9 +58,9 @@ export async function inspectProviders(probeOpenCode: () => Promise<boolean>, re
 			return { version, reason: await probeOpenCode() ? undefined : 'Nenhum modelo utilizável foi encontrado no catálogo.' };
 		}),
 		inspect('claude-code', 'Claude Code', 'https://code.claude.com/docs/en/setup', claudeExecutable(), () => inspectClaude(refresh).then(facts =>
-			'reason' in facts ? facts : { version: facts.version })),
+			'reason' in facts ? facts : { version: facts.version, authenticated: true })),
 		inspect('codex-cli', 'Codex CLI', 'https://github.com/openai/codex', codexExecutable(), () => inspectCodex(refresh).then(facts =>
-			'reason' in facts ? facts : { version: facts.version })),
+			'reason' in facts ? facts : { version: facts.version, authenticated: true })),
 		Promise.resolve({ id: 'gemini-cli', name: 'Gemini CLI', status: 'planned' })
 	]);
 }
