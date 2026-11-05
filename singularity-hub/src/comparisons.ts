@@ -11,7 +11,7 @@ import { parseSelection } from './catalog';
 
 const execute = promisify(execFile);
 const services = ['opencode', 'claude-code', 'codex-cli'];
-export type ParticipantStatus = 'preparing' | 'running' | 'done' | 'failed' | 'cancelled' | 'unrecoverable';
+export type ParticipantStatus = 'preparing' | 'running' | 'done' | 'failed' | 'cancelled' | 'unrecoverable' | 'idle';
 export interface Participant {
 	id: string;
 	service: string;
@@ -19,6 +19,7 @@ export interface Participant {
 	workspace: string;
 	sessionId?: string;
 	status: ParticipantStatus;
+	role?: 'implementer' | 'reviewer' | 'tester';
 	startedAt?: number;
 	endedAt?: number;
 	error?: string;
@@ -31,10 +32,12 @@ export interface Comparison {
 	prompt: string;
 	createdAt: number;
 	selected?: string;
+	team?: boolean;
+	workflowId?: string;
 	participants: Participant[];
 }
 interface Adapter {
-	create(workspace: string, service: string, model: ModelInfo): Promise<Session>;
+	create(workspace: string, service: string, model: ModelInfo, role?: 'implementer' | 'reviewer' | 'tester'): Promise<Session>;
 	prompt(id: string, text: string): void;
 	stop(id: string): Promise<void>;
 	list(): Session[];
@@ -108,7 +111,7 @@ export class Comparisons {
 		return stdout;
 	}
 
-	async create(params: unknown): Promise<Comparison> {
+	async create(params: unknown, team = false, workflowId?: string): Promise<Comparison> {
 		const input = params as { workspace?: unknown; text?: unknown; participants?: unknown };
 		if (this.creating || typeof input?.workspace !== 'string' || !isAbsolute(input.workspace) || typeof input.text !== 'string' || !input.text.trim() || input.text.length > 16000 || !Array.isArray(input.participants) || input.participants.length < 2 || input.participants.length > 3) { throw new Error('Escolha uma tarefa e dois ou três agentes.'); }
 		if ([...this.records.values()].some(r => r.participants.some(p => p.status === 'preparing' || p.status === 'running'))) { throw new Error('Aguarde ou cancele a comparação ativa antes de iniciar outra.'); }
@@ -118,7 +121,7 @@ export class Comparisons {
 			if (!model) { throw new Error('Selecione o modelo de cada participante.'); }
 			return { service: choice.service, model };
 		});
-		if (new Set(choices.map(c => c.service + JSON.stringify(c.model))).size !== choices.length) { throw new Error('Selecione agentes ou modelos distintos.'); }
+		if (!team && new Set(choices.map(c => c.service + JSON.stringify(c.model))).size !== choices.length) { throw new Error('Selecione agentes ou modelos distintos.'); }
 		this.creating = true;
 		try {
 			const workspace = await realpath(input.workspace);
@@ -129,9 +132,9 @@ export class Comparisons {
 			ensureSecureDir(this.directory);
 			this.directory = realpathSync.native(this.directory);
 			const id = randomUUID();
-			const record: Comparison = { id, workspace, base, prompt: input.text, createdAt: Date.now(), participants: choices.map(c => {
+			const record: Comparison = { id, workspace, base, prompt: input.text, createdAt: Date.now(), team, workflowId, participants: choices.map((c, index) => {
 				const participantId = randomUUID();
-				return { ...c, id: participantId, workspace: join(this.worktreeRoot(workspace, id), participantId), status: 'preparing' };
+				return { ...c, ...(team ? { role: (['implementer', 'reviewer', 'tester'] as const)[index] } : {}), id: participantId, workspace: join(this.worktreeRoot(workspace, id), participantId), status: 'preparing' };
 			}) };
 			const worktreeRoot = this.worktreeRoot(workspace, id);
 			await mkdir(dirname(worktreeRoot), { recursive: true });
@@ -146,7 +149,7 @@ export class Comparisons {
 			try {
 				for (const p of record.participants) {
 					await this.git(workspace, ['worktree', 'add', '--detach', p.workspace, base]);
-					const session = await this.adapter.create(p.workspace, p.service, p.model);
+					const session = await this.adapter.create(p.workspace, p.service, p.model, p.role);
 					p.sessionId = session.id;
 					this.save(record);
 				}
@@ -158,6 +161,7 @@ export class Comparisons {
 				this.save(record);
 				return structuredClone(record);
 			}
+			if (team) { for (const p of record.participants) { p.status = 'idle'; } this.save(record); return structuredClone(record); }
 			for (const p of record.participants) { p.status = 'running'; p.startedAt = Date.now(); }
 			this.save(record);
 			for (const p of record.participants) {
@@ -169,6 +173,37 @@ export class Comparisons {
 		} finally { this.creating = false; }
 	}
 
+	active(): boolean { return this.creating || [...this.records.values()].some(r => r.participants.some(p => p.status === 'preparing' || p.status === 'running')); }
+	async teamPrompt(id: string, workspace: string, participantId: string, text: string): Promise<void> {
+		const record = this.get(id, workspace), participant = record.participants.find(p => p.id === participantId);
+		if (!record.team || !participant || participant.status !== 'idle') { throw new Error('Etapa indisponível para envio.'); }
+		await this.verifyTree(record, participant);
+		participant.status = 'running'; participant.startedAt = Date.now(); this.save(record);
+		try { this.adapter.prompt(participant.sessionId!, text); }
+		catch (error) { participant.status = 'failed'; participant.error = String(error); this.save(record); throw error; }
+	}
+	async teamStopRole(id: string, workspace: string, participantId: string): Promise<void> {
+		const record = this.get(id, workspace), p = record.participants.find(p => p.id === participantId);
+		if (!record.team || !p) { throw new Error('Participante indisponível.'); }
+		const session = this.adapter.list().find(s => s.id === p.sessionId);
+		if (session && !session.historical) { await this.stopParticipant(p); }
+	}
+	async teamStop(id: string, workspace: string): Promise<void> {
+		const record = this.get(id, workspace);
+		if (!record.team) { throw new Error('Equipe indisponível.'); }
+		for (const p of record.participants) {
+			const session = this.adapter.list().find(s => s.id === p.sessionId);
+			if (session && !session.historical) { await this.stopParticipant(p); }
+			if (['preparing', 'idle', 'running'].includes(p.status)) { p.status = 'cancelled'; p.endedAt = Date.now(); }
+		}
+		this.save(record);
+	}
+	async teamResult(id: string, workspace: string, participantId: string): Promise<string> {
+		const record = this.get(id, workspace), p = record.participants.find(p => p.id === participantId);
+		if (!record.team || !p) { throw new Error('Participante indisponível.'); }
+		const session = this.adapter.list().find(s => s.id === p.sessionId);
+		return session?.result ?? (await this.adapter.history?.(p.sessionId!, p.workspace))?.at(-1)?.result ?? '';
+	}
 	/** Terminal adapter events are reconciled without resending a prompt. */
 	onSession(session: Session): void {
 		for (const record of this.records.values()) {

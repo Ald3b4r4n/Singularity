@@ -13,7 +13,7 @@ const maxBytes = 32 * 1024 * 1024;
 const digest = (data: Buffer | string): string => createHash('sha256').update(data).digest('hex');
 interface FileState { hash: string; bytes: number; mode: number }
 export interface SolutionFile { path: string; before?: FileState; after?: FileState; kind: 'added' | 'modified' | 'removed'; binary: boolean }
-interface Validation { state: 'unavailable' | 'running' | 'passed' | 'failed' | 'interrupted'; executable?: string; args?: string[]; exitCode?: number | null; output?: string; at?: number }
+interface Validation { state: 'unavailable' | 'running' | 'passed' | 'failed' | 'interrupted' | 'cancelled'; executable?: string; args?: string[]; exitCode?: number | null; output?: string; at?: number }
 export interface Solution {
 	id: string; comparisonId: string; participantId: string; workspace: string; source: string; base: string;
 	provider: string; model: Participant['model']; createdAt: number; sourceFingerprint: string; indexHash: string;
@@ -91,6 +91,7 @@ export class Solutions {
 	private readonly records = new Map<string, Solution>();
 	private readonly storage: SessionHistory;
 	private readonly busy = new Set<string>();
+	private readonly validations = new Map<string, { pipe: string; control: string; pid: number; cancelled: boolean }>();
 	constructor(private readonly directory: string, private readonly source: SolutionSource, private readonly fault?: (index: number) => void) {
 		this.storage = new SessionHistory(join(directory, 'records'), join(__dirname, 'singularity-job.exe'), 'solution');
 	}
@@ -201,6 +202,27 @@ export class Solutions {
 		} finally { this.busy.delete(root); }
 	}
 
+	async exportSnapshot(id: string, workspace: string, destination: string): Promise<string> {
+		const record = this.get(id, workspace);
+		if (destination.toLowerCase() === record.workspace.toLowerCase() || (await fs.lstat(destination)).isSymbolicLink()) { throw new Error('O snapshot exige outro worktree isolado.'); }
+		if (await textGit(destination, ['rev-parse', 'HEAD']) !== record.base || await textGit(destination, ['status', '--porcelain=v1', '--untracked-files=all'])) { throw new Error('O contexto de destino deve estar limpo no commit-base.'); }
+		for (let index = 0; index < record.files.length; index++) {
+			const file = record.files[index]; safeSolutionPath(file.path);
+			let parent = destination;
+			for (const part of file.path.split('/').slice(0, -1)) {
+				parent = join(parent, part); await fs.mkdir(parent, { recursive: true });
+				if ((await fs.lstat(parent)).isSymbolicLink()) { throw new Error('Contexto com link inseguro.'); }
+			}
+			const target = join(destination, file.path);
+			await readFileState(destination, file.path);
+			if (file.after) { await fs.writeFile(target, await this.snapshot(record, index, 'after')); }
+			else { await fs.unlink(target); }
+		}
+		return this.fingerprint(destination, record.base);
+	}
+	async snapshotFingerprint(id: string, workspace: string, destination: string): Promise<string> {
+		return this.fingerprint(destination, this.get(id, workspace).base);
+	}
 	async review(id: string, workspace: string): Promise<unknown> {
 		const record = this.get(id, workspace);
 		const patch = await fs.readFile(join(this.location(id), 'solution.patch'));
@@ -217,16 +239,25 @@ export class Solutions {
 		try {
 			const pipe = randomUUID(), control = randomBytes(32).toString('hex');
 			const child = spawn(join(__dirname, 'singularity-job.exe'), ['run-test', String(process.pid), pipe, currentWindowsUser().sid, this.stage(id), command.executable, ...command.args], { env: { ...process.env, SINGULARITY_JOB_CONTROL: control }, windowsHide: true, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+			const execution = { pipe, control, pid: child.pid ?? 0, cancelled: false }; this.validations.set(id, execution);
 			let output = ''; let timedOut = false;
 			child.stdout.on('data', data => { output = (output + data.toString('utf8')).slice(-65536); });
 			child.stderr.on('data', data => { output = (output + data.toString('utf8')).slice(-65536); });
 			const timer = setTimeout(() => { timedOut = true; const stopped = spawnSync(join(__dirname, 'singularity-job.exe'), ['stop-job', pipe, String(child.pid)], { input: control, windowsHide: true, timeout: 5000 }); if (stopped.status !== 0) { child.kill(); } }, 60000);
 			const exitCode = await new Promise<number | null>((resolveExit, reject) => { child.once('close', resolveExit); child.once('error', reject); }).finally(() => clearTimeout(timer));
 			const stageChanged = !!(await textGit(this.stage(id), ['diff', '--name-only', '--no-ext-diff', '--no-textconv'])) || await textGit(this.stage(id), ['write-tree']) !== record.tree;
-			record.validation = { ...record.validation, state: exitCode === 0 && !timedOut && !stageChanged ? 'passed' : 'failed', exitCode, output: output + (stageChanged ? '\nO comando alterou o snapshot validado.' : '') };
+			record.validation = { ...record.validation, state: execution.cancelled ? 'cancelled' : exitCode === 0 && !timedOut && !stageChanged ? 'passed' : 'failed', exitCode, output: output + (stageChanged ? '\nO comando alterou o snapshot validado.' : '') };
 			record.state = 'prepared'; this.save(record); return structuredClone(record);
 		} catch (error) { record.state = 'prepared'; record.validation.state = 'failed'; record.error = error instanceof Error ? error.message : 'Teste não confirmado.'; this.save(record); throw error; }
-		finally { this.busy.delete(record.workspace); }
+		finally { this.validations.delete(id); this.busy.delete(record.workspace); }
+	}
+	async cancelValidation(id: string, workspace: string): Promise<void> {
+		this.get(id, workspace);
+		const execution = this.validations.get(id);
+		if (!execution) { return; }
+		execution.cancelled = true;
+		const stopped = spawnSync(join(__dirname, 'singularity-job.exe'), ['stop-job', execution.pipe, String(execution.pid)], { input: execution.control, windowsHide: true, timeout: 5000 });
+		if (stopped.status !== 0) { throw new Error('O encerramento do teste independente não foi confirmado.'); }
 	}
 	private async lockPath(record: Solution): Promise<string> {
 		return resolve(record.workspace, await textGit(record.workspace, ['rev-parse', '--git-path', 'singularity-solution.lock']));

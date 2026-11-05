@@ -1,3 +1,4 @@
+import { Teams } from './teams';
 import { Solutions } from './solutions';
 import { Comparisons } from './comparisons';
 import { join } from 'node:path';
@@ -62,7 +63,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -74,6 +75,7 @@ export class HubServer {
 	readonly events = new EventLog();
 	private readonly comparisons: Comparisons;
 	private readonly solutions: Solutions;
+	private readonly teams: Teams;
 	private sessionRequests = 0;
 	private readonly opencode: OpenCodeSessions;
 	private readonly claude: ClaudeCodeSessions;
@@ -93,9 +95,9 @@ export class HubServer {
 		this.claude = new ClaudeCodeSessions(event => this.publish(event), opts.historyDir);
 		this.codex = new CodexSessions(event => this.publish(event), opts.historyDir);
 		this.comparisons = new Comparisons(join(opts.historyDir ?? join(hubHome(), 'history'), 'comparisons'), {
-			create: async (workspace, service, model) => {
+			create: async (workspace, service, model, role) => {
 				this.sessionRequests++;
-				try { return await this.operateSession('session.create', { workspace, service, model, permissionMode: service === 'claude-code' ? 'acceptEdits' : service === 'codex-cli' ? 'workspace-write' : undefined }) as import('./protocol').Session; }
+				try { return await this.operateSession('session.create', { workspace, service, model, permissionMode: service === 'claude-code' ? (role && role !== 'implementer' ? 'plan' : 'acceptEdits') : service === 'codex-cli' ? (role && role !== 'implementer' ? 'read-only' : 'workspace-write') : undefined }) as import('./protocol').Session; }
 				finally { this.sessionRequests--; }
 			},
 			prompt: (id, text) => {
@@ -107,6 +109,7 @@ export class HubServer {
 			list: () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()]
 		}, () => this.publish({ type: 'comparison.changed' }));
 		this.solutions = new Solutions(join(opts.historyDir ?? join(hubHome(), 'history'), 'solutions'), (id, workspace, participantId) => this.comparisons.solutionSource(id, workspace, participantId));
+		this.teams = new Teams(join(opts.historyDir ?? join(hubHome(), 'history'), 'teams'), this.comparisons, this.solutions, () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()], () => this.publish({ type: 'comparison.changed' }));
 		this.limits = { ...DEFAULT_LIMITS, ...opts.limits };
 		this.http = http.createServer((req, res) => this.onHttp(req, res));
 		this.wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxPayloadBytes, perMessageDeflate: false });
@@ -130,6 +133,7 @@ export class HubServer {
 		this.codex.recover();
 		await this.comparisons.recover();
 		await this.solutions.recover();
+		await this.teams.recover();
 		return new Promise((resolve, reject) => {
 			this.http.once('error', reject);
 			// Loopback only, never 0.0.0.0 or ::
@@ -145,7 +149,7 @@ export class HubServer {
 
 	/** Entry point for adapters (later tasks): publish a sequenced event to subscribers. */
 	publish(event: Omit<HubEvent, 'seq'>): HubEvent {
-		if (event.type === 'session.changed' && event.data) { this.comparisons?.onSession(event.data as import('./protocol').Session); }
+		if (event.type === 'session.changed' && event.data) { this.comparisons?.onSession(event.data as import('./protocol').Session); this.teams?.onSession(event.data as import('./protocol').Session); }
 		const stored = this.events.append(event);
 		for (const c of this.clients) {
 			for (const [subscriptionId, sub] of c.subscriptions) {
@@ -312,7 +316,7 @@ export class HubServer {
 			if (isNotification) {
 				return;
 			}
-			if ((request.method.startsWith('comparisons.') || request.method.startsWith('solutions.')) && e instanceof Error && !(e instanceof RpcError)) {
+			if ((request.method.startsWith('comparisons.') || request.method.startsWith('solutions.') || request.method.startsWith('teams.')) && e instanceof Error && !(e instanceof RpcError)) {
 				this.respondError(client, id, { code: -32006, message: e.message });
 			} else if (e instanceof RpcError) {
 				this.respondError(client, id, { code: e.code, message: e.message, data: e.data });
@@ -334,6 +338,23 @@ export class HubServer {
 			throw new RpcError(ErrorCode.NotInitialized, 'Call hub.hello first');
 		}
 		switch (method) {
+			case 'teams.start': return this.teams.start(request.params);
+			case 'teams.list':
+			case 'teams.cancel':
+			case 'teams.resume':
+			case 'teams.validate':
+			case 'teams.choose':
+			case 'teams.prepare': {
+				const p = request.params as { id?: unknown; workspace?: unknown; role?: unknown; command?: unknown };
+				if (typeof p?.workspace !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Workspace required'); }
+				if (method === 'teams.list') { return this.teams.list(p.workspace); }
+				if (typeof p.id !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Team required'); }
+				if (method === 'teams.cancel') { if (p.role !== undefined && typeof p.role !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Role required'); } await this.teams.cancel(p.id, p.workspace, p.role as string | undefined); return { cancelled: true }; }
+				if (method === 'teams.resume') { return this.teams.resume(p.id, p.workspace); }
+				if (method === 'teams.validate') { return this.teams.validate(p.id, p.workspace, p.command as { executable?: unknown; args?: unknown; approved?: unknown }); }
+				if (method === 'teams.choose') { this.teams.choose(p.id, p.workspace); return { chosen: true }; }
+				return this.teams.prepare(p.id, p.workspace);
+			}
 			case 'solutions.apply':
 			case 'solutions.undo':
 			case 'solutions.prepare':
@@ -352,6 +373,7 @@ export class HubServer {
 				throw new RpcError(ErrorCode.InvalidParams, 'Invalid solution parameters');
 			}
 			case 'comparisons.create':
+				if (this.teams.active()) { throw new RpcError(-32006, 'Encerre a equipe ativa antes de iniciar comparação.'); }
 				return this.comparisons.create(request.params);
 			case 'comparisons.list':
 			case 'comparisons.cancel':
@@ -520,7 +542,7 @@ export class HubServer {
 		return {
 			protocol: version,
 			hub: { name: HUB_NAME, version: HUB_VERSION, instanceId: this.opts.instanceId, pid: process.pid, startedAt: this.opts.startedAt },
-			capabilities: ['opencode.v2', 'claude-code.v1', 'codex-cli.v1', 'catalog.v1', 'session.model.v1', 'comparisons.v1'],
+			capabilities: ['opencode.v2', 'claude-code.v1', 'codex-cli.v1', 'catalog.v1', 'session.model.v1', 'comparisons.v1', 'teams.v1'],
 			seq: this.events.seq,
 		};
 	}

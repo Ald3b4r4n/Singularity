@@ -6,7 +6,7 @@
 		let lastSignature;
 		let executable = 'node', argumentsJson = '["--test"]', allowUntested = false;
 		const labels = { prepared: 'Preparada para revisão', validating: 'Validação em andamento', applying: 'Aplicação em andamento', applied: 'Aplicada ao projeto', 'rolling-back': 'Desfazendo aplicação', 'rolled-back': 'Aplicação desfeita', conflict: 'Operação bloqueada por conflito' };
-		const tests = { unavailable: 'Nenhum teste independente configurado ou autorizado', running: 'Testes independentes em execução', passed: 'Testes independentes aprovados', failed: 'Testes independentes falharam', interrupted: 'Validação independente interrompida' };
+		const tests = { unavailable: 'Nenhum teste independente configurado ou autorizado', running: 'Testes independentes em execução', passed: 'Testes independentes aprovados', failed: 'Testes independentes falharam', interrupted: 'Validação independente interrompida', cancelled: 'Validação independente cancelada' };
 		function draw(comparison) {
 			if (comparison !== undefined) { run = comparison; }
 			panel.hidden = !open;
