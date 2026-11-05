@@ -1,3 +1,6 @@
+import { Comparisons } from './comparisons';
+import { join } from 'node:path';
+import { hubHome } from './paths';
 import { claudeExecutable } from './claude';
 import { codexExecutable } from './codex';
 import { cancelProviderInstall, installProvider, providerBusy, ProviderInstallError } from './providerInstall';
@@ -58,7 +61,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -68,6 +71,7 @@ class RpcError extends Error {
 
 export class HubServer {
 	readonly events = new EventLog();
+	private readonly comparisons: Comparisons;
 	private sessionRequests = 0;
 	private readonly opencode: OpenCodeSessions;
 	private readonly claude: ClaudeCodeSessions;
@@ -86,6 +90,20 @@ export class HubServer {
 		this.opencode = new OpenCodeSessions(event => this.publish(event), opts.recoveryDir, opts.historyDir);
 		this.claude = new ClaudeCodeSessions(event => this.publish(event), opts.historyDir);
 		this.codex = new CodexSessions(event => this.publish(event), opts.historyDir);
+		this.comparisons = new Comparisons(join(opts.historyDir ?? join(hubHome(), 'history'), 'comparisons'), {
+			create: async (workspace, service, model) => {
+				this.sessionRequests++;
+				try { return await this.operateSession('session.create', { workspace, service, model, permissionMode: service === 'claude-code' ? 'acceptEdits' : service === 'codex-cli' ? 'workspace-write' : undefined }) as import('./protocol').Session; }
+				finally { this.sessionRequests--; }
+			},
+			prompt: (id, text) => {
+				const owner = this.claude.has(id) ? this.claude : this.codex.has(id) ? this.codex : this.opencode;
+				owner.prompt(id, text);
+			},
+			stop: async id => { await this.operateSession('session.stop', { id }); },
+			history: async (id, workspace) => await this.operateSession('session.history', { id, workspace }) as import('./history').Turn[],
+			list: () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()]
+		}, () => this.publish({ type: 'comparison.changed' }));
 		this.limits = { ...DEFAULT_LIMITS, ...opts.limits };
 		this.http = http.createServer((req, res) => this.onHttp(req, res));
 		this.wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxPayloadBytes, perMessageDeflate: false });
@@ -107,6 +125,7 @@ export class HubServer {
 		await this.opencode.recover();
 		this.claude.recover();
 		this.codex.recover();
+		await this.comparisons.recover();
 		return new Promise((resolve, reject) => {
 			this.http.once('error', reject);
 			// Loopback only, never 0.0.0.0 or ::
@@ -122,6 +141,7 @@ export class HubServer {
 
 	/** Entry point for adapters (later tasks): publish a sequenced event to subscribers. */
 	publish(event: Omit<HubEvent, 'seq'>): HubEvent {
+		if (event.type === 'session.changed' && event.data) { this.comparisons?.onSession(event.data as import('./protocol').Session); }
 		const stored = this.events.append(event);
 		for (const c of this.clients) {
 			for (const [subscriptionId, sub] of c.subscriptions) {
@@ -288,7 +308,9 @@ export class HubServer {
 			if (isNotification) {
 				return;
 			}
-			if (e instanceof RpcError) {
+			if (request.method.startsWith('comparisons.') && e instanceof Error && !(e instanceof RpcError)) {
+				this.respondError(client, id, { code: -32006, message: e.message });
+			} else if (e instanceof RpcError) {
 				this.respondError(client, id, { code: e.code, message: e.message, data: e.data });
 			} else {
 				this.opts.logger.log('error', 'internal error', { method: request.method });
@@ -308,6 +330,23 @@ export class HubServer {
 			throw new RpcError(ErrorCode.NotInitialized, 'Call hub.hello first');
 		}
 		switch (method) {
+			case 'comparisons.create':
+				return this.comparisons.create(request.params);
+			case 'comparisons.list':
+			case 'comparisons.cancel':
+			case 'comparisons.inspect':
+			case 'comparisons.select':
+			case 'comparisons.cleanup': {
+				const p = request.params as { workspace?: unknown; id?: unknown; participantId?: unknown };
+				if (typeof p?.workspace !== 'string' || (method !== 'comparisons.list' && typeof p.id !== 'string') || (p.participantId !== undefined && typeof p.participantId !== 'string')) { throw new RpcError(ErrorCode.InvalidParams, 'Invalid comparison parameters'); }
+				if (method === 'comparisons.list') { return this.comparisons.list(p.workspace); }
+				if (method === 'comparisons.cancel') { await this.comparisons.cancel(p.id as string, p.workspace, p.participantId as string | undefined); return { cancelled: true }; }
+				if (method === 'comparisons.cleanup') { await this.comparisons.cleanup(p.id as string, p.workspace); return { cleaned: true }; }
+				if (typeof p.participantId !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Participant required'); }
+				if (method === 'comparisons.inspect') { return this.comparisons.inspect(p.id as string, p.workspace, p.participantId); }
+				this.comparisons.select(p.id as string, p.workspace, p.participantId);
+				return { selected: true };
+			}
 			case 'sessions.list':
 				return [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()];
 			case 'providers.cancelInstall': {
@@ -460,7 +499,7 @@ export class HubServer {
 		return {
 			protocol: version,
 			hub: { name: HUB_NAME, version: HUB_VERSION, instanceId: this.opts.instanceId, pid: process.pid, startedAt: this.opts.startedAt },
-			capabilities: ['opencode.v2', 'claude-code.v1', 'codex-cli.v1', 'catalog.v1', 'session.model.v1'],
+			capabilities: ['opencode.v2', 'claude-code.v1', 'codex-cli.v1', 'catalog.v1', 'session.model.v1', 'comparisons.v1'],
 			seq: this.events.seq,
 		};
 	}
