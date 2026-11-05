@@ -1,6 +1,6 @@
 import { claudeExecutable } from './claude';
 import { codexExecutable } from './codex';
-import { cancelProviderInstall, installProvider, ProviderInstallError } from './providerInstall';
+import { cancelProviderInstall, installProvider, providerBusy, ProviderInstallError } from './providerInstall';
 import { openCodeExecutable } from './opencode';
 import { inspectProviders } from './providers';
 import * as http from 'http';
@@ -68,6 +68,7 @@ class RpcError extends Error {
 
 export class HubServer {
 	readonly events = new EventLog();
+	private sessionRequests = 0;
 	private readonly opencode: OpenCodeSessions;
 	private readonly claude: ClaudeCodeSessions;
 	private readonly codex: CodexSessions;
@@ -317,12 +318,18 @@ export class HubServer {
 				return { cancelled: cancelProviderInstall(p.id) };
 			}
 			case 'providers.install': {
-				const p = request.params as { id?: string; version?: string } | undefined;
+				const p = request.params as { id?: string; version?: string; operation?: 'install' | 'repair' | 'update' } | undefined;
 				if ((p?.id !== 'opencode' && p?.id !== 'claude-code' && p?.id !== 'codex-cli') || typeof p.version !== 'string') {
 					throw new RpcError(ErrorCode.InvalidParams, 'Versão ou provedor não confirmado.');
 				}
 				const resolve = p.id === 'opencode' ? openCodeExecutable : p.id === 'claude-code' ? claudeExecutable : codexExecutable;
-				try { await installProvider(p.id, p.version, resolve); return { installed: true }; }
+				const operation = p.operation ?? 'install';
+				if (operation !== 'install' && operation !== 'repair' && operation !== 'update') {
+					throw new RpcError(ErrorCode.InvalidParams, 'Invalid maintenance operation');
+				}
+				const canReplace = () => this.sessionRequests === 0 && ![...this.opencode.list(), ...this.claude.list(), ...this.codex.list()]
+					.some(session => !session.historical && session.harness === p.id);
+				try { await installProvider(p.id, p.version, resolve, operation, canReplace); return { installed: true }; }
 				catch (error) {
 					throw new RpcError(-32006, error instanceof ProviderInstallError ? error.message : 'Não foi possível preparar o executável oficial.');
 				}
@@ -345,7 +352,9 @@ export class HubServer {
 			case 'session.history':
 			case 'session.deleteHistory':
 			case 'session.reopen':
-				return this.operateSession(method, request.params);
+				this.sessionRequests++;
+				try { return await this.operateSession(method, request.params); }
+				finally { this.sessionRequests--; }
 			case 'session.subscribe':
 				return this.subscribe(client, request.params);
 			case 'hub.shutdown':
@@ -379,6 +388,10 @@ export class HubServer {
 	}
 
 	private async operateSession(method: string, params: unknown): Promise<unknown> {
+		if (['session.create', 'session.prompt', 'session.reopen'].includes(method) &&
+			(['opencode', 'claude-code', 'codex-cli'] as const).some(providerBusy)) {
+			throw new RpcError(-32006, 'Aguarde a manutencao do provedor terminar.');
+		}
 		const p = params as { workspace?: unknown; id?: unknown; text?: unknown; model?: unknown; service?: unknown; permissionMode?: unknown } | undefined;
 		try {
 			if (method === 'session.create' && typeof p?.workspace === 'string') {

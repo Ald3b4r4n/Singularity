@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { mkdtemp, rename, rm } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { ensureSecureDir, isOwnerOnly } from './secure';
 
@@ -16,9 +16,9 @@ const packages = {
 		executable: 'opencode.exe'
 	},
 	'claude-code': {
-		version: '2.1.292',
-		url: 'https://registry.npmjs.org/@anthropic-ai/claude-code-win32-x64/-/claude-code-win32-x64-2.1.292.tgz',
-		digest: 'CXrrjj7Czs9o2YossKkN3z/K+/1GmIjjt3H8muHBDzxw/WM/J9I4kz6jBI4wLwt5miVMkXwwhrwT0hhyNPYAIw==',
+		version: '2.1.318',
+		url: 'https://registry.npmjs.org/@anthropic-ai/claude-code-win32-x64/-/claude-code-win32-x64-2.1.318.tgz',
+		digest: 'g/fa2hqcU/+Qd3NMaY/8i+AoX6HQt3zBcj+V/Ot9icr5TN4PmOmuy6YhVNFLHb2IniLIrBA+gZFqonUe0aYLxg==',
 		prefix: 'package',
 		executable: 'claude.exe'
 	},
@@ -58,8 +58,28 @@ function installationDir(id: InstallProviderId, env: NodeJS.ProcessEnv): string 
 
 export function managedProviderPath(id: InstallProviderId, env: NodeJS.ProcessEnv = process.env): string | undefined {
 	const directory = installationDir(id, env);
-	return directory ? join(directory, packages[id].executable) : undefined;
+	if (!directory) { return undefined; }
+	const current = join(directory, packages[id].executable);
+	if (id === 'claude-code' && !existsSync(directory)) {
+		const previous = join(dirname(directory), '2.1.292', packages[id].executable);
+		if (existsSync(previous)) { return previous; }
+	}
+	return current;
 }
+
+export function providerMaintenance(id: InstallProviderId, existing?: string) {
+	const offer = installOffer(id);
+	if (!offer) { return undefined; }
+	const target = installationDir(id, process.env);
+	if (!target) { return undefined; }
+	const expected = managedProviderPath(id);
+	if (existing && (!expected || resolve(existing).toLowerCase() !== resolve(expected).toLowerCase())) { return undefined; }
+	if (existsSync(target)) { return { ...offer, operation: 'repair' as const }; }
+	if (existing && id === 'claude-code') { return { ...offer, operation: 'update' as const }; }
+	return undefined;
+}
+
+export function providerBusy(id: InstallProviderId): boolean { return installing.has(id); }
 
 export class ProviderInstallError extends Error { }
 
@@ -71,11 +91,14 @@ export async function verifyProviderArchive(id: InstallProviderId, archive: stri
 	}
 }
 
-export async function installProvider(id: InstallProviderId, version: string, existing: () => string | undefined): Promise<void> {
+export async function installProvider(id: InstallProviderId, version: string, existing: () => string | undefined, operation: 'install' | 'repair' | 'update' = 'install', canReplace: () => boolean = () => true): Promise<void> {
 	const offer = installOffer(id);
 	if (!offer || offer.version !== version) { throw new ProviderInstallError('Versão ou plataforma não suportada.'); }
 	const target = installationDir(id, process.env);
-	if (!target || installing.has(id) || existing() || existsSync(target)) {
+	const valid = () => operation === 'install' ? !existing() && !!target && !existsSync(target)
+		: providerMaintenance(id, existing())?.operation === operation;
+	if (!canReplace()) { throw new ProviderInstallError('Encerre as sessões do provedor antes da manutenção.'); }
+	if (!target || installing.has(id) || !valid()) {
 		throw new ProviderInstallError('Já existe uma instalação ou configuração, ou há uma instalação em andamento.');
 	}
 	const selected = packages[id];
@@ -106,9 +129,26 @@ export async function installProvider(id: InstallProviderId, version: string, ex
 		if (/\b(\d+\.\d+\.\d+)\b/.exec(check.stdout.replace(/v(?=\d)/g, ''))?.[1] !== version) {
 			throw new ProviderInstallError('A versão do executável oficial não foi confirmada.');
 		}
-		if (existing() || existsSync(target)) { throw new ProviderInstallError('Outra instalação foi encontrada.'); }
+		if (!valid() || !canReplace()) { throw new ProviderInstallError('A instalação mudou ou há uma sessão ativa.'); }
 		cancellation.signal.throwIfAborted();
-		await rename(payload, target);
+		if (operation === 'repair') {
+			const backup = await mkdtemp(join(directory, 'backup-'));
+			const previous = join(backup, 'previous');
+			let retainBackup = false;
+			try {
+				await rename(target, previous);
+				try { await rename(payload, target); }
+				catch (error) {
+					try { await rename(previous, target); }
+					catch { retainBackup = true; throw new ProviderInstallError('Falha ao restaurar a instalação. A versão anterior foi preservada em ' + previous); }
+					throw error;
+				}
+			} finally {
+				if (!retainBackup) { await rm(backup, { recursive: true, force: true }).catch(() => undefined); }
+			}
+		} else {
+			await rename(payload, target);
+		}
 	} catch (error) {
 		if (cancellation.signal.aborted) { throw new ProviderInstallError('Instalação cancelada.'); }
 		throw error;

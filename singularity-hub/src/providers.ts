@@ -1,15 +1,33 @@
-import { installOffer } from './providerInstall';
+import { installOffer, providerMaintenance, type InstallProviderId } from './providerInstall';
 import { execFile } from 'node:child_process';
 import { openCodeExecutable, openCodeRunnable, OpenCodeError } from './opencode';
 import { claudeExecutable, inspectClaude } from './claude';
 import { codexExecutable, inspectCodex } from './codex';
 
+const officialPackage: Record<InstallProviderId, string> = {
+	opencode: '@opencode/cli-windows-x64-baseline',
+	'claude-code': '@anthropic-ai/claude-code-win32-x64',
+	'codex-cli': '@openai/codex'
+};
+
+async function officialVersion(id: InstallProviderId): Promise<string | undefined> {
+	try {
+		const response = await fetch('https://registry.npmjs.org/' + encodeURIComponent(officialPackage[id]) + '/latest', {
+			redirect: 'error', signal: AbortSignal.timeout(4500)
+		});
+		if (!response.ok) { await response.body?.cancel(); return undefined; }
+		const data = await response.json() as { version?: unknown };
+		return typeof data.version === 'string' && /^\d+\.\d+\.\d+$/.test(data.version) ? data.version : undefined;
+	} catch { return undefined; }
+}
+
 export async function inspectProviders(probeOpenCode: () => Promise<boolean>, refresh: boolean) {
 	const inspect = async (id: string, name: string, source: string, executable: string | undefined,
 		probe: () => Promise<{ reason?: string; authenticationRequired?: boolean; version?: string }>) => {
-		const base = { id, name, source, executable };
+		const latest = refresh ? await officialVersion(id as InstallProviderId) : undefined;
+		const base = { id, name, source, executable, latest, maintenance: providerMaintenance(id as InstallProviderId, executable), verifiedVersion: installOffer(id)?.version };
 		if (!executable) {
-			const install = installOffer(id);
+			const install = base.maintenance ? undefined : installOffer(id);
 			return { ...base, status: 'not-installed', install };
 		}
 		try {

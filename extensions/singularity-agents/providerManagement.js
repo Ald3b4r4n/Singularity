@@ -19,13 +19,14 @@ async function manageProviders(hub, workspace, useProvider) {
 		const selected = await vscode.window.showQuickPick(providers.map(provider => ({
 			label: provider.name,
 			description: [labels[provider.status], provider.version].filter(Boolean).join(' · '),
-			detail: [provider.reason, provider.executable, provider.executable ? 'Atualização e reparação gerenciadas indisponíveis nesta versão.' : undefined].filter(Boolean).join(' · '),
+			detail: [provider.reason, provider.executable, provider.latest ? 'Versão oficial disponível: ' + provider.latest : undefined, provider.verifiedVersion ? 'Versão aprovada para instalação: ' + provider.verifiedVersion : undefined, provider.latest && provider.verifiedVersion && provider.latest !== provider.verifiedVersion ? 'A versão mais recente ainda não foi verificada pelo Singularity.' : undefined, provider.executable && !provider.maintenance ? 'Instalação externa: manutenção pelo fornecedor.' : undefined].filter(Boolean).join(' · '),
 			provider
 		})), { title: 'Gerenciar provedores', matchOnDetail: true });
 		if (!selected || selected.provider.status === 'planned') { return; }
 		const provider = selected.provider;
 		const actions = [
 			...(provider.install ? [{ label: 'Instalar', action: 'install' }] : []),
+			...(provider.maintenance ? [{ label: provider.maintenance.operation === 'repair' ? 'Reparar' : 'Atualizar', action: 'maintenance' }] : []),
 			...(provider.status === 'ready' ? [{ label: 'Utilizar', action: 'use' }] : []),
 			...(provider.executable ? [{ label: 'Conectar conta', action: 'login' }] : []),
 			{ label: 'Testar conexão', action: 'refresh' },
@@ -33,18 +34,20 @@ async function manageProviders(hub, workspace, useProvider) {
 		];
 		const choice = await vscode.window.showQuickPick(actions, { title: provider.name });
 		if (!choice) { return; }
-		if (choice.action === 'install') {
+		if (choice.action === 'install' || choice.action === 'maintenance') {
+			const offer = provider.install || provider.maintenance;
+			const verb = choice.label;
 			const confirm = await vscode.window.showInformationMessage(
-				`Instalar ${provider.name} ${provider.install.version}?`,
-				{ modal: true, detail: `Origem oficial: ${provider.install.url}` }, 'Instalar');
-			if (confirm !== 'Instalar') { return; }
-			await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Instalando ' + provider.name, cancellable: true },
+				`${verb} ${provider.name} ${offer.version}?`,
+				{ modal: true, detail: `Origem oficial: ${offer.url}` }, verb);
+			if (confirm !== verb) { return; }
+			await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: (choice.action === 'install' ? 'Instalando ' : verb + ' ') + provider.name, cancellable: true },
 				async (_progress, token) => {
-					const pending = hub.installProvider({ id: provider.id, version: provider.install.version });
+					const pending = hub.installProvider({ id: provider.id, version: offer.version, operation: offer.operation });
 					const listener = token.onCancellationRequested(() => { void hub.cancelProviderInstall(provider.id).catch(() => undefined); });
 					try { await pending; } finally { listener.dispose(); }
 				});
-			void vscode.window.showInformationMessage(provider.name + ' instalado.');
+			void vscode.window.showInformationMessage(provider.name + ' pronto.');
 			continue;
 		}
 		if (choice.action === 'refresh') { continue; }
