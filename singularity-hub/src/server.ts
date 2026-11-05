@@ -1,3 +1,4 @@
+import { Solutions } from './solutions';
 import { Comparisons } from './comparisons';
 import { join } from 'node:path';
 import { hubHome } from './paths';
@@ -61,7 +62,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -72,6 +73,7 @@ class RpcError extends Error {
 export class HubServer {
 	readonly events = new EventLog();
 	private readonly comparisons: Comparisons;
+	private readonly solutions: Solutions;
 	private sessionRequests = 0;
 	private readonly opencode: OpenCodeSessions;
 	private readonly claude: ClaudeCodeSessions;
@@ -104,6 +106,7 @@ export class HubServer {
 			history: async (id, workspace) => await this.operateSession('session.history', { id, workspace }) as import('./history').Turn[],
 			list: () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()]
 		}, () => this.publish({ type: 'comparison.changed' }));
+		this.solutions = new Solutions(join(opts.historyDir ?? join(hubHome(), 'history'), 'solutions'), (id, workspace, participantId) => this.comparisons.solutionSource(id, workspace, participantId));
 		this.limits = { ...DEFAULT_LIMITS, ...opts.limits };
 		this.http = http.createServer((req, res) => this.onHttp(req, res));
 		this.wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxPayloadBytes, perMessageDeflate: false });
@@ -126,6 +129,7 @@ export class HubServer {
 		this.claude.recover();
 		this.codex.recover();
 		await this.comparisons.recover();
+		await this.solutions.recover();
 		return new Promise((resolve, reject) => {
 			this.http.once('error', reject);
 			// Loopback only, never 0.0.0.0 or ::
@@ -308,7 +312,7 @@ export class HubServer {
 			if (isNotification) {
 				return;
 			}
-			if (request.method.startsWith('comparisons.') && e instanceof Error && !(e instanceof RpcError)) {
+			if ((request.method.startsWith('comparisons.') || request.method.startsWith('solutions.')) && e instanceof Error && !(e instanceof RpcError)) {
 				this.respondError(client, id, { code: -32006, message: e.message });
 			} else if (e instanceof RpcError) {
 				this.respondError(client, id, { code: e.code, message: e.message, data: e.data });
@@ -330,6 +334,19 @@ export class HubServer {
 			throw new RpcError(ErrorCode.NotInitialized, 'Call hub.hello first');
 		}
 		switch (method) {
+			case 'solutions.prepare':
+			case 'solutions.list':
+			case 'solutions.review':
+			case 'solutions.validate': {
+				const p = request.params as { workspace?: unknown; id?: unknown; comparisonId?: unknown; participantId?: unknown; command?: unknown };
+				if (typeof p?.workspace !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Workspace required'); }
+				if (method === 'solutions.list') { return this.solutions.list(p.workspace); }
+				if (method === 'solutions.prepare' && typeof p.comparisonId === 'string' && typeof p.participantId === 'string') { return this.solutions.prepare(p.comparisonId, p.workspace, p.participantId); }
+				if (typeof p.id !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Solution required'); }
+				if (method === 'solutions.review') { return this.solutions.review(p.id, p.workspace); }
+				if (method === 'solutions.validate') { return this.solutions.validate(p.id, p.workspace, p.command as { executable?: unknown; args?: unknown; approved?: unknown }); }
+				throw new RpcError(ErrorCode.InvalidParams, 'Invalid solution parameters');
+			}
 			case 'comparisons.create':
 				return this.comparisons.create(request.params);
 			case 'comparisons.list':

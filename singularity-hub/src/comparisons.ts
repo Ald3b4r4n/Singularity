@@ -208,6 +208,20 @@ export class Comparisons {
 		if (common.toLowerCase() !== origin.toLowerCase()) { throw new Error('Repositório do worktree divergente.'); }
 	}
 
+	async solutionSource(id: string, workspace: string, participantId: string): Promise<{ comparison: Comparison; participant: Participant }> {
+		const record = this.get(id, workspace);
+		const participant = record.participants.find(p => p.id === participantId);
+		if (!participant || record.selected !== participant.id || participant.status !== 'done' || this.busy.has(id)) { throw new Error('Escolha uma solução concluída antes de preparar a aplicação.'); }
+		this.busy.add(id);
+		try {
+			await this.verifyTree(record, participant);
+			const session = this.adapter.list().find(s => s.id === participant.sessionId);
+			if (session && !session.historical) { await this.stopParticipant(participant); }
+			if (this.adapter.list().some(s => s.id === participant.sessionId && !s.historical)) { throw new Error('O encerramento do processo não foi confirmado.'); }
+			return { comparison: structuredClone(record), participant: structuredClone(participant) };
+		} finally { this.busy.delete(id); }
+	}
+
 	async inspect(id: string, workspace: string, participantId: string): Promise<unknown> {
 		const record = this.get(id, workspace);
 		const p = record.participants.find(p => p.id === participantId);

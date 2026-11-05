@@ -104,7 +104,8 @@ int wmain(int argc, wchar_t** argv) {
     // `run-cli <hub pid> <pipe id> <sid> <workspace> <executable> [arguments...]` runs a one-shot command line tool (Claude Code)
     // in a Job Object and gives it this process's stdin, stdout and stderr, so the Hub can read its structured output. When
     // the Hub process ends, the job is terminated: a crashed Hub never leaves a running agent behind.
-    const bool runCli = argc >= 7 && std::wstring(argv[1]) == L"run-cli";
+    const bool runTest = argc >= 7 && std::wstring(argv[1]) == L"run-test";
+    const bool runCli = runTest || (argc >= 7 && std::wstring(argv[1]) == L"run-cli");
     if (runCli ? std::wstring(argv[2]).find_first_not_of(L"0123456789") != std::wstring::npos
                : (argc != 6 || std::wstring(argv[3]).find_first_not_of(L"0123456789") != std::wstring::npos)) {
         return 2;
@@ -205,7 +206,7 @@ int wmain(int argc, wchar_t** argv) {
     FILETIME helperCreated{}, childCreated{}, exited{}, kernel{}, user{};
     BOOL validTimes = GetProcessTimes(GetCurrentProcess(), &helperCreated, &exited, &kernel, &user) &&
         GetProcessTimes(child.hProcess, &childCreated, &exited, &kernel, &user);
-    CloseHandle(child.hProcess);
+    if (!runTest) { CloseHandle(child.hProcess); }
     if (!validTimes) {
         TerminateJobObject(job, 1);
         return 6;
@@ -236,8 +237,13 @@ int wmain(int argc, wchar_t** argv) {
                 WriteFile(pipe, "stopped", 7, &written, nullptr);
                 FlushFileBuffers(pipe);
             }
+            DWORD exitCode = 0;
+            if (runTest) {
+                if (!GetExitCodeProcess(child.hProcess, &exitCode)) { exitCode = 9; }
+                CloseHandle(child.hProcess);
+            }
             CloseHandle(job);
-            return 0;
+            return static_cast<int>(exitCode);
         }
         if (parent && !orphaned && WaitForSingleObject(parent, 0) == WAIT_OBJECT_0) {
             // The Hub is gone: nobody can read this agent's output or cancel it any more.

@@ -78,7 +78,7 @@ export class HubSupervisor extends EventEmitter {
 		}
 	}
 
-	async sessionRequest(method: 'comparisons.create' | 'comparisons.list' | 'comparisons.cancel' | 'comparisons.inspect' | 'comparisons.select' | 'comparisons.cleanup' | 'session.create' | 'session.prompt' | 'session.setModel' | 'session.interrupt' | 'session.stop' | 'session.history' | 'session.deleteHistory' | 'session.reopen', params: unknown): Promise<unknown> {
+	async sessionRequest(method: 'solutions.prepare' | 'solutions.list' | 'solutions.review' | 'solutions.validate' | 'comparisons.create' | 'comparisons.list' | 'comparisons.cancel' | 'comparisons.inspect' | 'comparisons.select' | 'comparisons.cleanup' | 'session.create' | 'session.prompt' | 'session.setModel' | 'session.interrupt' | 'session.stop' | 'session.history' | 'session.deleteHistory' | 'session.reopen', params: unknown): Promise<unknown> {
 		if (!this.connection) {
 			throw new Error('Connect to the Singularity Hub first.');
 		}
