@@ -1,0 +1,18 @@
+
+'use strict';
+const assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs'),vm=require('node:vm');const {chromium}=require('playwright');
+(async()=>{
+ let handler,html,confirmation,profile='normal',calls=0;const posts=[];
+ const panel={webview:{asWebviewUri:u=>String(u),onDidReceiveMessage:fn=>{handler=fn;return {dispose(){}};},postMessage:data=>posts.push(data),set html(v){html=v;}},onDidDispose(){}};
+ const vscode={Uri:{file:x=>x,joinPath:(a,b)=>path.join(a,b)},ViewColumn:{Active:1},workspace:{isTrusted:true},window:{createWebviewPanel:()=>panel,showWarningMessage:async()=>confirmation}};
+ const hub={start:async()=>{},inspectProviders:async()=>[{id:'opencode',name:'OpenCode',status:profile==='normal'?'unavailable':'ready',version:'2.2.5',diagnostic:{profile,version:'2.2.5',code:profile==='normal'?'plugins':'ready',authentication:profile==='normal'?'unknown':'configured',catalog:profile==='normal'?'unavailable':'available',message:'<img src=x onerror=alert(1)>',recommendation:'Safe recommendation'}}],diagnoseProvider:async()=>({message:'Plugin activation blocked',recommendation:'Do not change your account.'}),selectProviderProfile:async p=>{calls++;assert.equal(p.approved,true);profile=p.profile;return {selected:true,profile};}};
+ const holder={exports:{}};vm.runInNewContext(fs.readFileSync(path.resolve('extensions/singularity-agents/providerDiagnostics.js'),'utf8'),{require:n=>n==='vscode'?vscode:require(n),__dirname:path.resolve('extensions/singularity-agents'),module:holder});holder.exports.openProviderDiagnostics(hub,'synthetic-workspace',async()=>{},async()=>{});
+ const browser=await chromium.launch({headless:true});try{const page=await browser.newPage({viewport:{width:360,height:800}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.setContent(html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/,'').replace(/<script[\s\S]*?<\/script>/g,''));await page.evaluate(()=>{window.messages=[];window.acquireVsCodeApi=()=>({postMessage:m=>window.messages.push(m)});});await page.addScriptTag({path:path.resolve('extensions/singularity-agents/media/providerDiagnostics.js')});
+ async function dispatch(action){await handler({action});for(const post of posts.splice(0))await page.evaluate(data=>window.postMessage(data,'*'),post);}
+ await dispatch('ready');await page.locator('[data-action="isolated"]').waitFor();assert.equal(await page.locator('img').count(),0);assert.equal(await page.locator('.provider').count(),1);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ await dispatch('isolated');assert.equal(calls,0,'Dismissing confirmation cannot alter a profile');confirmation='Iniciar configuração isolada';await dispatch('isolated');await page.locator('[data-action="normal"]').waitFor();assert.equal(calls,1);assert((await page.textContent('#providers')).includes('Conexão oficial configurada'));assert.equal(await page.locator('[data-action="isolated"]').count(),0);
+ await dispatch('normal');await page.locator('[data-action="isolated"]').waitFor();assert.equal(calls,2);await dispatch('diagnose');assert((await page.textContent('#notice')).includes('Plugin activation'));assert.deepEqual(errors,[]);
+ console.log('Provider diagnostics UI passed: structured condition, escaped text, 360px layout, explicit isolation confirmation, normal return and diagnosis.');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

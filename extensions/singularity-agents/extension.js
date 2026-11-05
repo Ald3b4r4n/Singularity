@@ -455,7 +455,7 @@ function activate(context) {
 					await context.globalState.update(PREFS_KEY, { service });
 					provider.open();
 					provider._view?.webview.postMessage({ type: 'selectProvider', service });
-				});
+				}, () => { provider._view?.webview.postMessage({ type: 'providerProfileChanged' }); });
 			} catch (error) {
 				void vscode.window.showErrorMessage(error.message);
 			}

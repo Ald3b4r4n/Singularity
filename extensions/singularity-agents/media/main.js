@@ -74,7 +74,7 @@
 
 	function drawComposer() {
 		const sel = R.resolve(catalog, prefs);
-		el.hub.innerHTML = R.hubLine(state);
+		el.hub.innerHTML = R.hubLine(state) + (catalog?.profile === 'isolated' ? '<span class="profile-badge">Configuração isolada</span>' : '');
 		const displayedWorkspace = target()?.workspace || workspace;
 		el.ws.textContent = displayedWorkspace ? R.folderName(displayedWorkspace) : 'Escolher workspace';
 		el.ws.title = displayedWorkspace || 'Escolher workspace';
@@ -203,6 +203,8 @@
 			if (used && catalog && catalog.service !== used.harness) { requestCatalog(false, used.harness); }
 			drawSessions(); drawComposer();
 			if (data.focusComposer) { el.prompt.focus(); }
+		} else if (data.type === 'providerProfileChanged') {
+			requestCatalog(true, prefs.service || 'opencode');
 		} else if (data.type === 'selectProvider') {
 			prefs = { service: data.service };
 			vscode.postMessage({ type: 'prefs', prefs });

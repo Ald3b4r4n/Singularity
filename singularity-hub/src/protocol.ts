@@ -35,6 +35,7 @@ export interface ModelInfo {
 }
 
 export interface Session {
+	profile?: 'normal' | 'isolated';
 	id: string;
 	/** Id of the agent service that runs the session (`opencode`, `claude-code` or `codex-cli`). */
 	harness: string;

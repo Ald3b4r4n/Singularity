@@ -37,6 +37,7 @@ export interface ModelSelection {
 }
 
 export interface CatalogResult {
+	profile?: 'normal' | 'isolated';
 	services: ServiceInfo[];
 	service: string;
 	providers: CatalogProvider[];

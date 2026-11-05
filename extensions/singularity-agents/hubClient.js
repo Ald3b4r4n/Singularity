@@ -67,6 +67,9 @@ class RealHubClient {
 		return this._supervisor.inspectProviders(params);
 	}
 
+	async diagnoseProvider(params) { return this._supervisor?.diagnoseProvider(params); }
+	async selectProviderProfile(params) { return this._supervisor?.selectProviderProfile(params); }
+
 	async catalog(params) {
 		if (!this._supervisor) {
 			throw new Error(this._unavailable);

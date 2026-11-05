@@ -77,6 +77,7 @@
 		});
 		window.addEventListener('solutionClosed', draw);
 		window.addEventListener('message', ({ data }) => {
+			if (data?.type === 'providerProfileChanged') { choices.forEach((c,i)=>{ c.catalog=undefined;c.error=undefined;if(active) { catalog(i); } });signature=undefined;draw(); }
 			if (data?.type === 'teams') { runs = data.runs; state = data.state; draw(); }
 			if (data?.type === 'teamCatalog') { const choice = choices[data.index]; if (choice && (!data.catalog || data.catalog.service === choice.service)) { choice.catalog = data.catalog; choice.error = data.error; configure(); draw(); } }
 			if (data?.type === 'teamReply') { pending = false; if (data.result?.id && Array.isArray(data.result.roles)) { selected = data.result.id; drafting = false; } signature = undefined; draw(); }

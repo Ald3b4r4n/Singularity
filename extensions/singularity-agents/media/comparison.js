@@ -99,6 +99,7 @@
 		});
 		window.addEventListener('message', event => {
 			const data = event.data || {};
+			if (data.type === 'providerProfileChanged') { choices.forEach((c,i)=>{c.catalog=undefined;c.error=undefined;if(active&&i<count) { requestCatalog(i); }});drawConfig();draw(); }
 			if (data.type === 'solutionRecords') { draw(); }
 			if (data.type === 'state') { state = data.state; draw(); }
 			if (data.type === 'use') { setMode(false); }

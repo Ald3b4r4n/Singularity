@@ -31,7 +31,7 @@ export function connectionFacts(raw: unknown): ProviderDiagnostic['integrations'
  const data = (raw as { data?: unknown })?.data;
  if (!Array.isArray(data)) { return []; }
  return data.filter(p => p && (p.id === 'opencode' || p.id === 'opencode-go')).slice(0, 2).map(p => ({ id: p.id as string,
-  authentication: Array.isArray(p.connections) && p.connections.some((c: { type?: string }) => c && ['credential', 'env', 'external'].includes(c.type ?? '')) ? 'configured' : 'not-configured' }));
+  authentication: Array.isArray(p.connections) && p.connections.some((c: { type?: string }) => c && c.type === 'credential') ? 'configured' : 'not-configured' }));
 }
 /** Never return upstream text, headers, config, plugin paths, credential identifiers or labels. */
 export async function pluginActivationFailure(response: Response): Promise<boolean> {

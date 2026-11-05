@@ -107,6 +107,15 @@ export class HubSupervisor extends EventEmitter {
 		return this.connection.request('providers.inspect', params, 60000);
 	}
 
+	async diagnoseProvider(params: unknown): Promise<unknown> {
+		if (!this.connection) { throw new Error('Conecte-se ao Hub primeiro.'); }
+		return this.connection.request('providers.diagnose', params, 60000);
+	}
+	async selectProviderProfile(params: unknown): Promise<unknown> {
+		if (!this.connection) { throw new Error('Conecte-se ao Hub primeiro.'); }
+		return this.connection.request('providers.profile', params, 90000);
+	}
+
 	dispose(): void {
 		this.disposed = true;
 		this.watching = false;

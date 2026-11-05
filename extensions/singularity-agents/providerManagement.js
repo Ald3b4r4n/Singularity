@@ -12,7 +12,7 @@ const labels = {
 	planned: 'Em breve'
 };
 
-async function manageProviders(hub, workspace, useProvider) {
+async function manageProvidersLegacy(hub, workspace, useProvider) {
 	for (;;) {
 		const providers = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Verificando provedores' },
 			() => hub.inspectProviders({ workspace, refresh: true }));
@@ -96,4 +96,7 @@ async function manageProviders(hub, workspace, useProvider) {
 	}
 }
 
-module.exports = { manageProviders };
+function manageProviders(hub, workspace, useProvider, changed) {
+	return require('./providerDiagnostics').openProviderDiagnostics(hub, workspace, useProvider, () => manageProvidersLegacy(hub, workspace, useProvider), changed);
+}
+module.exports = { manageProviders, manageProvidersLegacy };

@@ -136,7 +136,7 @@
 		return '<li class="session target" data-id="' + id + '" data-status="' + esc(s.status) + '">' +
 			'<div class="row"><span class="svc">' + esc(serviceName(catalog, s.harness)) + '</span>' +
 			'<span class="state state-' + esc(s.status) + '">' + statusGlyph(s.status) + '<span>' + label + '</span></span></div>' +
-			'<div class="meta"><span class="model" title="' + esc(s.model ? s.model.providerID + '/' + s.model.modelID : '') + '">' + esc(modelLabel(catalog, s.model)) + '</span>' + effort + '</div>' +
+			'<div class="meta"><span class="model" title="' + esc(s.model ? s.model.providerID + '/' + s.model.modelID : '') + '">' + esc(modelLabel(catalog, s.model)) + (s.profile === 'isolated' ? ' · Configuração isolada' : '') + '</span>' + effort + '</div>' +
 			(s.createdAt ? '<div class="workspace">' + esc(new Date(s.createdAt).toLocaleString()) + (s.updatedAt ? ' · ' + esc(new Date(s.updatedAt).toLocaleString()) : '') + '</div>' : '') +
 			(s.workspace ? '<div class="workspace" title="' + esc(s.workspace) + '">' + esc(folderName(s.workspace)) + '</div>' : '') +
 			(permissionOptions(s.harness).length ? '<div class="workspace">Permissões: ' + esc(permissionLabel(s.permissionMode, s.harness)) + '</div>' : '') +
@@ -164,7 +164,7 @@
 			return '<li class="session' + (s.id === targetId ? ' selected' : '') + '" data-id="' + id + '">' +
 				'<div class="session-card-heading"><strong>' + title + '</strong><span class="state state-' + esc(s.status) + '">' +
 				statusGlyph(s.status) + esc(s.historical ? 'histórico' : SESSION_LABEL[s.status] || s.status) + '</span></div>' +
-				'<div class="session-card-meta">' + esc(modelLabel(catalog, s.model)) + '</div>' +
+				'<div class="session-card-meta">' + esc(modelLabel(catalog, s.model)) + (s.profile === 'isolated' ? ' · Configuração isolada' : '') + '</div>' +
 				(s.workspace ? '<div class="session-card-meta">' + esc(folderName(s.workspace)) + '</div>' : '') +
 				'<div class="session-card-actions"><button type="button" class="session-link" data-action="use" data-id="' + id +
 				'"' + (s.id === targetId ? ' aria-current="true"' : '') + '>Abrir</button>' +

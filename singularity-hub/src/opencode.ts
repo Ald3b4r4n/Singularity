@@ -1,3 +1,4 @@
+import { profileEnvironment, type OpenCodeProfile } from './providerProfiles';
 import { providerDiagnostic, classifyProviderFailure, connectionFacts, pluginActivationFailure, type ProviderDiagnostic } from './providerDiagnostics';
 import { managedProviderPath } from './providerInstall';
 import { spawn, spawnSync } from 'node:child_process';
@@ -102,6 +103,7 @@ async function localPort(): Promise<number> {
 
 interface RecoveryRecord {
 	version: 1;
+	profile?: OpenCodeProfile;
 	sessionId: string;
 	remoteId: string;
 	workspace: string;
@@ -127,7 +129,7 @@ class OpenCodeProcess {
 	private dead = false;
 	private exitCode: number | null = null;
 
-	constructor(exe: string, workspace: string, port: number, record?: RecoveryRecord) {
+	constructor(exe: string, workspace: string, port: number, record?: RecoveryRecord, profile: OpenCodeProfile = 'normal') {
 		if (record) {
 			this.authorization = record.authorization;
 			this.origin = record.origin;
@@ -142,7 +144,7 @@ class OpenCodeProcess {
 		this.pipeId = randomUUID();
 		this.control = randomBytes(32).toString('hex');
 		const child = spawn(helper, [exe, workspace, String(port), this.pipeId, currentWindowsUser().sid], {
-			env: { ...process.env, OPENCODE_PASSWORD: password, SINGULARITY_JOB_CONTROL: this.control },
+			env: { ...profileEnvironment(profile, process.env), OPENCODE_PASSWORD: password, SINGULARITY_JOB_CONTROL: this.control },
 			detached: true, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore']
 		});
 		this.helperPid = child.pid ?? 0;
@@ -165,13 +167,13 @@ class OpenCodeProcess {
 		return identity;
 	}
 
-	writeRecovery(directory: string, sessionId: string, remoteId: string, workspace: string, executable: string): void {
+	writeRecovery(directory: string, sessionId: string, remoteId: string, workspace: string, executable: string, profile: OpenCodeProfile = 'normal'): void {
 		const helperPid = this.helperPid;
 		if (!helperPid || this.dead) {
 			throw new OpenCodeError('O helper encerrou antes de registrar a sess�o.');
 		}
 		const input = Buffer.from(JSON.stringify({
-			version: 1, sessionId, remoteId, workspace, executable, helperPid, identity: this.identity(),
+			version: 1, sessionId, remoteId, workspace, executable, profile, helperPid, identity: this.identity(),
 			pipeId: this.pipeId, control: this.control, authorization: this.authorization, origin: this.origin
 		}));
 		try {
@@ -293,6 +295,8 @@ export class OpenCodeSessions {
 	private creating = 0;
 	private closed = false;
 	private readonly catalogs = new Map<string, { at: number; pending: boolean; result: Promise<CatalogResult> }>();
+	private readonly profiles = new Map<string, OpenCodeProfile>();
+	private readonly profileChanges = new Set<string>();
 	private readonly diagnostics = new Map<string, ProviderDiagnostic>();
 
 	constructor(private readonly publish: (event: Omit<HubEvent, 'seq'>) => void, private readonly recoveryDir?: string, historyDir?: string) {
@@ -323,7 +327,7 @@ export class OpenCodeSessions {
 				} finally {
 					decrypted.stdout?.fill(0);
 				}
-				if (!record || record.version !== 1 || record.sessionId !== id || !recoveryId.test(record.pipeId) ||
+				if (!record || (record.profile !== undefined && !['normal', 'isolated'].includes(record.profile)) || record.version !== 1 || record.sessionId !== id || !recoveryId.test(record.pipeId) ||
 					!Number.isSafeInteger(record.helperPid) || record.helperPid <= 0 || !loopbackOrigin.test(record.origin) ||
 					!/^Basic [A-Za-z0-9+/]+=*$/.test(record.authorization) || !/^[a-f0-9]{64}$/.test(record.control) ||
 					typeof record.remoteId !== 'string' || !record.remoteId || typeof record.workspace !== 'string' ||
@@ -342,7 +346,7 @@ export class OpenCodeSessions {
 				}
 				const active = (data.time.busy ?? 0) > (data.time.idle ?? 0);
 				const item: Managed = { server, remoteId: record.remoteId, view: {
-					id, harness: 'opencode', title: 'OpenCode', workspace: record.workspace, version,
+					id, harness: 'opencode', profile: record.profile ?? 'normal', title: 'OpenCode', workspace: record.workspace, version,
 					model: modelOf(data.model), createdAt: data.time.created, updatedAt: Date.now(), status: active ? 'running' : 'idle'
 				} };
 				stage = 'fluxo SSE';
@@ -359,7 +363,7 @@ export class OpenCodeSessions {
 
 	has(id: string): boolean { return this.sessions.has(id); }
 
-	async create(directory: string, selection?: ModelSelection): Promise<Session> {
+	async create(directory: string, selection?: ModelSelection, profileWorkspace?: string): Promise<Session> {
 		const exe = openCodeExecutable();
 		if (!exe) {
 			throw new OpenCodeError('OpenCode v2 ou o helper Windows do Singularity não foi encontrado.');
@@ -374,10 +378,13 @@ export class OpenCodeSessions {
 			if (!workspace || !(await stat(workspace)).isDirectory()) {
 				throw new OpenCodeError('O diretório do workspace não existe.');
 			}
-			server = new OpenCodeProcess(exe, workspace, await localPort());
+			const source = profileWorkspace ? await realpath(profileWorkspace) : workspace;
+			const profile = this.profiles.get(source.toLowerCase()) ?? 'normal';
+			server = new OpenCodeProcess(exe, workspace, await localPort(), undefined, profile);
 			const version = await server.ready();
 			// the OpenCode API accepts any model and variant without checking: the choice is validated against the real catalog first
 				const chosen = selection ? validateSelection((await readCatalog(server)).providers, selection) : undefined;
+				if (profile === 'isolated' && (!chosen || !(await server.integrationFacts()).some(i => i.id === chosen.providerID && i.authentication === 'configured'))) { throw new OpenCodeError('A configuração isolada exige modelo explícito e conexão oficial configurada para essa integração.'); }
 				const created = await server.request<{ data: { id: string; model?: RawModel; location: { directory: string } } }>('create', undefined, {
 					location: { directory: workspace },
 					...(chosen ? { model: { id: chosen.modelID, providerID: chosen.providerID, ...(chosen.variant ? { variant: chosen.variant } : {}) } } : {})
@@ -388,14 +395,14 @@ export class OpenCodeSessions {
 			}
 			const item: Managed = {
 				server, remoteId,
-				view: { id: randomUUID(), harness: 'opencode', title: 'OpenCode', status: 'idle', workspace, version, createdAt: Date.now(), updatedAt: Date.now(), model: modelOf(created.data.model) }
+				view: { id: randomUUID(), harness: 'opencode', profile, title: 'OpenCode', status: 'idle', workspace, version, createdAt: Date.now(), updatedAt: Date.now(), model: modelOf(created.data.model) }
 			};
 			await this.subscribe(item);
 			if (this.closed) {
 				throw new OpenCodeError('Hub is shutting down.');
 			}
 			if (this.recoveryDir) {
-				server.writeRecovery(this.recoveryDir, item.view.id, remoteId, workspace, exe);
+				server.writeRecovery(this.recoveryDir, item.view.id, remoteId, workspace, exe, profile);
 			}
 			this.history?.save(item.view);
 			this.sessions.set(item.view.id, item);
@@ -517,7 +524,7 @@ export class OpenCodeSessions {
 	 * allow-listed form (see catalog.ts). A short-lived server is started in a Job Object for the read and stopped right after;
 	 * the answer is cached for a minute.
 	 */
-	async catalog(directory?: string, refresh = false): Promise<CatalogResult> {
+	async catalog(directory?: string, refresh = false, override?: OpenCodeProfile): Promise<CatalogResult> {
 		const runnable = openCodeRunnable();
 		const services = serviceList(runnable);
 		const exe = openCodeExecutable();
@@ -532,7 +539,8 @@ export class OpenCodeSessions {
 		if (!workspace || !(await stat(workspace)).isDirectory()) {
 			throw new OpenCodeError('O diretório do workspace não existe.');
 		}
-		const key = workspace.toLowerCase();
+		const profile = override ?? this.profiles.get(workspace.toLowerCase()) ?? 'normal';
+		const key = workspace.toLowerCase() + '|' + profile;
 		const cached = this.catalogs.get(key);
 		if (cached && (cached.pending || (!refresh && Date.now() - cached.at < 60_000))) {
 			return cached.result;
@@ -543,17 +551,17 @@ export class OpenCodeSessions {
 		if ([...this.catalogs.values()].filter(entry => entry.pending).length >= 2) { throw new OpenCodeError('Aguarde o diagnóstico em andamento.'); }
 		const result = (async (): Promise<CatalogResult> => {
 			let version: string | undefined;
-			const server = new OpenCodeProcess(exe, workspace, await localPort());
+			const server = new OpenCodeProcess(exe, workspace, await localPort(), undefined, profile);
 			try {
 				version = await server.ready();
-				const catalog = { services, service: 'opencode', ...(await readCatalog(server)) };
+				const catalog = { services, service: 'opencode', profile, ...(await readCatalog(server)) };
 				const integrations = await server.integrationFacts();
 				const authentication = integrations.some(i => i.authentication === 'configured') ? 'configured' : integrations.length ? 'not-configured' : 'unknown';
-				this.diagnostics.set(key, providerDiagnostic(catalog.providers.length ? 'ready' : 'catalog', { version, authentication, integrations }));
+				this.diagnostics.set(key, providerDiagnostic(catalog.providers.length ? 'ready' : 'catalog', { version, authentication, integrations, profile }));
 				return catalog;
 			} catch (error) {
 				const failure = error instanceof OpenCodeError ? error : undefined;
-				this.diagnostics.set(key, providerDiagnostic(classifyProviderFailure(failure?.httpStatus, failure?.pluginsBlocked), { version, httpStatus: failure?.httpStatus, operation: failure?.operation }));
+				this.diagnostics.set(key, providerDiagnostic(classifyProviderFailure(failure?.httpStatus, failure?.pluginsBlocked), { version, profile, httpStatus: failure?.httpStatus, operation: failure?.operation }));
 				throw error;
 			} finally {
 				await server.stop().catch(() => undefined);
@@ -565,12 +573,29 @@ export class OpenCodeSessions {
 		return result;
 	}
 
-	async diagnose(directory?: string, refresh = false): Promise<ProviderDiagnostic> {
+	async diagnose(directory?: string, refresh = false, override?: OpenCodeProfile): Promise<ProviderDiagnostic> {
 		if (!openCodeExecutable()) { return providerDiagnostic('unavailable'); }
 		const workspace = await realpath(directory ?? homedir()).catch(() => undefined);
 		if (!workspace) { return providerDiagnostic('unknown'); }
-		try { await this.catalog(workspace, refresh); } catch { /* Fixed safe diagnostics are retained below. */ }
-		return structuredClone(this.diagnostics.get(workspace.toLowerCase()) ?? providerDiagnostic('unknown'));
+		const profile = override ?? this.profiles.get(workspace.toLowerCase()) ?? 'normal';
+		try { await this.catalog(workspace, refresh, profile); } catch { /* Fixed safe diagnostics are retained below. */ }
+		return structuredClone(this.diagnostics.get(workspace.toLowerCase() + '|' + profile) ?? providerDiagnostic('unknown'));
+	}
+
+	async selectProfile(directory: string, profile: OpenCodeProfile, approved: boolean): Promise<{ selected: boolean; profile: OpenCodeProfile; diagnostic: ProviderDiagnostic; reason?: string }> {
+		if (!approved || !isAbsolute(directory) || !['normal', 'isolated'].includes(profile)) { throw new OpenCodeError('Escolha explicitamente o perfil para este workspace.'); }
+		const workspace = await realpath(directory), key = workspace.toLowerCase();
+		if (this.profileChanges.has(key)) { throw new OpenCodeError('Aguarde a mudança de perfil em andamento.'); }
+		this.profileChanges.add(key);
+		try {
+			if (profile === 'normal') { this.profiles.delete(key); return { selected: true, profile, diagnostic: await this.diagnose(workspace, true, 'normal') }; }
+			try { profileEnvironment(profile, process.env); } catch { throw new OpenCodeError('O ambiente já define configuração inline. O Singularity não pode substituí-la com segurança.'); }
+			const normal = await this.diagnose(workspace, false, 'normal');
+			if (normal.code !== 'plugins' || !normal.version?.startsWith('2.')) { return { selected: false, profile: this.profiles.get(key) ?? 'normal', diagnostic: normal, reason: 'O isolamento assistido só está disponível para falha confirmada de ativação de plugins no OpenCode v2.' }; }
+			const diagnostic = await this.diagnose(workspace, true, 'isolated');
+			if (diagnostic.code !== 'ready' || diagnostic.authentication !== 'configured') { return { selected: false, profile: this.profiles.get(key) ?? 'normal', diagnostic, reason: 'Configuração ou conexão oficial não confirmada; nenhuma inferência foi liberada.' }; }
+			this.profiles.set(key, profile); return { selected: true, profile, diagnostic };
+		} finally { this.profileChanges.delete(key); }
 	}
 
 	/**
@@ -586,6 +611,7 @@ export class OpenCodeSessions {
 		if (item.run) {
 			throw new OpenCodeError('Aguarde a tarefa terminar para trocar o modelo ou o esforço.');
 		}
+		if (item.view.profile === 'isolated' && !(await item.server.integrationFacts()).some(i => i.id === chosen.providerID && i.authentication === 'configured')) { throw new OpenCodeError('Conexão oficial não confirmada para este modelo no perfil isolado.'); }
 		await item.server.request('switchModel', item.remoteId, { model: { id: chosen.modelID, providerID: chosen.providerID, ...(chosen.variant ? { variant: chosen.variant } : {}) } });
 		const { data } = await item.server.request<{ data: { model?: RawModel } }>('state', item.remoteId);
 		const model = modelOf(data.model);

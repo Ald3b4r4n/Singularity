@@ -95,9 +95,9 @@ export class HubServer {
 		this.claude = new ClaudeCodeSessions(event => this.publish(event), opts.historyDir);
 		this.codex = new CodexSessions(event => this.publish(event), opts.historyDir);
 		this.comparisons = new Comparisons(join(opts.historyDir ?? join(hubHome(), 'history'), 'comparisons'), {
-			create: async (workspace, service, model, role) => {
+			create: async (workspace, service, model, role, profileWorkspace) => {
 				this.sessionRequests++;
-				try { return await this.operateSession('session.create', { workspace, service, model, permissionMode: service === 'claude-code' ? (role && role !== 'implementer' ? 'plan' : 'acceptEdits') : service === 'codex-cli' ? (role && role !== 'implementer' ? 'read-only' : 'workspace-write') : undefined }) as import('./protocol').Session; }
+				try { if (service === 'opencode') { return await this.opencode.create(workspace, model, profileWorkspace); } return await this.operateSession('session.create', { workspace, service, model, permissionMode: service === 'claude-code' ? (role && role !== 'implementer' ? 'plan' : 'acceptEdits') : service === 'codex-cli' ? (role && role !== 'implementer' ? 'read-only' : 'workspace-write') : undefined }) as import('./protocol').Session; }
 				finally { this.sessionRequests--; }
 			},
 			prompt: (id, text) => {
@@ -415,6 +415,12 @@ export class HubServer {
 				catch (error) {
 					throw new RpcError(-32006, error instanceof ProviderInstallError ? error.message : 'Não foi possível preparar o executável oficial.');
 				}
+			}
+			case 'providers.profile': {
+				const p = (request.params ?? {}) as { id?: unknown; workspace?: unknown; profile?: unknown; approved?: unknown };
+				if (p.id !== 'opencode' || typeof p.workspace !== 'string' || p.workspace.length > 1024 || !['normal', 'isolated'].includes(p.profile as string) || p.approved !== true) { throw new RpcError(ErrorCode.InvalidParams, 'Invalid explicit profile selection'); }
+				if (this.sessionRequests || this.teams.active() || this.comparisons.active()) { throw new RpcError(-32006, 'Encerre a equipe ou comparação antes de trocar o perfil de novas sessões.'); }
+				try { return await this.opencode.selectProfile(p.workspace, p.profile as 'normal' | 'isolated', true); } catch (error) { throw new RpcError(-32006, error instanceof OpenCodeError ? error.message : 'Não foi possível alterar o perfil.'); }
 			}
 			case 'providers.diagnose': {
 				const p = (request.params ?? {}) as { id?: unknown; workspace?: unknown; refresh?: unknown };

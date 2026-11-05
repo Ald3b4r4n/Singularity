@@ -24,7 +24,7 @@ async function officialVersion(id: InstallProviderId): Promise<string | undefine
 
 export async function inspectProviders(probeOpenCode: () => Promise<boolean | ProviderDiagnostic>, refresh: boolean) {
 	const inspect = async (id: string, name: string, source: string, executable: string | undefined,
-		probe: () => Promise<{ reason?: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }>) => {
+		probe: () => Promise<{ reason?: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean; diagnostic?: ProviderDiagnostic }>) => {
 		const latest = refresh ? await officialVersion(id as InstallProviderId) : undefined;
 		const base = { id, name, source, executable, latest, maintenance: providerMaintenance(id as InstallProviderId, executable), verifiedVersion: installOffer(id)?.version };
 		if (!executable) {
