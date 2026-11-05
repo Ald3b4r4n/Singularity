@@ -3,7 +3,7 @@
 	window.SingularityComparison = function (vscode, R, app) {
 		const $ = id => document.getElementById(id);
 		const esc = R.esc;
-		let drafting = false;
+		let drafting = false, error = '';
 		let active = false, runs = [], state = { sessions: [], hub: {} }, selected, pending = false;
 		let count = 2;
 		const choices = [{ service: 'claude-code' }, { service: 'codex-cli' }, { service: 'opencode' }];
@@ -43,25 +43,28 @@
 		function running() { return current()?.participants.some(p => ['running', 'preparing'].includes(p.status)); }
 		function draw() {
 			$('mode-single').setAttribute('aria-pressed', String(!active)); $('mode-comparison').setAttribute('aria-pressed', String(active));
-			config.hidden = !active; results.hidden = !active; $('sessions').hidden = active;
+			config.hidden = !active || !!current(); results.hidden = !active; $('sessions').hidden = active;
 			$('composer').querySelector('.selectors').hidden = active;
 			$('target').hidden = active; $('new').hidden = active || !$('target').textContent;
 			if (!active) { return; }
 			const run = current();
+			$('note').textContent = error || 'Os resultados permanecem nos worktrees. Escolha um para inspecionar.';
 			const online = state.hub?.status === 'connected';
-			$('send').disabled = !online || pending || (!running() && (!$('prompt').value.trim() || !choices.slice(0, count).every(c => !!resolved(c))));
-			$('send').textContent = running() ? 'Parar todos' : pending ? 'Preparando…' : 'Iniciar comparação';
+			$('send').disabled = !online || pending || (!run && (!$('prompt').value.trim() || !choices.slice(0, count).every(c => !!resolved(c))));
+			$('send').textContent = running() ? 'Parar todos' : pending ? 'Preparando…' : run ? 'Nova comparação' : 'Iniciar comparação';
 			$('send').classList.toggle('interrupt', !!running());
 			$('send').title = running() ? 'Cancelar todos os participantes ativos' : 'Enviar a tarefa aos agentes selecionados';
-			if (!run) { results.innerHTML = '<div class="comparison-empty"><h2>Compare soluções em paralelo</h2><p>Selecione dois ou três agentes, escolha seus modelos e descreva uma tarefa. A origem Git deve estar limpa.</p></div>'; return; }
+			if (!run) { results.innerHTML = '<div class="comparison-empty"><h2>Compare soluções em paralelo</h2><p>Selecione dois ou três agentes, escolha seus modelos e descreva uma tarefa. A origem Git deve estar limpa.</p>' + (runs.length ? '<button type="button" data-cmp="history">Voltar às comparações</button>' : '') + '</div>'; return; }
 			results.innerHTML = '<div class="comparison-run"><label>Execução<select id="comparison-run">' + runs.map(r => '<option value="' + esc(r.id) + '"' + (r.id === run.id ? ' selected' : '') + '>' + esc(r.prompt.slice(0, 70)) + '</option>').join('') + '</select></label><code title="Commit-base">' + esc(run.base.slice(0, 12)) + '</code><button type="button" data-cmp="new">Nova comparação</button><button type="button" data-cmp="cleanup">Limpar worktrees limpos</button></div><p class="comparison-task">' + esc(run.prompt) + '</p><div class="comparison-columns">' + run.participants.map(p => {
 				const session = state.sessions.find(s => s.id === p.sessionId);
 				const detail = details.get(p.id);
+				const usage = session?.usage || detail?.usage;
+				const metrics = usage ? Object.entries(usage).map(([key, value]) => ({ inputTokens: 'Tokens de entrada', outputTokens: 'Tokens de saída', cachedInputTokens: 'Tokens em cache', costUsd: 'Custo informado em USD' }[key] || key) + ' ' + value).join(' · ') : 'Uso e custo indisponíveis neste resultado.';
 				const duration = p.startedAt ? Math.max(0, Math.round(((p.endedAt || Date.now()) - p.startedAt) / 1000)) + ' s' : '';
 				return '<article class="comparison-card' + (run.selected === p.id ? ' chosen' : '') + '"><h2>' + esc(R.serviceName(undefined, p.service)) + '</h2><p>' + esc(p.model.modelID) + (p.model.variant ? ' · ' + esc(p.model.variant) : '') + '</p><p role="status">' + esc(states[p.status]) + ' · ' + duration + '</p>' +
 					'<div class="comparison-actions">' + (p.status === 'running' ? '<button type="button" data-cmp="cancel" data-participant="' + esc(p.id) + '">Parar</button>' : '') +
 					'<button type="button" data-cmp="inspect" data-participant="' + esc(p.id) + '"' + (p.removed ? ' disabled' : '') + '>Inspecionar diff</button><button type="button" data-cmp="select" data-participant="' + esc(p.id) + '"' + (p.removed ? ' disabled' : '') + '>' + (run.selected === p.id ? 'Selecionado' : 'Escolher para revisão') + '</button></div>' +
-					'<pre class="comparison-output">' + esc(session?.result || detail?.result || p.error || session?.summary || 'Aguardando resposta do agente…') + '</pre>' +
+					'<p class="note">' + esc(metrics) + '</p><pre class="comparison-output">' + esc(session?.result || detail?.result || p.error || session?.summary || (['running', 'preparing'].includes(p.status) ? 'Aguardando resposta do agente…' : 'Nenhuma resposta registrada.')) + '</pre>' +
 					(detail ? '<details open><summary>Arquivos e diff</summary><pre>' + esc(detail.files + (detail.untracked ? '\nNovos arquivos\n' + detail.untracked : '') || 'Nenhuma alteração') + '</pre><pre class="comparison-diff">' + esc(detail.diff || 'Nenhum diff') + '</pre><p>' + esc(detail.tests) + '</p><button type="button" data-cmp="openDiff" data-participant="' + esc(p.id) + '">Abrir diff no editor</button><button type="button" data-cmp="openTree" data-participant="' + esc(p.id) + '">Abrir worktree</button></details>' : '') + '</article>';
 			}).join('') + '</div>';
 		}
@@ -81,6 +84,7 @@
 		results.addEventListener('click', e => {
 			const button = e.target.closest('button[data-cmp]'); if (!button) { return; }
 			const operation = button.dataset.cmp;
+			if (operation === 'history') { drafting = false; draw(); return; }
 			if (operation === 'new') { selected = undefined; drafting = true; draw(); return; }
 			const names = { cancel: 'comparisonCancel', inspect: 'comparisonInspect', select: 'comparisonSelect', cleanup: 'comparisonCleanup', openDiff: 'comparisonOpenDiff', openTree: 'comparisonOpenTree' };
 			vscode.postMessage({ type: names[operation], id: current().id, participantId: button.dataset.participant });
@@ -90,7 +94,7 @@
 			if (data.type === 'state') { state = data.state; draw(); }
 			if (data.type === 'use') { setMode(false); }
 			if (data.type === 'comparisons') { runs = data.runs.sort((a, b) => b.createdAt - a.createdAt); state = data.state; draw(); }
-			if (data.type === 'failed' || data.type === 'comparisonError') { pending = false; if (active) { $('note').textContent = data.message; } draw(); }
+			if (data.type === 'failed' || data.type === 'comparisonError') { pending = false; error = data.message; draw(); }
 			if (data.type === 'comparisonCatalog') {
 				const c = choices[data.index]; if (c && (!data.catalog || data.catalog.service === c.service)) { c.catalog = data.catalog; c.error = data.error; drawConfig(); draw(); }
 			}
@@ -106,8 +110,9 @@
 			submit: () => {
 				if (!active) { return false; }
 				if (running()) { vscode.postMessage({ type: 'comparisonCancel', id: current().id }); return true; }
+				if (current()) { drafting = true; selected = undefined; error = ''; drawConfig(); draw(); return true; }
 				if (pending || $('send').disabled) { return true; }
-				pending = true;
+				pending = true; error = '';
 				vscode.postMessage({ type: 'comparisonCreate', text: $('prompt').value.trim(), participants: choices.slice(0, count).map(c => {
 					const model = resolved(c); return { service: c.service, model: { providerID: model.providerID, modelID: model.id, ...(c.variant ? { variant: c.variant } : {}) } };
 				}) });

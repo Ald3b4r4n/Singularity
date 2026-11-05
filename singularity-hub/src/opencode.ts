@@ -480,7 +480,7 @@ export class OpenCodeSessions {
 			this.history?.save(item.view, { prompt, result: item.view.result, status: item.view.status,
 				at: last?.at ?? Date.now() }, !!last);
 		} catch {
-			this.update(item, { summary: 'O resultado foi recebido, mas n鉶 p鬱e ser salvo no hist髍ico local.' });
+			this.update(item, { summary: 'O resultado foi recebido, mas n茫o p么de ser salvo no hist贸rico local.' });
 		}
 	}
 
@@ -488,7 +488,7 @@ export class OpenCodeSessions {
 		const workspace = await realpath(directory).catch(() => undefined);
 		const session = this.list().find(entry => entry.id === id);
 		if (!session?.workspace || !workspace || workspace.toLowerCase() !== session.workspace.toLowerCase()) {
-			throw new OpenCodeError('Hist髍ico indispon韛el neste workspace.');
+			throw new OpenCodeError('Hist贸rico indispon铆vel neste workspace.');
 		}
 		return session;
 	}
@@ -500,7 +500,7 @@ export class OpenCodeSessions {
 
 	async deleteHistory(id: string, directory: string): Promise<{ deleted: boolean }> {
 		const session = await this.scopedHistory(id, directory);
-		if (!session.historical) { throw new OpenCodeError('Encerre a sess鉶 antes de excluir o hist髍ico.'); }
+		if (!session.historical) { throw new OpenCodeError('Encerre a sess茫o antes de excluir o hist贸rico.'); }
 		this.history?.delete(id);
 		this.publish({ type: 'session.removed', sessionId: id });
 		return { deleted: true };

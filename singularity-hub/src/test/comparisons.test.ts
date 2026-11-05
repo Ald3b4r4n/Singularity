@@ -108,3 +108,43 @@ test('recovery follows the same live OpenCode session and three-agent configurat
 	await next.cancel(run.id, f.workspace, recovered.participants[2].id);
 	assert.equal(next.list(f.workspace)[0].participants[2].status, 'cancelled');
 });
+
+test('cancel remains pending until the adapter confirms stop, even when a terminal event arrives during shutdown', async () => {
+	const f = fixture();
+	let finish: (() => void) | undefined;
+	let coordinator: Comparisons;
+	coordinator = new Comparisons(f.directory, { ...f.adapter, stop: async id => {
+		coordinator.onSession({ ...f.sessions.find(s => s.id === id)!, status: 'failed' });
+		await new Promise<void>(resolve => { finish = resolve; });
+		await f.adapter.stop(id);
+	} }, () => {});
+	const run = await coordinator.create(f.input);
+	const cancelling = coordinator.cancel(run.id, f.workspace, run.participants[0].id);
+	assert.equal(coordinator.list(f.workspace)[0].participants[0].status, 'running');
+	finish!(); await cancelling;
+	assert.equal(coordinator.list(f.workspace)[0].participants[0].status, 'cancelled');
+	assert.equal(coordinator.list(f.workspace)[0].participants[1].status, 'running');
+});
+
+test('a failed cancellation preserves observation of later adapter completion', async () => {
+	const f = fixture();
+	const coordinator = new Comparisons(f.directory, { ...f.adapter, stop: async () => { throw new Error('Stop not confirmed.'); } }, () => {});
+	const run = await coordinator.create(f.input);
+	await coordinator.cancel(run.id, f.workspace, run.participants[0].id);
+	assert.equal(coordinator.list(f.workspace)[0].participants[0].status, 'running');
+	coordinator.onSession({ ...f.sessions[0], status: 'done' });
+	assert.equal(coordinator.list(f.workspace)[0].participants[0].status, 'done');
+});
+
+test('recovery never labels an idle prepared session as an executing task', async () => {
+	const f = fixture();
+	const run = await f.coordinator.create(f.input);
+	f.sessions[0].status = 'idle';
+	const next = new Comparisons(f.directory, f.adapter, () => {});
+	await next.recover();
+	assert.equal(next.list(f.workspace)[0].participants[0].status, 'unrecoverable');
+	assert.equal(f.prompts.length, 2);
+	f.coordinator.onSession({ ...f.sessions[1], status: 'idle' });
+	assert.equal(f.coordinator.list(f.workspace)[0].participants[1].status, 'cancelled');
+	assert.equal(run.participants[0].status, 'running');
+});

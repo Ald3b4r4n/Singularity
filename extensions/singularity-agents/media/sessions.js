@@ -30,7 +30,7 @@
 	function draw() {
 		const sessions = data.state.sessions;
 		const workspaces = new Map();
-		for (const path of [data.workspace, ...sessions.map(session => session.workspace)]) {
+		for (const path of [data.workspace, ...sessions.map(session => session.comparisonWorkspace || session.workspace)]) {
 			const key = workspaceKey(path);
 			if (key && !workspaces.has(key)) { workspaces.set(key, path); }
 		}
@@ -46,7 +46,7 @@
 			previousWorkspaces = signature;
 		}
 
-		const scoped = sessions.filter(session => !workspace.value || workspaceKey(session.workspace) === workspace.value);
+		const scoped = sessions.filter(session => !workspace.value || workspaceKey(session.comparisonWorkspace || session.workspace) === workspace.value);
 		const active = scoped.filter(R.isActive);
 		const recent = scoped.filter(session => !R.isActive(session)).reverse();
 		segments[0].textContent = 'Ativas (' + active.length + ')';

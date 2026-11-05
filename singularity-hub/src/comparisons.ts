@@ -47,6 +47,7 @@ export class Comparisons {
 	private readonly storage: SessionHistory;
 	private readonly busy = new Set<string>();
 	private creating = false;
+	private readonly cancelling = new Set<string>();
 	constructor(private directory: string, private readonly adapter: Adapter, private readonly changed: () => void) {
 		if (existsSync(directory)) { this.directory = realpathSync.native(directory); }
 		this.storage = new SessionHistory(join(directory, 'records'), join(__dirname, 'singularity-job.exe'), 'comparison');
@@ -66,7 +67,8 @@ export class Comparisons {
 					const live = p.sessionId ? candidates.find(s => s.id === p.sessionId) : candidates.length === 1 ? candidates[0] : undefined;
 					if (live) { p.sessionId = live.id; }
 					if (live && !live.historical && !live.recovery && live.workspace?.toLowerCase() === p.workspace.toLowerCase()) {
-						p.status = live.status === 'done' ? 'done' : live.status === 'failed' ? 'failed' : 'running';
+						p.status = live.status === 'done' ? 'done' : live.status === 'failed' ? 'failed' : live.status === 'idle' ? 'unrecoverable' : 'running';
+						if (p.status === 'unrecoverable') { p.error = 'A execução não foi confirmada após a interrupção. A tarefa foi preservada e nenhum prompt foi reenviado.'; }
 					} else { p.status = 'unrecoverable'; p.error = 'Sessão não recuperável após a interrupção do Hub.'; }
 					if (p.status !== 'running') { p.endedAt = Date.now(); }
 				}
@@ -158,9 +160,10 @@ export class Comparisons {
 	onSession(session: Session): void {
 		for (const record of this.records.values()) {
 			const p = record.participants.find(p => p.sessionId === session.id);
-			if (!p || p.status !== 'running') { continue; }
+			if (!p || p.status !== 'running' || this.cancelling.has(p.id)) { continue; }
 			if (session.recovery) { p.status = 'unrecoverable'; }
 			else if (session.status === 'done') { p.status = 'done'; }
+			else if (session.status === 'idle') { p.status = 'cancelled'; }
 			else if (session.status === 'failed' || session.historical) { p.status = 'failed'; p.error = session.summary; }
 			else { continue; }
 			p.endedAt = Date.now();
@@ -170,7 +173,7 @@ export class Comparisons {
 
 	private async stopParticipant(p: Participant): Promise<void> {
 		const session = this.adapter.list().find(s => s.id === p.sessionId);
-		if (!session || session.harness !== p.service || session.workspace?.toLowerCase() !== p.workspace.toLowerCase()) { throw new Error('Identidade da sess�o n�o confirmada para encerramento.'); }
+		if (!session || session.harness !== p.service || session.workspace?.toLowerCase() !== p.workspace.toLowerCase()) { throw new Error('Identidade da sessão não confirmada para encerramento.'); }
 		if (!session.historical) { await this.adapter.stop(session.id); }
 	}
 
@@ -181,10 +184,16 @@ export class Comparisons {
 		this.busy.add(id);
 		try {
 			await Promise.all(record.participants.filter(p => (!participantId || p.id === participantId) && p.status === 'running').map(async p => {
+				this.cancelling.add(p.id);
 				try {
 					await this.stopParticipant(p);
-					p.status = 'cancelled'; p.endedAt = Date.now();
+					p.status = 'cancelled'; p.endedAt = Date.now(); delete p.error;
 				} catch (error) { p.error = error instanceof Error ? error.message : 'Encerramento não confirmado.'; }
+				finally {
+					this.cancelling.delete(p.id);
+					const session = this.adapter.list().find(s => s.id === p.sessionId);
+					if (session && p.status === 'running') { this.onSession(session); }
+				}
 			}));
 			this.save(record);
 		} finally { this.busy.delete(id); }
@@ -216,12 +225,12 @@ export class Comparisons {
 			if (!canonical.toLowerCase().startsWith((p.workspace + sep).toLowerCase()) || !(await lstat(path)).isFile()) { continue; }
 			if ((await lstat(path)).size > 65536) { additions += '\nArquivo novo maior que 64 KiB: ' + file + '\n'; continue; }
 			const data = await readFile(path);
-			if (data.length > 65536 || data.includes(0)) { additions += '\nArquivo novo bin�rio ou maior que 64 KiB: ' + file + '\n'; continue; }
+			if (data.length > 65536 || data.includes(0)) { additions += '\nArquivo novo binário ou maior que 64 KiB: ' + file + '\n'; continue; }
 			additions += '\ndiff --git a/' + file + ' b/' + file + '\n--- /dev/null\n+++ b/' + file + '\n' + data.toString('utf8').split(/\r?\n/).map(line => '+' + line).join('\n') + '\n';
 		}
 		const session = this.adapter.list().find(s => s.id === p.sessionId);
 		const turns = p.sessionId && this.adapter.history ? await this.adapter.history(p.sessionId, p.workspace).catch(() => []) : [];
-		return { participant: structuredClone(p), base: record.base, files, diff: diff + additions, untracked, result: session?.result ?? turns.at(-1)?.result, error: p.error ?? session?.summary,
+		return { participant: structuredClone(p), base: record.base, files, diff: diff + additions, untracked, usage: session?.usage, result: session?.result ?? turns.at(-1)?.result, error: p.error ?? session?.summary,
 			tests: 'Consulte a saída do agente. O coordenador não executou testes independentes.', durationMs: p.startedAt ? (p.endedAt ?? Date.now()) - p.startedAt : undefined };
 	}
 
@@ -238,6 +247,7 @@ export class Comparisons {
 		this.busy.add(id);
 		try {
 			for (const p of record.participants.filter(p => !p.removed)) {
+				if (!p.sessionId && !existsSync(p.workspace)) { p.removed = true; this.save(record); continue; }
 				await this.verifyTree(record, p);
 				if ((await this.git(p.workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).trim() || (await this.git(p.workspace, ['rev-parse', 'HEAD'])).trim() !== record.base) { throw new Error('Worktree contém alterações ou commits. Preserve o resultado antes de removê-lo.'); }
 				if (p.sessionId && this.adapter.list().some(s => s.id === p.sessionId && !s.historical)) { await this.stopParticipant(p); }

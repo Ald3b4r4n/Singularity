@@ -75,8 +75,9 @@
 	function drawComposer() {
 		const sel = R.resolve(catalog, prefs);
 		el.hub.innerHTML = R.hubLine(state);
-		el.ws.textContent = workspace ? R.folderName(workspace) : 'Escolher workspace';
-		el.ws.title = workspace || 'Escolher workspace';
+		const displayedWorkspace = target()?.workspace || workspace;
+		el.ws.textContent = displayedWorkspace ? R.folderName(displayedWorkspace) : 'Escolher workspace';
+		el.ws.title = displayedWorkspace || 'Escolher workspace';
 		el.ws.setAttribute('aria-label', 'Workspace: ' + el.ws.textContent);
 
 		fill(el.service, sel.services.map(s => ({ value: s.id, label: s.name + R.SERVICE_NOTE[s.status], disabled: s.status !== 'available' })), sel.service, loading ? 'Carregando…' : 'Sem serviços');

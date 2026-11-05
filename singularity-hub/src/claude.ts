@@ -1,3 +1,4 @@
+import { reportedUsage } from './usage';
 import { managedProviderPath } from './providerInstall';
 // Claude Code adapter: runs the real `claude` CLI headlessly (`--print --output-format stream-json`) and turns its structured
 // events into Hub sessions. Nothing here reads the terminal, calls the Claude API, or touches the CLI's credential files.
@@ -285,6 +286,7 @@ class ClaudeRun {
 				if (event.rate_limit_info?.status === 'rejected') { this.rejected = true; }
 				break;
 			case 'result': {
+				this.update({ usage: reportedUsage(event.usage, event.total_cost_usd) });
 				this.finished = true;
 				for (const entry of Array.isArray(event.permission_denials) ? event.permission_denials : []) {
 					if (typeof entry?.tool_name === 'string' && /^[A-Za-z0-9_.:-]{1,60}$/.test(entry.tool_name)) { this.denied.add(entry.tool_name); }
@@ -392,7 +394,7 @@ export class ClaudeCodeSessions {
 		item.busy = true;
 		const at = Date.now();
 		this.history?.save({ ...item.view, status: 'waiting', updatedAt: at }, { prompt: text, status: 'waiting', at });
-		Object.assign(item.view, { status: 'waiting', prompt: text, result: undefined, summary: undefined, failure: undefined, updatedAt: at });
+		Object.assign(item.view, { status: 'waiting', prompt: text, result: undefined, usage: undefined, summary: undefined, failure: undefined, updatedAt: at });
 		this.publish({ type: 'session.changed', sessionId: id, data: { ...item.view } });
 		void this.execute(item, executable, text, at).finally(() => { item.busy = false; item.run = undefined; });
 	}

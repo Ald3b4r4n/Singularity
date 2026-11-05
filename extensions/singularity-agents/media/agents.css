@@ -203,7 +203,7 @@ body[data-vscode-theme-id="Event Minimal Dark"] button.primary.interrupt {
 .comparison-choices fieldset { border: 1px solid var(--line); border-radius: 8px; min-width: 0; padding: 10px; }
 .comparison-choices label { display: block; margin-top: 6px; }
 .comparison-choices select { display: block; width: 100%; margin-top: 4px; }
-.comparison-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.comparison-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
 .comparison-card { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
 .comparison-card.chosen { border-color: var(--vscode-focusBorder); }
 .comparison-card h2 { font-size: 15px; margin-top: 0; }
@@ -214,3 +214,6 @@ body[data-vscode-theme-id="Event Minimal Dark"] button.primary.interrupt {
 .comparison-empty { padding: 32px 12px; }
 .comparison-task { white-space: pre-wrap; overflow-wrap: anywhere; }
 [hidden] { display: none !important; }
+
+#comparison-config { max-height: 45vh; overflow: auto; }
+.comparison-mode { flex: 0 0 auto; }

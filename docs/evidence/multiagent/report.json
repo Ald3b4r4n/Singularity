@@ -1,0 +1,430 @@
+{
+  "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b",
+  "checks": [
+    {
+      "name": "Two providers launched in parallel",
+      "ok": true,
+      "detail": [
+        {
+          "service": "claude-code",
+          "model": {
+            "providerID": "claude-code",
+            "modelID": "sonnet",
+            "variant": "low"
+          },
+          "sessionId": "8e414aec-4526-4a65-bbf4-4397f945f8b2"
+        },
+        {
+          "service": "codex-cli",
+          "model": {
+            "providerID": "codex-cli",
+            "modelID": "gpt-5.6-luna",
+            "variant": "low"
+          },
+          "sessionId": "9b65bdc2-1edc-43dd-acc9-7aac73f7c2ff"
+        }
+      ]
+    },
+    {
+      "name": "Independent worktrees share the exact base",
+      "ok": true
+    },
+    {
+      "name": "Individual cancellation preserves the other result",
+      "ok": true,
+      "detail": [
+        "cancelled",
+        "done"
+      ]
+    },
+    {
+      "name": "Real file edit and diff are inspectable",
+      "ok": true
+    },
+    {
+      "name": "IDE reopen retains the same comparison and sessions",
+      "ok": true
+    },
+    {
+      "name": "Individual provider streams observed",
+      "ok": true
+    },
+    {
+      "name": "Three real providers completed",
+      "ok": true,
+      "detail": [
+        {
+          "service": "claude-code",
+          "status": "done"
+        },
+        {
+          "service": "codex-cli",
+          "status": "done"
+        },
+        {
+          "service": "opencode",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Isolated result and diff for claude-code",
+      "ok": true
+    },
+    {
+      "name": "Isolated result and diff for codex-cli",
+      "ok": true
+    },
+    {
+      "name": "Isolated result and diff for opencode",
+      "ok": true
+    },
+    {
+      "name": "Main workspace remains unchanged",
+      "ok": true
+    },
+    {
+      "name": "Only the Hub was restarted",
+      "ok": true
+    },
+    {
+      "name": "OpenCode control recovered without duplicate execution",
+      "ok": true
+    },
+    {
+      "name": "Interrupted Codex session accurately marked unrecoverable",
+      "ok": true
+    },
+    {
+      "name": "Recovered OpenCode SSE resumes",
+      "ok": true
+    },
+    {
+      "name": "Recovery never edits the main workspace",
+      "ok": true
+    },
+    {
+      "name": "Authenticated OpenCode job controls no longer accept connections",
+      "ok": true
+    },
+    {
+      "name": "All surviving sessions stopped",
+      "ok": true
+    },
+    {
+      "name": "CLI usage contains only provider-reported numbers",
+      "ok": true,
+      "detail": [
+        {
+          "service": "claude-code",
+          "usage": {
+            "inputTokens": 2,
+            "outputTokens": 4,
+            "costUsd": 0.0725804
+          }
+        },
+        {
+          "service": "codex-cli",
+          "usage": {
+            "inputTokens": 20205,
+            "outputTokens": 5,
+            "cachedInputTokens": 11648
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clean worktrees safely removed",
+      "ok": true
+    },
+    {
+      "name": "Modified worktrees retained",
+      "ok": true
+    },
+    {
+      "name": "No provider or helper processes reference the synthetic test root",
+      "ok": true
+    }
+  ],
+  "comparisons": [
+    {
+      "id": "46b14e67-442e-494d-a482-b29a7ee3d33b",
+      "participants": [
+        {
+          "id": "dd818c3c-41dd-44fb-8b4b-cf9837ee3496",
+          "service": "claude-code",
+          "status": "cancelled"
+        },
+        {
+          "id": "4acc2ff8-d729-4b3c-94bf-4b3246011830",
+          "service": "codex-cli",
+          "status": "done"
+        }
+      ],
+      "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b"
+    },
+    {
+      "id": "157731ce-732a-46ee-ad8a-7285471faa0d",
+      "participants": [
+        {
+          "id": "8fb8ef58-7344-41bd-9b9e-1f7b158feb39",
+          "service": "claude-code",
+          "status": "done"
+        },
+        {
+          "id": "26637094-8eca-4da3-a996-e3cedbc496e6",
+          "service": "codex-cli",
+          "status": "done"
+        },
+        {
+          "id": "a231129d-8829-415b-9359-fef4beb48c42",
+          "service": "opencode",
+          "status": "done"
+        }
+      ],
+      "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b"
+    }
+  ],
+  "worktrees": [
+    {
+      "comparison": "157731ce-732a-46ee-ad8a-7285471faa0d",
+      "service": "claude-code",
+      "path": "hub/history/comparisons/157731ce-732a-46ee-ad8a-7285471faa0d/8fb8ef58-7344-41bd-9b9e-1f7b158feb39",
+      "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b",
+      "head": "4802f2fc4b2d3ce2500af2deb53867798355b33b"
+    },
+    {
+      "comparison": "157731ce-732a-46ee-ad8a-7285471faa0d",
+      "service": "codex-cli",
+      "path": "hub/history/comparisons/157731ce-732a-46ee-ad8a-7285471faa0d/26637094-8eca-4da3-a996-e3cedbc496e6",
+      "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b",
+      "head": "4802f2fc4b2d3ce2500af2deb53867798355b33b"
+    },
+    {
+      "comparison": "157731ce-732a-46ee-ad8a-7285471faa0d",
+      "service": "opencode",
+      "path": "hub/history/comparisons/157731ce-732a-46ee-ad8a-7285471faa0d/a231129d-8829-415b-9359-fef4beb48c42",
+      "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b",
+      "head": "4802f2fc4b2d3ce2500af2deb53867798355b33b"
+    },
+    {
+      "comparison": "46b14e67-442e-494d-a482-b29a7ee3d33b",
+      "service": "claude-code",
+      "path": "hub/history/comparisons/46b14e67-442e-494d-a482-b29a7ee3d33b/dd818c3c-41dd-44fb-8b4b-cf9837ee3496",
+      "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b",
+      "head": "4802f2fc4b2d3ce2500af2deb53867798355b33b"
+    },
+    {
+      "comparison": "46b14e67-442e-494d-a482-b29a7ee3d33b",
+      "service": "codex-cli",
+      "path": "hub/history/comparisons/46b14e67-442e-494d-a482-b29a7ee3d33b/4acc2ff8-d729-4b3c-94bf-4b3246011830",
+      "base": "4802f2fc4b2d3ce2500af2deb53867798355b33b",
+      "head": "4802f2fc4b2d3ce2500af2deb53867798355b33b"
+    }
+  ],
+  "mainWorkspaceStatus": "",
+  "regressions": {
+    "hubFullSuite": {
+      "passed": 100,
+      "failed": 0
+    },
+    "targetedComparisonsAndUsage": {
+      "passed": 9,
+      "failed": 0
+    },
+    "extensionChecks": 37,
+    "comparisonUi": "passed",
+    "claudeCode": {
+      "passed": 20,
+      "version": "2.1.318"
+    },
+    "codexCli": {
+      "passed": 20,
+      "version": "0.166.0"
+    },
+    "providerInspection": [
+      {
+        "provider": "opencode",
+        "status": "ready",
+        "version": "2.2.5"
+      },
+      {
+        "provider": "claude-code",
+        "status": "ready",
+        "version": "2.1.318"
+      },
+      {
+        "provider": "codex-cli",
+        "status": "ready",
+        "version": "0.166.0"
+      }
+    ],
+    "packagedCore": [
+      {
+        "name": "temporary workspace with a git repository",
+        "ok": true
+      },
+      {
+        "name": "launch, opening plays and leaves, window comes to the front",
+        "ok": true
+      },
+      {
+        "name": "open a file with Ctrl+P and type into it",
+        "ok": true
+      },
+      {
+        "name": "switch to Event Minimal Light and back to Dark",
+        "ok": true
+      },
+      {
+        "name": "terminal runs a command",
+        "ok": true
+      },
+      {
+        "name": "Source Control view shows the change",
+        "ok": true
+      },
+      {
+        "name": "Command Palette lists Singularity commands",
+        "ok": true
+      },
+      {
+        "name": "built-in extensions are present",
+        "ok": true
+      },
+      {
+        "name": "Singularity Agentes panel opens",
+        "ok": true
+      },
+      {
+        "name": "close the window like a user",
+        "ok": true
+      },
+      {
+        "name": "reopen: workspace and the edited file are restored",
+        "ok": true
+      },
+      {
+        "name": "explicit Hub shutdown releases its files",
+        "ok": true
+      },
+      {
+        "name": "final close and cleanup",
+        "ok": true
+      }
+    ],
+    "packagedBrowser": [
+      {
+        "name": "1. the Singularity Browser opens as an editor tab",
+        "ok": true
+      },
+      {
+        "name": "1b. the browser presents itself as \"Singularity Browser\" (welcome title)",
+        "ok": true
+      },
+      {
+        "name": "1c. no tab starts shared with an agent (sharing is an explicit per-tab opt-in)",
+        "ok": true
+      },
+      {
+        "name": "1d. agents cannot drive browser pages by default (enableChatTools is off)",
+        "ok": true
+      },
+      {
+        "name": "2. the address bar loads a local page (server received GET /a.html)",
+        "ok": true
+      },
+      {
+        "name": "2b. the tab title follows the page title",
+        "ok": true
+      },
+      {
+        "name": "3. a real mouse click on a link navigates (server received GET /b.html)",
+        "ok": true
+      },
+      {
+        "name": "4a. Alt+Left goes back to page A",
+        "ok": true
+      },
+      {
+        "name": "4b. Alt+Right goes forward to page B",
+        "ok": true
+      },
+      {
+        "name": "4c. F5 reloads the page (a new request reached the server)",
+        "ok": true
+      },
+      {
+        "name": "5a. the page cannot reach Node/Electron/VS Code APIs",
+        "ok": true
+      },
+      {
+        "name": "5a2. the only bridge visible to the page is the helper pair (no IPC, no IDE API)",
+        "ok": true
+      },
+      {
+        "name": "5b. the page cannot read local files through file://",
+        "ok": true
+      },
+      {
+        "name": "5c. no GitHub credential or token reached the page",
+        "ok": true
+      },
+      {
+        "name": "6. a second browser tab can be opened",
+        "ok": true
+      },
+      {
+        "name": "7. the browser (left) and the editor (right) are visible side by side",
+        "ok": true
+      },
+      {
+        "name": "8. F12 opens Developer Tools for the page",
+        "ok": true
+      },
+      {
+        "name": "9a. Event Minimal Light applies to the browser UI",
+        "ok": true
+      },
+      {
+        "name": "9b. Event Minimal Dark applies back",
+        "ok": true
+      },
+      {
+        "name": "10. resizing the window re-lays out the browser without horizontal overflow",
+        "ok": true
+      },
+      {
+        "name": "12a. regression: the integrated terminal still opens",
+        "ok": true
+      },
+      {
+        "name": "12b. regression: the Source Control view still opens",
+        "ok": true
+      },
+      {
+        "name": "12c. regression: the Extensions view still opens",
+        "ok": true
+      },
+      {
+        "name": "11a. the IDE closes normally (no forced kill)",
+        "ok": true
+      },
+      {
+        "name": "11. after closing and reopening, the browser tabs are restored",
+        "ok": true
+      },
+      {
+        "name": "11b. the restored page loads again when its tab is shown",
+        "ok": true
+      }
+    ]
+  },
+  "limits": [
+    "One active comparison per Hub, with two or three explicitly selected participants.",
+    "OpenCode usage and cost are not exposed in comparison metrics.",
+    "Test results are agent output; the coordinator does not run an independent test suite.",
+    "Unrecoverable worktrees are preserved and automatic cleanup is blocked.",
+    "Untracked previews are limited to 100 files of 64 KiB each; binary previews are omitted."
+  ]
+}

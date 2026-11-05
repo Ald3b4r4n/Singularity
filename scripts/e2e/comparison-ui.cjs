@@ -40,10 +40,24 @@ const { chromium } = require('playwright');
 		await page.locator('.comparison-diff').waitFor();
 		assert.match(await page.locator('.comparison-diff').textContent(), /<script>/);
 		assert.equal(await page.locator('.comparison-diff script').count(), 0);
+		await post({ type: 'comparisons', runs: [{ ...run, participants: run.participants.map(p => ({ ...p, status: 'done' })) }], state: { hub: { status: 'connected' }, sessions: [] } });
+		await page.waitForFunction(() => document.querySelector('#send').textContent === 'Nova comparação');
+		await page.click('#send');
+		assert.equal(await page.isVisible('#comparison-config'), true);
+		assert.equal((await page.evaluate(() => window.messages)).filter(m => m.type === 'comparisonCreate').length, 1, 'reviewing a result must expose the selections before another launch');
 		await page.click('#mode-single');
 		assert.equal(await page.isVisible('#comparison-config'), false);
 		assert.equal(await page.inputValue('#prompt'), 'One task');
 		assert.deepEqual(errors, []);
+		const navigation = await browser.newPage();
+		await navigation.setContent('<html><body><div id="app"></div></body></html>');
+		await navigation.evaluate(() => { window.messages = []; window.acquireVsCodeApi = () => ({ postMessage: m => window.messages.push(m) }); });
+		for (const file of ['render.js', 'sessions.js']) { await navigation.addScriptTag({ path: path.resolve(__dirname, '../../extensions/singularity-agents/media', file) }); }
+		await navigation.evaluate(() => window.postMessage({ type: 'sessions', workspace: 'D:/repo', state: { sessions: [{ id: 'participant', harness: 'codex-cli', workspace: 'D:/worktrees/a', comparisonWorkspace: 'D:/repo', status: 'done', model: { providerID: 'codex-cli', modelID: 'model' } }] } }, '*'));
+		await navigation.getByText('Recentes (1)', { exact: true }).waitFor();
+		await navigation.locator('button[data-action="use"]').click();
+		assert((await navigation.evaluate(() => window.messages)).some(m => m.type === 'use' && m.id === 'participant'));
+
 		console.log('Comparison UI passed: single composer, explicit launch, model/effort, two cards, individual/all cancellation, escaped diff, mode switch and draft preservation.');
 	} finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

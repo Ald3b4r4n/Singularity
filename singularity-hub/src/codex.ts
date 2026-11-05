@@ -1,3 +1,4 @@
+import { reportedUsage } from './usage';
 import { managedProviderPath } from './providerInstall';
 // Codex CLI adapter: runs the real `codex exec --json` and turns its structured JSONL events into Hub sessions. Nothing here reads the
 // terminal, calls the OpenAI API, or touches the CLI's credential files; authentication is whatever `codex login` already set up.
@@ -293,6 +294,7 @@ class CodexRun {
 				break;
 			}
 			case 'turn.completed':
+				this.update({ usage: reportedUsage(event.usage) });
 				this.outcome = { patch: { status: 'done', result: this.messages.join('\n\n').slice(0, outputLimit) || undefined, summary: undefined, failure: undefined }, name: 'session.completed' };
 				break;
 			case 'turn.failed':
@@ -398,7 +400,7 @@ export class CodexSessions {
 		item.busy = true;
 		const at = Date.now();
 		this.history?.save({ ...item.view, status: 'waiting', updatedAt: at }, { prompt: text, status: 'waiting', at });
-		Object.assign(item.view, { status: 'waiting', prompt: text, result: undefined, summary: undefined, failure: undefined, updatedAt: at });
+		Object.assign(item.view, { status: 'waiting', prompt: text, result: undefined, usage: undefined, summary: undefined, failure: undefined, updatedAt: at });
 		this.publish({ type: 'session.changed', sessionId: id, data: { ...item.view } });
 		void this.execute(item, executable, text, at).finally(() => { item.busy = false; item.run = undefined; });
 	}

@@ -56,6 +56,8 @@ export interface Session {
 	resumable?: boolean;
 	/** Codex CLI: id of the CLI conversation (thread) the next prompt resumes. Not a secret; not sent to the webview. */
 	resumeId?: string;
+	/** Numeric usage explicitly returned by the provider, without estimating subscription charges. */
+	usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; costUsd?: number };
 	/** Claude Code and Codex CLI: why the last run failed, when the CLI says so. */
 	failure?: 'authentication' | 'usage-limit' | 'model' | 'other';
 }

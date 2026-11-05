@@ -60,7 +60,7 @@ class AgentsViewProvider {
 				this._postSessions();
 			} else if (message?.type === 'deleteHistory') {
 				try {
-					const workspace = this._workspace();
+					const workspace = this._visibleState().sessions.find(session => session.id === message.id)?.workspace ?? this._workspace();
 					if (!workspace || await vscode.window.showWarningMessage('Excluir o histórico desta sessão?', { modal: true }, 'Excluir') !== 'Excluir') { return; }
 					await this._hub.sessionRequest('session.deleteHistory', { id: message.id, workspace });
 				} catch (error) {
@@ -129,7 +129,7 @@ class AgentsViewProvider {
 
 	/** Brings an archived Claude Code session back. Nothing runs: the next task resumes the CLI conversation. */
 	async _reopen(id) {
-		const workspace = this._workspace();
+		const workspace = this._visibleState().sessions.find(session => session.id === id)?.workspace ?? this._workspace();
 		if (typeof id !== 'string' || !workspace) { return; }
 		await this._hub.sessionRequest('session.reopen', { id, workspace });
 		this._targetId = id;
@@ -190,7 +190,7 @@ class AgentsViewProvider {
 		}
 		if (message?.type?.startsWith('comparison')) {
 			const workspace = this._workspace();
-			if (!workspace) { throw new Error('Abra um reposit�rio Git para comparar agentes.'); }
+			if (!workspace) { throw new Error('Abra um repositório Git para comparar agentes.'); }
 			const methods = { comparisonCreate: 'comparisons.create', comparisonCancel: 'comparisons.cancel', comparisonInspect: 'comparisons.inspect', comparisonOpenDiff: 'comparisons.inspect', comparisonOpenTree: 'comparisons.inspect', comparisonSelect: 'comparisons.select', comparisonCleanup: 'comparisons.cleanup' };
 			const method = methods[message.type];
 			if (!method) { await this._refreshComparisons(); return; }
@@ -353,7 +353,8 @@ class AgentsViewProvider {
 	_postSessions() {
 		const { hub, sessions } = this._visibleState();
 		const entries = sessions.map(({ id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt, resumable }) => ({
-			id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt, resumable
+			id, harness, status, workspace, model, recovery, historical, createdAt, updatedAt, resumable,
+			comparisonWorkspace: (this._comparisons ?? []).some(run => run.participants.some(p => p.sessionId === id)) ? this._workspace() : undefined
 		}));
 		this._sessions?.webview.postMessage({
 			type: 'sessions', state: { hub, sessions: entries }, catalog: this._catalog, targetId: this._targetId, workspace: this._workspace()
