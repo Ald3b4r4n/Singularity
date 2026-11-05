@@ -193,6 +193,10 @@
 			if (used && catalog && catalog.service !== used.harness) { requestCatalog(false, used.harness); }
 			drawSessions(); drawComposer();
 			if (data.focusComposer) { el.prompt.focus(); }
+		} else if (data.type === 'selectProvider') {
+			prefs = { service: data.service };
+			vscode.postMessage({ type: 'prefs', prefs });
+			requestCatalog(true, data.service);
 		} else if (data.type === 'catalog') {
 			loading = false; catalog = data.catalog; catalogError = data.error;
 			// The remembered provider may not be usable here (not logged in, not installed): follow the one that is.

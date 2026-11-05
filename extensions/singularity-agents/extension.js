@@ -1,6 +1,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { manageProviders } = require('./providerManagement');
 const { realpathSync } = require('node:fs');
 const { RealHubClient } = require('./hubClient.js');
 const { selectionOf, same, text } = require('./selection.js');
@@ -106,8 +107,15 @@ class AgentsViewProvider {
 			} else if (message?.type === 'target') {
 				this._targetId = message.id;
 				this._postSessions();
+			} else if (message?.type === 'manageProviders') {
+				await vscode.commands.executeCommand('singularity.agents.manageProviders');
 			} else if (message?.type === 'openSettings') {
-				await vscode.commands.executeCommand('singularity.agents.openSettings');
+				const choice = await vscode.window.showQuickPick(['Configurações de Agentes', 'Gerenciar provedores'], { title: 'Configurações' });
+				if (choice === 'Gerenciar provedores') {
+					await vscode.commands.executeCommand('singularity.agents.manageProviders');
+				} else if (choice) {
+					await vscode.commands.executeCommand('singularity.agents.openSettings');
+				}
 			} else {
 				try {
 					await this._operate(message);
@@ -362,6 +370,17 @@ function activate(context) {
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),
 		vscode.window.registerWebviewPanelSerializer(EDITOR_ID, { deserializeWebviewPanel: async (view, saved) => provider.attachEditor(view, saved) }),
 		{ dispose: hub.onDidChange(() => provider._post()) },
+		vscode.commands.registerCommand('singularity.agents.manageProviders', async () => {
+			try {
+				await manageProviders(hub, provider._workspace(), async service => {
+					await context.globalState.update(PREFS_KEY, { service });
+					provider.open();
+					provider._view?.webview.postMessage({ type: 'selectProvider', service });
+				});
+			} catch (error) {
+				void vscode.window.showErrorMessage(error.message);
+			}
+		}),
 		vscode.commands.registerCommand('singularity.agents.open', () => provider.open()),
 		vscode.commands.registerCommand('singularity.hub.updateState', async () => {
 			await hub.start(false);

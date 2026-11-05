@@ -45,6 +45,11 @@
     },
     "commands": [
       {
+        "command": "singularity.agents.manageProviders",
+        "title": "Gerenciar provedores",
+        "category": "Singularity"
+      },
+      {
         "command": "singularity.agents.open",
         "title": "%command.open%",
         "category": "Singularity"

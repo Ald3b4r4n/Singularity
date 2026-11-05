@@ -1,3 +1,4 @@
+import { managedProviderPath } from './providerInstall';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, rmSync } from 'node:fs';
@@ -31,7 +32,9 @@ const deadline = 15000;
 const maxSessions = 8;
 const outputLimit = 12000;
 
-export class OpenCodeError extends Error { }
+export class OpenCodeError extends Error {
+	constructor(message: string, readonly httpStatus?: number) { super(message); }
+}
 
 interface RawModel { id?: unknown; providerID?: unknown; variant?: unknown }
 
@@ -76,7 +79,8 @@ export function openCodeExecutable(env: NodeJS.ProcessEnv = process.env): string
 			}
 		}
 	}
-	return undefined;
+	const managed = managedProviderPath('opencode', env);
+	return managed && existsSync(managed) ? managed : undefined;
 }
 
 async function localPort(): Promise<number> {
@@ -218,7 +222,7 @@ class OpenCodeProcess {
 		const response = await this.fetch(route.replace('{sessionID}', encodeURIComponent(id ?? '')), method, body, signal);
 		if (!response.ok) {
 			await response.body?.cancel();
-			throw new OpenCodeError(`OpenCode recusou ${operation} (HTTP ${response.status}).`);
+			throw new OpenCodeError(`OpenCode recusou ${operation} (HTTP ${response.status}).`, response.status);
 		}
 		return (response.status === 204 ? undefined : await response.json()) as T;
 	}

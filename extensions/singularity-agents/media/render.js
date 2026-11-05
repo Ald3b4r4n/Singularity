@@ -209,7 +209,7 @@
 			'<button class="workspace-control" type="button" id="ws" data-action="pickWorkspace"></button></div>' +
 			'<label for="prompt">Tarefa</label><textarea id="prompt" rows="3" maxlength="16000" placeholder="Descreva o que deseja desenvolver…"></textarea>' +
 			'<div class="toolbar"><div class="selectors">' +
-			'<div class="field"><label for="service">Provedor</label><select id="service"></select></div>' +
+			'<div class="field"><label for="service">Provedor</label><select id="service"></select><button type="button" data-action="manageProviders">Gerenciar provedores</button></div>' +
 			'<div class="field"><label for="model">Modelo</label><select id="model"></select></div>' +
 			'<div class="field"><label for="effort">Esforço</label><select id="effort"></select></div>' +
 			'<div class="field" id="permission-field" hidden><label for="permission">Permissões</label><select id="permission"></select></div></div>' +

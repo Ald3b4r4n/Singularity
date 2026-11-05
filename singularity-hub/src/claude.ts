@@ -1,3 +1,4 @@
+import { managedProviderPath } from './providerInstall';
 // Claude Code adapter: runs the real `claude` CLI headlessly (`--print --output-format stream-json`) and turns its structured
 // events into Hub sessions. Nothing here reads the terminal, calls the Claude API, or touches the CLI's credential files.
 //
@@ -57,7 +58,8 @@ export function claudeExecutable(env: NodeJS.ProcessEnv = process.env): string |
 			if (existsSync(candidate)) { return candidate; }
 		}
 	}
-	return undefined;
+	const managed = managedProviderPath('claude-code', env);
+	return managed && existsSync(managed) ? managed : undefined;
 }
 
 function capture(executable: string, args: string[], timeout = 15000): Promise<{ code: number; stdout: string }> {

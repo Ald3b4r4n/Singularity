@@ -1,5 +1,6 @@
+import { installOffer } from './providerInstall';
 import { execFile } from 'node:child_process';
-import { openCodeExecutable, openCodeRunnable } from './opencode';
+import { openCodeExecutable, openCodeRunnable, OpenCodeError } from './opencode';
 import { claudeExecutable, inspectClaude } from './claude';
 import { codexExecutable, inspectCodex } from './codex';
 
@@ -7,12 +8,23 @@ export async function inspectProviders(probeOpenCode: () => Promise<boolean>, re
 	const inspect = async (id: string, name: string, source: string, executable: string | undefined,
 		probe: () => Promise<{ reason?: string; authenticationRequired?: boolean; version?: string }>) => {
 		const base = { id, name, source, executable };
-		if (!executable) { return { ...base, status: 'not-installed' }; }
+		if (!executable) {
+			const install = installOffer(id);
+			return { ...base, status: 'not-installed', install };
+		}
 		try {
 			const facts = await probe();
 			return { ...base, ...facts, status: facts.authenticationRequired ? 'authentication-required' : facts.reason ? 'unavailable' : 'ready' };
-		} catch {
-			return { ...base, status: 'error', reason: 'Não foi possível verificar a integração.' };
+		} catch (error) {
+			if (error instanceof OpenCodeError && error.httpStatus) {
+				if (error.httpStatus === 429 || error.httpStatus >= 500) {
+					return { ...base, status: 'error', reason: 'O catálogo OpenCode está temporariamente indisponível (HTTP ' + error.httpStatus + ').' };
+				}
+				if (error.httpStatus === 401 || error.httpStatus === 403) {
+					return { ...base, status: 'error', reason: 'O servidor local do OpenCode recusou a autenticação do Hub (HTTP ' + error.httpStatus + ').' };
+				}
+			}
+			return { ...base, status: 'error', reason: error instanceof OpenCodeError ? error.message : 'Não foi possível consultar a integração. Confira a conexão e tente novamente.' };
 		}
 	};
 	return Promise.all([

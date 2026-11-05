@@ -53,6 +53,16 @@ class RealHubClient {
 	}
 
 	/** Services, providers, models and effort levels read from the service itself (never any secret: see the Hub's catalog.ts). */
+	async installProvider(params) {
+		if (!this._supervisor) { throw new Error('O Singularity Hub não está disponível.'); }
+		return this._supervisor.installProvider(params);
+	}
+
+	async inspectProviders(params) {
+		if (!this._supervisor) { throw new Error('O Singularity Hub não está disponível.'); }
+		return this._supervisor.inspectProviders(params);
+	}
+
 	async catalog(params) {
 		if (!this._supervisor) {
 			throw new Error(this._unavailable);

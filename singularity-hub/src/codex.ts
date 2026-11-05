@@ -1,3 +1,4 @@
+import { managedProviderPath } from './providerInstall';
 // Codex CLI adapter: runs the real `codex exec --json` and turns its structured JSONL events into Hub sessions. Nothing here reads the
 // terminal, calls the OpenAI API, or touches the CLI's credential files; authentication is whatever `codex login` already set up.
 //
@@ -66,7 +67,8 @@ export function codexExecutable(env: NodeJS.ProcessEnv = process.env): string | 
 			if (existsSync(candidate)) { return candidate; }
 		}
 	}
-	return undefined;
+	const managed = managedProviderPath('codex-cli', env);
+	return managed && existsSync(managed) ? managed : undefined;
 }
 
 function capture(executable: string, args: string[], timeout = 20000): Promise<{ code: number; stdout: string; stderr: string }> {
