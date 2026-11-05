@@ -148,3 +148,25 @@ test('recovery never labels an idle prepared session as an executing task', asyn
 	assert.equal(f.coordinator.list(f.workspace)[0].participants[1].status, 'cancelled');
 	assert.equal(run.participants[0].status, 'running');
 });
+
+test('solution preparation never terminates a participant that was resumed independently', async () => {
+	const f = fixture();
+	const run = await f.coordinator.create(f.input);
+	f.sessions[0].status = 'done'; f.coordinator.onSession(f.sessions[0]);
+	f.coordinator.select(run.id, f.workspace, run.participants[0].id);
+	f.sessions[0].status = 'running';
+	await assert.rejects(f.coordinator.solutionSource(run.id, f.workspace, run.participants[0].id), /ativa/);
+	assert.equal(f.stop.length, 0);
+	f.sessions[0].status = 'done';
+	const selected = await f.coordinator.solutionSource(run.id, f.workspace, run.participants[0].id);
+	assert.equal(selected.participant.id, run.participants[0].id);
+	assert.equal(f.sessions[0].historical, true);
+});
+
+test('missing session identity cannot authorize preparation of an otherwise completed worktree', async () => {
+	const f = fixture(); const run = await f.coordinator.create(f.input);
+	f.sessions[0].status = 'done'; f.coordinator.onSession(f.sessions[0]); f.coordinator.select(run.id, f.workspace, run.participants[0].id);
+	f.sessions.splice(0, 1);
+	await assert.rejects(f.coordinator.solutionSource(run.id, f.workspace, run.participants[0].id), /identidade/);
+	assert.equal(f.stop.length, 0);
+});

@@ -1,0 +1,327 @@
+{
+  "base": "a0e0624e02ba2819f649275710e9842892cbed1a",
+  "checks": [
+    {
+      "name": "Two real providers completed the comparison",
+      "ok": true,
+      "detail": [
+        {
+          "service": "claude-code",
+          "status": "done"
+        },
+        {
+          "service": "codex-cli",
+          "status": "done"
+        }
+      ]
+    },
+    {
+      "name": "Preparation preserved the main workspace exactly",
+      "ok": true
+    },
+    {
+      "name": "Complete review includes binary, removal, rename and large new file",
+      "ok": true
+    },
+    {
+      "name": "Singularity ran independent tests with actual exit zero",
+      "ok": true,
+      "detail": {
+        "state": "passed",
+        "executable": "d:\\dev\\Singularity-Provider-Maturity-win32-x64\\resources\\app\\singularity-hub\\runtime\\node.exe",
+        "args": [
+          "--test"
+        ],
+        "at": 1793885311314,
+        "exitCode": 0,
+        "output": "ready\r\n✔ independent solution check (25.1392ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 125.8252\n"
+      }
+    },
+    {
+      "name": "Only authorized files changed and no commit was created",
+      "ok": true
+    },
+    {
+      "name": "Binary and rename applied correctly",
+      "ok": true
+    },
+    {
+      "name": "Undo restored the exact pre-application file snapshot",
+      "ok": true
+    },
+    {
+      "name": "Reapplication produced the same verified result",
+      "ok": true
+    },
+    {
+      "name": "Undo preserved a later user edit",
+      "ok": true
+    },
+    {
+      "name": "Other participant worktree remains intact",
+      "ok": true
+    },
+    {
+      "name": "Restart recovered a real interrupted transaction without duplicate application",
+      "ok": true,
+      "detail": {
+        "interruptedAfterFiles": 1,
+        "state": "rolled-back"
+      }
+    },
+    {
+      "name": "Recovery preserved HEAD, index and other participant",
+      "ok": true
+    },
+    {
+      "name": "Dirty workspace rejected without overwriting user content",
+      "ok": true
+    },
+    {
+      "name": "Divergent HEAD rejected",
+      "ok": true
+    },
+    {
+      "name": "Unsafe link rejected and outside content preserved",
+      "ok": true
+    },
+    {
+      "name": "Final packaged application changed exactly the complete authorized manifest",
+      "ok": true,
+      "files": 31
+    },
+    {
+      "name": "Final packaged independent tests passed and UI undo completed",
+      "ok": true
+    },
+    {
+      "name": "Dark Light and high contrast review captured",
+      "ok": true
+    },
+    {
+      "name": "Main workspace matches every baseline blob and HEAD after recovery and undo",
+      "ok": true
+    }
+  ],
+  "preparedFileCount": 31,
+  "transactionStates": [
+    {
+      "id": "41abef1d-a3cd-41a6-9f0f-97d027842d07",
+      "state": "rolled-back",
+      "validation": "passed",
+      "progress": 0
+    },
+    {
+      "id": "b13655ba-54ac-4285-beab-6b8dd0c8b937",
+      "state": "rolled-back",
+      "validation": "passed",
+      "progress": 0
+    }
+  ],
+  "baselineFilesVerified": 30,
+  "regressions": {
+    "hubFullSuite": {
+      "passed": 113,
+      "failed": 0
+    },
+    "focusedSecurityAndNativeHelper": {
+      "passed": 23,
+      "failed": 0
+    },
+    "focusedComparisonLifecycle": {
+      "passed": 10,
+      "failed": 0
+    },
+    "extensionChecks": 37,
+    "solutionUi": "passed",
+    "comparisonUi": "passed",
+    "claudeCode": {
+      "passed": 20,
+      "version": "2.1.318"
+    },
+    "codexCli": {
+      "passed": 20,
+      "version": "0.166.0"
+    },
+    "openCode": {
+      "version": "2.2.5",
+      "terminal": "done",
+      "streaming": true,
+      "interrupt": true,
+      "reconnect": true,
+      "jobTreeEmpty": true
+    },
+    "packagedCore": [
+      {
+        "name": "temporary workspace with a git repository",
+        "ok": true
+      },
+      {
+        "name": "launch, opening plays and leaves, window comes to the front",
+        "ok": true
+      },
+      {
+        "name": "open a file with Ctrl+P and type into it",
+        "ok": true
+      },
+      {
+        "name": "switch to Event Minimal Light and back to Dark",
+        "ok": true
+      },
+      {
+        "name": "terminal runs a command",
+        "ok": true
+      },
+      {
+        "name": "Source Control view shows the change",
+        "ok": true
+      },
+      {
+        "name": "Command Palette lists Singularity commands",
+        "ok": true
+      },
+      {
+        "name": "built-in extensions are present",
+        "ok": true
+      },
+      {
+        "name": "Singularity Agentes panel opens",
+        "ok": true
+      },
+      {
+        "name": "close the window like a user",
+        "ok": true
+      },
+      {
+        "name": "reopen: workspace and the edited file are restored",
+        "ok": true
+      },
+      {
+        "name": "explicit Hub shutdown releases its files",
+        "ok": true
+      },
+      {
+        "name": "final close and cleanup",
+        "ok": true
+      }
+    ],
+    "packagedBrowser": [
+      {
+        "name": "1. the Singularity Browser opens as an editor tab",
+        "ok": true
+      },
+      {
+        "name": "1b. the browser presents itself as \"Singularity Browser\" (welcome title)",
+        "ok": true
+      },
+      {
+        "name": "1c. no tab starts shared with an agent (sharing is an explicit per-tab opt-in)",
+        "ok": true
+      },
+      {
+        "name": "1d. agents cannot drive browser pages by default (enableChatTools is off)",
+        "ok": true
+      },
+      {
+        "name": "2. the address bar loads a local page (server received GET /a.html)",
+        "ok": true
+      },
+      {
+        "name": "2b. the tab title follows the page title",
+        "ok": true
+      },
+      {
+        "name": "3. a real mouse click on a link navigates (server received GET /b.html)",
+        "ok": true
+      },
+      {
+        "name": "4a. Alt+Left goes back to page A",
+        "ok": true
+      },
+      {
+        "name": "4b. Alt+Right goes forward to page B",
+        "ok": true
+      },
+      {
+        "name": "4c. F5 reloads the page (a new request reached the server)",
+        "ok": true
+      },
+      {
+        "name": "5a. the page cannot reach Node/Electron/VS Code APIs",
+        "ok": true
+      },
+      {
+        "name": "5a2. the only bridge visible to the page is the helper pair (no IPC, no IDE API)",
+        "ok": true
+      },
+      {
+        "name": "5b. the page cannot read local files through file://",
+        "ok": true
+      },
+      {
+        "name": "5c. no GitHub credential or token reached the page",
+        "ok": true
+      },
+      {
+        "name": "6. a second browser tab can be opened",
+        "ok": true
+      },
+      {
+        "name": "7. the browser (left) and the editor (right) are visible side by side",
+        "ok": true
+      },
+      {
+        "name": "8. F12 opens Developer Tools for the page",
+        "ok": true
+      },
+      {
+        "name": "9a. Event Minimal Light applies to the browser UI",
+        "ok": true
+      },
+      {
+        "name": "9b. Event Minimal Dark applies back",
+        "ok": true
+      },
+      {
+        "name": "10. resizing the window re-lays out the browser without horizontal overflow",
+        "ok": true
+      },
+      {
+        "name": "12a. regression: the integrated terminal still opens",
+        "ok": true
+      },
+      {
+        "name": "12b. regression: the Source Control view still opens",
+        "ok": true
+      },
+      {
+        "name": "12c. regression: the Extensions view still opens",
+        "ok": true
+      },
+      {
+        "name": "11a. the IDE closes normally (no forced kill)",
+        "ok": true
+      },
+      {
+        "name": "11. after closing and reopening, the browser tabs are restored",
+        "ok": true
+      },
+      {
+        "name": "11b. the restored page loads again when its tab is shown",
+        "ok": true
+      }
+    ]
+  },
+  "supportedScope": {
+    "files": "Regular writable files with inherited ACLs; NTFS alternate streams, special file attributes, symlinks, hard links, submodules and Git mode changes are rejected.",
+    "maxChangedPaths": 512,
+    "maxSnapshotBytes": 33554432,
+    "maxFullPatchBytes": 8388608,
+    "maxRelativePathCharacters": 220,
+    "base": "Exact recorded commit; clean destination and unchanged semantic index.",
+    "validation": "Only explicitly authorized executables and arguments; commands run as the current user in a separate Git copy.",
+    "recovery": "Unknown later edits or metadata conflicts block rollback and preserve the transaction for inspection.",
+    "worktrees": "New comparisons use .singularity-worktrees beside the project with inherited project permissions. Existing private worktrees remain recognized."
+  },
+  "fixtureProviderAndHelperProcessesRemaining": 0
+}

@@ -98,6 +98,21 @@ int wmain(int argc, wchar_t** argv) {
     if (argc == 2 && std::wstring(argv[1]) == L"unprotect-recovery") {
         return protectRecord(true);
     }
+    if (argc == 3 && std::wstring(argv[1]) == L"inspect-file") {
+        const DWORD attributes = GetFileAttributesW(argv[2]);
+        const DWORD supported = FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_NORMAL;
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & ~supported) != 0) { return 12; }
+        WIN32_FIND_STREAM_DATA stream{};
+        const HANDLE search = FindFirstStreamW(argv[2], FindStreamInfoStandard, &stream, 0);
+        if (search == INVALID_HANDLE_VALUE) { return GetLastError() == ERROR_HANDLE_EOF ? 0 : 12; }
+        bool supportedStreams = true;
+        do {
+            if (std::wstring(stream.cStreamName) != L"::$DATA") { supportedStreams = false; }
+        } while (FindNextStreamW(search, &stream));
+        const DWORD error = GetLastError();
+        FindClose(search);
+        return supportedStreams && error == ERROR_HANDLE_EOF ? 0 : 12;
+    }
     if (argc == 4 && (std::wstring(argv[1]) == L"inspect-job" || std::wstring(argv[1]) == L"stop-job")) {
         return inspectHelper(argv[2], argv[3], std::wstring(argv[1]) == L"stop-job");
     }

@@ -85,6 +85,7 @@ test('apply, exact undo and reapply preserve HEAD, index, binaries, additions, r
 	assert.deepEqual(readFileSync(join(f.workspace, 'binary.bin')), Buffer.from([0, 2, 255]));
 	assert.equal((await f.solutions.apply(record.id, f.workspace, confirmed)).state, 'applied');
 	await f.solutions.undo(record.id, f.workspace); assert.equal(f.git('status', '--porcelain'), '');
+	assert.equal((await f.solutions.validate(record.id, f.workspace, { executable: process.execPath, args: ['--test'], approved: true })).validation.state, 'passed');
 	assert.equal(readFileSync(join(f.source, 'sample.txt'), 'utf8'), 'solution\n');
 	await f.solutions.apply(record.id, f.workspace, confirmed);
 	writeFileSync(join(f.workspace, 'sample.txt'), 'user changed after apply\n');
@@ -102,4 +103,73 @@ test('partial application failure rolls back without reset and stale preparation
 	writeFileSync(join(f.source, 'sample.txt'), 'changed after review\n');
 	await assert.rejects(solutions.apply(record.id, f.workspace, { confirmed: true, patchHash: record.patchHash, allowUntested: true }), /solução selecionada mudou/);
 	assert.equal(f.git('status', '--porcelain'), '');
+});
+
+test('Hub-process interruption after a real write is recovered from the persistent journal without a second application', async () => {
+	const f = fixture(); writeFileSync(join(f.source, 'sample.txt'), 'solution\n'); writeFileSync(join(f.source, 'added.txt'), 'new');
+	const record = await f.solutions.prepare(f.comparison.id, f.workspace, f.p.id);
+	const modulePath = join(__dirname, '..', 'solutions.js');
+	const code = `const {Solutions}=require(process.argv[1]);const c=JSON.parse(process.argv[3]),p=JSON.parse(process.argv[4]);const s=new Solutions(process.argv[2],async()=>({comparison:c,participant:p}),()=>process.exit(91));(async()=>{await s.recover();await s.apply(process.argv[5],c.workspace,{confirmed:true,patchHash:process.argv[6],allowUntested:true});})().catch(e=>{console.error(e);process.exit(1)});`;
+	try { execFileSync(process.execPath, ['-e', code, modulePath, f.store, JSON.stringify(f.comparison), JSON.stringify(f.p), record.id, record.patchHash], { stdio: 'pipe' }); assert.fail('child must exit during application'); }
+	catch (error) { assert.equal((error as { status: number }).status, 91); }
+	assert.notEqual(f.git('status', '--porcelain'), '');
+	const recovered = new Solutions(f.store, f.origin); await recovered.recover();
+	assert.equal(recovered.list(f.workspace)[0].state, 'rolled-back');
+	assert.equal(f.git('status', '--porcelain'), '');
+	assert.equal(f.git('rev-parse', 'HEAD'), record.base);
+});
+
+test('interrupted rollback resumes from verified preserved files and keeps unrelated user changes', async () => {
+	const f = fixture(); writeFileSync(join(f.source, 'sample.txt'), 'solution\n');
+	const record = await f.solutions.prepare(f.comparison.id, f.workspace, f.p.id);
+	await f.solutions.apply(record.id, f.workspace, { confirmed: true, patchHash: record.patchHash, allowUntested: true });
+	const code = `const {Solutions}=require(process.argv[1]);const c=JSON.parse(process.argv[3]),p=JSON.parse(process.argv[4]);const s=new Solutions(process.argv[2],async()=>({comparison:c,participant:p}));(async()=>{await s.recover();const fs=require('node:fs').promises,rename=fs.rename;fs.rename=async(a,b)=>{await rename(a,b);process.exit(92);};await s.undo(process.argv[5],c.workspace);})().catch(e=>{console.error(e);process.exit(1)});`;
+	try { execFileSync(process.execPath, ['-e', code, join(__dirname, '..', 'solutions.js'), f.store, JSON.stringify(f.comparison), JSON.stringify(f.p), record.id], { stdio: 'pipe' }); assert.fail('child must exit during rollback'); }
+	catch (error) { assert.equal((error as { status: number }).status, 92); }
+	writeFileSync(join(f.workspace, 'user-note.txt'), 'preserved');
+	const recovered = new Solutions(f.store, f.origin); await recovered.recover();
+	assert.equal(recovered.list(f.workspace)[0].state, 'rolled-back');
+	assert.equal(readFileSync(join(f.workspace, 'sample.txt'), 'utf8'), 'base\n');
+	assert.equal(readFileSync(join(f.workspace, 'user-note.txt'), 'utf8'), 'preserved');
+});
+
+test('preparation includes more files than the comparison preview limit', async () => {
+	const f = fixture();
+	for (let i = 0; i < 105; i++) { writeFileSync(join(f.source, `new-${i}.txt`), 'new'); }
+	const record = await f.solutions.prepare(f.comparison.id, f.workspace, f.p.id);
+	assert.equal(record.files.length, 105);
+	assert.equal(f.git('status', '--porcelain'), '');
+});
+
+test('a staged index change, patch corruption and failed independent validation block application before mutation', async () => {
+	const f = fixture(); writeFileSync(join(f.source, 'sample.txt'), 'solution\n');
+	const record = await f.solutions.prepare(f.comparison.id, f.workspace, f.p.id);
+	const confirmation = { confirmed: true, patchHash: record.patchHash, allowUntested: true };
+	writeFileSync(join(f.workspace, 'user.txt'), 'preserve'); f.git('add', 'user.txt');
+	await assert.rejects(f.solutions.apply(record.id, f.workspace, confirmation), /índice/);
+	assert.equal(readFileSync(join(f.workspace, 'sample.txt'), 'utf8'), 'base\n');
+	assert.equal(readFileSync(join(f.workspace, 'user.txt'), 'utf8'), 'preserve');
+	const g = fixture(); writeFileSync(join(g.source, 'sample.txt'), 'solution\n');
+	const prepared = await g.solutions.prepare(g.comparison.id, g.workspace, g.p.id);
+	await g.solutions.validate(prepared.id, g.workspace, { executable: process.execPath, args: ['-e', 'process.exit(3)'], approved: true });
+	await assert.rejects(g.solutions.apply(prepared.id, g.workspace, { confirmed: true, patchHash: prepared.patchHash, allowUntested: true }), /validação independente/);
+	writeFileSync(join(g.store, prepared.id, 'solution.patch'), 'corrupt');
+	await assert.rejects(g.solutions.review(prepared.id, g.workspace), /patch preparado/);
+	assert.equal(g.git('status', '--porcelain'), '');
+});
+
+test('explicit Windows file ACLs are rejected rather than replaced by inherited permissions', async () => {
+	const f = fixture(); writeFileSync(join(f.source, 'sample.txt'), 'solution\n');
+	const { currentWindowsUser } = await import('../secure');
+	execFileSync(join(process.env.SystemRoot!, 'System32', 'icacls.exe'), [join(f.source, 'sample.txt'), '/grant:r', '*' + currentWindowsUser().sid + ':F'], { stdio: 'ignore' });
+	await assert.rejects(f.solutions.prepare(f.comparison.id, f.workspace, f.p.id), /ACL específica/);
+	assert.equal(f.git('status', '--porcelain'), '');
+});
+
+test('NTFS alternate streams are preserved by rejecting unsupported file metadata before application', async () => {
+	const f = fixture(); writeFileSync(join(f.source, 'sample.txt'), 'solution\n');
+	writeFileSync(join(f.workspace, 'sample.txt') + ':private', 'preserve metadata');
+	await assert.rejects(f.solutions.prepare(f.comparison.id, f.workspace, f.p.id), /NTFS não suportados/);
+	assert.equal(readFileSync(join(f.workspace, 'sample.txt') + ':private', 'utf8'), 'preserve metadata');
+	assert.equal(readFileSync(join(f.workspace, 'sample.txt'), 'utf8'), 'base\n');
 });

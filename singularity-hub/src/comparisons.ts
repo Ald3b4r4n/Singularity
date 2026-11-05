@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { realpathSync, existsSync } from 'node:fs';
-import { realpath, lstat, readFile } from 'node:fs/promises';
-import { join, isAbsolute, sep } from 'node:path';
+import { realpath, lstat, readFile, mkdir } from 'node:fs/promises';
+import { join, dirname, isAbsolute, sep } from 'node:path';
 import { SessionHistory } from './history';
 import { ensureSecureDir } from './secure';
 import { Session, ModelInfo } from './protocol';
@@ -59,7 +59,7 @@ export class Comparisons {
 			try {
 				const record = JSON.parse(this.storage.turns(session.id).at(-1)?.result ?? 'null') as Comparison;
 				if (record?.id !== session.id || !Array.isArray(record.participants) || record.participants.length < 2 || record.participants.length > 3) { continue; }
-				if (record.participants.some(p => !services.includes(p.service) || p.workspace !== join(this.directory, record.id, p.id) || !/^[0-9a-f-]{36}$/.test(p.id))) { continue; }
+				if (record.participants.some(p => !services.includes(p.service) || !this.validWorktree(record, p) || !/^[0-9a-f-]{36}$/.test(p.id))) { continue; }
 				this.records.set(record.id, record);
 				for (const p of record.participants) {
 					if (p.status !== 'running' && p.status !== 'preparing') { continue; }
@@ -77,6 +77,13 @@ export class Comparisons {
 		}
 	}
 
+	private worktreeRoot(workspace: string, id: string): string {
+		const identity = createHash('sha256').update(workspace.toLowerCase()).digest('hex').slice(0, 16);
+		return join(dirname(workspace), '.singularity-worktrees', identity, id);
+	}
+	private validWorktree(record: Comparison, participant: Participant): boolean {
+		return participant.workspace === join(this.directory, record.id, participant.id) || participant.workspace === join(this.worktreeRoot(record.workspace, record.id), participant.id);
+	}
 	private save(record: Comparison): void {
 		this.storage.save({ id: record.id, harness: 'comparison', status: 'idle', workspace: record.workspace, updatedAt: Date.now() },
 			{ prompt: '', result: JSON.stringify(record), status: 'idle', at: Date.now() }, true);
@@ -124,8 +131,14 @@ export class Comparisons {
 			const id = randomUUID();
 			const record: Comparison = { id, workspace, base, prompt: input.text, createdAt: Date.now(), participants: choices.map(c => {
 				const participantId = randomUUID();
-				return { ...c, id: participantId, workspace: join(this.directory, id, participantId), status: 'preparing' };
+				return { ...c, id: participantId, workspace: join(this.worktreeRoot(workspace, id), participantId), status: 'preparing' };
 			}) };
+			const worktreeRoot = this.worktreeRoot(workspace, id);
+			await mkdir(dirname(worktreeRoot), { recursive: true });
+			for (const parent of [dirname(dirname(worktreeRoot)), dirname(worktreeRoot)]) {
+				if ((await lstat(parent)).isSymbolicLink()) { throw new Error('Diretório de worktrees inseguro.'); }
+			}
+			await mkdir(worktreeRoot);
 			ensureSecureDir(join(this.directory, id));
 			this.records.set(id, record);
 			this.save(record);
@@ -200,7 +213,7 @@ export class Comparisons {
 	}
 
 	private async verifyTree(record: Comparison, p: Participant): Promise<void> {
-		if (p.removed || p.workspace !== join(this.directory, record.id, p.id) || (await lstat(p.workspace)).isSymbolicLink()) { throw new Error('Worktree indisponível.'); }
+		if (p.removed || !this.validWorktree(record, p) || (await lstat(p.workspace)).isSymbolicLink()) { throw new Error('Worktree indisponível.'); }
 		const entries = (await this.git(record.workspace, ['worktree', 'list', '--porcelain'])).split(/\r?\n/);
 		if (!entries.some(line => line.replace(/\\/g, '/').toLowerCase() === ('worktree ' + p.workspace).replace(/\\/g, '/').toLowerCase())) { throw new Error('Identidade do worktree não confirmada.'); }
 		const common = (await this.git(p.workspace, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
@@ -216,6 +229,8 @@ export class Comparisons {
 		try {
 			await this.verifyTree(record, participant);
 			const session = this.adapter.list().find(s => s.id === participant.sessionId);
+			if (!session) { throw new Error('A identidade da sessão não pode ser confirmada. O worktree foi preservado.'); }
+			if (session && (session.status === 'running' || session.status === 'waiting' || session.recovery)) { throw new Error('A sessão voltou a ficar ativa ou não pode ser recuperada. Aguarde seu encerramento.'); }
 			if (session && !session.historical) { await this.stopParticipant(participant); }
 			if (this.adapter.list().some(s => s.id === participant.sessionId && !s.historical)) { throw new Error('O encerramento do processo não foi confirmado.'); }
 			return { comparison: structuredClone(record), participant: structuredClone(participant) };

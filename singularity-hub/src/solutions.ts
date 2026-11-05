@@ -68,6 +68,15 @@ async function readFileState(root: string, path: string): Promise<{ state: FileS
 	return { state: { hash: digest(data), bytes: data.length, mode: stat.mode & 0o777 }, data };
 }
 
+async function inheritedPermissions(path: string): Promise<void> {
+	if (process.platform !== 'win32') { return; }
+	await execute(join(__dirname, 'singularity-job.exe'), ['inspect-file', path], { windowsHide: true, timeout: 5000 }).catch(() => { throw new Error('Atributos ou streams NTFS não suportados: ' + path); });
+	const executable = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
+	const result = await execute(executable, [path], { windowsHide: true, encoding: 'utf8', timeout: 5000 });
+	const rules = result.stdout.split(/\r?\n/).filter(line => /:\(/.test(line));
+	if (!rules.length || rules.some(line => !line.slice(line.indexOf(':(') + 1).includes('(I)'))) { throw new Error('ACL específica não suportada. Preserve as permissões de ' + path); }
+}
+
 async function baseEntries(root: string, base: string): Promise<Map<string, string>> {
 	const result = new Map<string, string>();
 	for (const entry of (await git(root, ['ls-tree', '-rz', base])).toString('utf8').split('\0').filter(Boolean)) {
@@ -96,7 +105,7 @@ export class Solutions {
 		for (const session of this.storage.list()) {
 			try {
 				const record = JSON.parse(this.storage.turns(session.id).at(-1)?.result ?? 'null') as Solution;
-				if (record?.id !== session.id || !Array.isArray(record.files) || record.files.length > maxFiles || !isAbsolute(record.workspace)) { continue; }
+				if (record?.id !== session.id || !Number.isFinite(record.createdAt) || !Array.isArray(record.files) || record.files.length > maxFiles || !isAbsolute(record.workspace)) { continue; }
 				for (const file of record.files) { safeSolutionPath(file.path); }
 				if (record.directories?.some(path => !resolve(path).toLowerCase().startsWith((record.workspace + sep).toLowerCase()))) { continue; }
 				this.records.set(record.id, record);
@@ -109,7 +118,7 @@ export class Solutions {
 			} catch { /* Corrupt protected data never authorizes an application. */ }
 		}
 	}
-	list(workspace: string): Solution[] { const root = realpathSync.native(workspace); return structuredClone([...this.records.values()].filter(r => r.workspace.toLowerCase() === root.toLowerCase())); }
+	list(workspace: string): Solution[] { const root = realpathSync.native(workspace); return structuredClone([...this.records.values()].filter(r => r.workspace.toLowerCase() === root.toLowerCase()).sort((a, b) => a.createdAt - b.createdAt)); }
 	private get(id: string, workspace: string): Solution {
 		const record = this.records.get(id);
 		if (!record || record.workspace.toLowerCase() !== realpathSync.native(workspace).toLowerCase()) { throw new Error('Solução indisponível neste workspace.'); }
@@ -143,11 +152,12 @@ export class Solutions {
 		this.busy.add(root);
 		try {
 			const indexHash = await this.clean(root, comparison.base);
+			await git(participant.workspace, ['merge-base', '--is-ancestor', comparison.base, 'HEAD']).catch(() => { throw new Error('O worktree divergiu do commit-base.'); });
 			const sourceFingerprint = await this.fingerprint(participant.workspace, comparison.base);
 			const entries = await baseEntries(root, comparison.base);
 			for (const entry of (await git(participant.workspace, ['ls-files', '--stage', '-z'])).toString().split('\0').filter(Boolean)) {
-				const match = /^(\d+) [0-9a-f]+ \d+\t(.+)$/.exec(entry);
-				if (!match || !['100644', '100755'].includes(match[1]) || (entries.has(match[2]) && entries.get(match[2]) !== match[1])) { throw new Error('Alterações de tipo ou modo Git não são suportadas neste ciclo.'); }
+				const match = /^(\d+) [0-9a-f]+ (\d+)\t(.+)$/.exec(entry);
+				if (!match || match[2] !== '0' || !['100644', '100755'].includes(match[1]) || (entries.has(match[3]) ? entries.get(match[3]) !== match[1] : match[1] !== '100644')) { throw new Error('Alterações de tipo ou modo Git não são suportadas neste ciclo.'); }
 			}
 			const paths = [...new Set([...entries.keys(), ...(await git(participant.workspace, ['ls-files', '--cached', '--others', '-z'])).toString('utf8').split('\0').filter(Boolean)])].sort();
 			const caseNames = new Set<string>();
@@ -161,6 +171,8 @@ export class Solutions {
 				const before = entries.has(path) ? await readFileState(root, path) : undefined;
 				const after = await readFileState(participant.workspace, path);
 				if (before?.state.hash === after?.state.hash) { continue; }
+				if (before) { await inheritedPermissions(join(root, path)); }
+				if (after) { await inheritedPermissions(join(participant.workspace, path)); }
 				if (!entries.has(path) && await readFileState(root, path)) { throw new Error('Um arquivo de destino já existe: ' + path); }
 				bytes += (before?.data.length ?? 0) + (after?.data.length ?? 0);
 				if (files.length >= maxFiles || bytes > maxBytes) { throw new Error('A solução excede 512 arquivos ou 32 MiB.'); }
@@ -199,7 +211,7 @@ export class Solutions {
 
 	async validate(id: string, workspace: string, command: { executable?: unknown; args?: unknown; approved?: unknown }): Promise<Solution> {
 		const record = this.get(id, workspace);
-		if (record.state !== 'prepared' || this.busy.has(record.workspace) || command?.approved !== true || typeof command.executable !== 'string' || !isAbsolute(command.executable) || !Array.isArray(command.args) || command.args.length > 40 || !command.args.every(a => typeof a === 'string' && a.length <= 1024)) { throw new Error('Autorize um executável absoluto e seus argumentos antes de validar.'); }
+		if (!['prepared', 'rolled-back'].includes(record.state) || this.busy.has(record.workspace) || command?.approved !== true || typeof command.executable !== 'string' || !isAbsolute(command.executable) || !Array.isArray(command.args) || command.args.length > 40 || !command.args.every(a => typeof a === 'string' && a.length <= 1024)) { throw new Error('Autorize um executável absoluto e seus argumentos antes de validar.'); }
 		if (!(await fs.stat(command.executable)).isFile()) { throw new Error('Executável de teste indisponível.'); }
 		this.busy.add(record.workspace); record.state = 'validating'; record.validation = { state: 'running', executable: command.executable, args: command.args, at: Date.now() }; this.save(record);
 		try {
@@ -282,6 +294,13 @@ export class Solutions {
 		// Creating a hard link refuses an existing destination, including a concurrent user edit.
 		await fs.link(temporary, target); await fs.unlink(temporary);
 	}
+	private async probeLinks(record: Solution): Promise<void> {
+		const first = join(record.workspace, '.singularity-' + record.id + '.probe');
+		const second = first + '.link';
+		await this.createExclusive(first, Buffer.from('SINGULARITY'), 0o600);
+		await fs.link(first, second);
+		await fs.unlink(second); await fs.unlink(first);
+	}
 	private async checkBeforeApply(record: Solution): Promise<void> {
 		await this.assertRepository(record); await this.clean(record.workspace, record.base);
 		const origin = await this.source(record.comparisonId, record.workspace, record.participantId);
@@ -290,6 +309,8 @@ export class Solutions {
 		for (let index = 0; index < record.files.length; index++) {
 			await this.assertParents(record, index, false);
 			const file = record.files[index];
+			if (file.before) { await inheritedPermissions(join(record.workspace, file.path)); }
+			if (file.after) { await inheritedPermissions(join(record.source, file.path)); }
 			if (!this.matches(await this.raw(join(record.workspace, file.path)), file.before)) { throw new Error('O destino mudou: ' + file.path); }
 			if (file.before) { await this.snapshot(record, index, 'before'); }
 			if (file.after) { await this.snapshot(record, index, 'after'); }
@@ -304,6 +325,7 @@ export class Solutions {
 		try {
 			await this.checkBeforeApply(record); await this.acquireLock(record); locked = true; await this.checkBeforeApply(record);
 			record.state = 'applying'; record.progress = 0; record.error = undefined; this.save(record);
+			await this.probeLinks(record);
 			for (let index = 0; index < record.files.length; index++) {
 				const file = record.files[index], target = join(record.workspace, file.path);
 				await this.assertRepository(record); await this.assertParents(record, index, true);
@@ -328,6 +350,10 @@ export class Solutions {
 		} finally { if (locked && record.state !== 'conflict') { await this.releaseLock(record); } this.busy.delete(record.workspace); }
 	}
 	private async removeArtifacts(record: Solution): Promise<void> {
+		for (const suffix of ['.probe.link', '.probe']) {
+			const path = join(record.workspace, '.singularity-' + record.id + suffix), actual = await this.raw(path);
+			if (actual) { if (!actual.data.equals(Buffer.from('SINGULARITY'))) { throw new Error('Arquivo de verificação modificado.'); } await fs.unlink(path); }
+		}
 		for (let index = 0; index < record.files.length; index++) {
 			for (const side of ['before', 'after'] as const) {
 				const path = this.sibling(record, index, side), actual = await this.raw(path);
@@ -340,8 +366,11 @@ export class Solutions {
 		for (let index = 0; index < record.files.length; index++) {
 			await this.assertParents(record, index, false);
 			const file = record.files[index], actual = await this.raw(join(record.workspace, file.path)), held = await this.raw(this.sibling(record, index, 'before'));
+			if (actual) { await inheritedPermissions(join(record.workspace, file.path)); }
+			const removed = await this.raw(this.sibling(record, index, 'after'));
+			if (removed && !this.matches(removed, file.after)) { throw new Error('Conflito no temporário preservado: ' + file.path); }
 			if (held && !this.matches(held, file.before)) { throw new Error('Conflito no original preservado: ' + file.path); }
-			if (explicit ? !this.matches(actual, file.after) : !this.matches(actual, file.after) && !this.matches(actual, file.before) && !(held && !actual)) { throw new Error('Conflito após a aplicação: ' + file.path); }
+			if (explicit ? !this.matches(actual, file.after) : !this.matches(actual, file.after) && !this.matches(actual, file.before) && !(held && !actual) && !(record.state === 'rolling-back' && !actual && removed)) { throw new Error('Conflito após a aplicação: ' + file.path); }
 			if (file.before) { await this.snapshot(record, index, 'before'); }
 		}
 		record.state = 'rolling-back'; this.save(record);

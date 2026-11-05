@@ -228,3 +228,4 @@ body[data-vscode-theme-id="Event Minimal Dark"] button.primary.interrupt {
 .solution-validation input { display: block; width: 100%; }
 .solution-warning { color: var(--vscode-descriptionForeground); }
 #solution-error { color: var(--vscode-errorForeground); white-space: pre-wrap; }
+.solution-validation input { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 6px; padding: 6px 8px; font: inherit; }

@@ -186,17 +186,18 @@ class AgentsViewProvider {
 		if (message?.type?.startsWith('solution')) {
 			const workspace = this._workspace();
 			if (!workspace || !vscode.workspace.isTrusted) { throw new Error('Abra um workspace confiável para revisar a aplicação.'); }
-			if (['solutionPrepare', 'solutionApply'].includes(message.type) && vscode.workspace.textDocuments.some(doc => doc.isDirty && doc.uri.scheme === 'file' && doc.uri.fsPath.toLowerCase().startsWith(workspace.toLowerCase()))) { throw new Error('Salve as alterações dos editores antes de preparar ou aplicar uma solução.'); }
+			if (['solutionPrepare', 'solutionApply', 'solutionUndo'].includes(message.type) && vscode.workspace.textDocuments.some(doc => doc.isDirty && doc.uri.scheme === 'file' && doc.uri.fsPath.toLowerCase().startsWith(workspace.toLowerCase()))) { throw new Error('Salve as alterações dos editores antes de preparar ou aplicar uma solução.'); }
 			let id = message.id;
 			if (message.type === 'solutionPrepare') { id = (await this._hub.sessionRequest('solutions.prepare', { workspace, comparisonId: message.comparisonId, participantId: message.participantId })).id; }
 			if (message.type === 'solutionValidate') {
 				const executable = message.executable === 'node' ? require('node:path').join(__dirname, '..', '..', 'singularity-hub', 'runtime', 'node.exe') : message.executable;
-				const approved = await vscode.window.showWarningMessage('Executar testes no ambiente isolado? ' + executable + ' ' + JSON.stringify(message.args), { modal: true }, 'Executar testes');
+				const approved = await vscode.window.showWarningMessage('Executar este comando na cópia Git temporária, com as permissões da sua conta? ' + executable + ' ' + JSON.stringify(message.args), { modal: true }, 'Executar testes');
 				if (approved !== 'Executar testes') { post({ type: 'solutionCancelled' }); return; }
 				await this._hub.sessionRequest('solutions.validate', { workspace, id, command: { executable, args: message.args, approved: true } });
 			}
 			if (message.type === 'solutionApply') { await this._hub.sessionRequest('solutions.apply', { workspace, id, confirmation: { confirmed: true, patchHash: message.patchHash, allowUntested: message.allowUntested === true } }); }
 			if (message.type === 'solutionUndo') { await this._hub.sessionRequest('solutions.undo', { workspace, id }); }
+			if (message.type === 'solutionApply' || message.type === 'solutionUndo') { await vscode.commands.executeCommand('git.refresh', vscode.Uri.file(workspace)).catch(() => {}); }
 			post({ type: 'solutionReview', record: await this._hub.sessionRequest('solutions.review', { workspace, id }) });
 			await this._refreshComparisons(); return;
 		}
