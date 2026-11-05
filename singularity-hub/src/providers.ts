@@ -1,3 +1,4 @@
+import type { ProviderDiagnostic } from './providerDiagnostics';
 import { installOffer, providerMaintenance, type InstallProviderId } from './providerInstall';
 import { execFile } from 'node:child_process';
 import { openCodeExecutable, openCodeRunnable, OpenCodeError } from './opencode';
@@ -21,7 +22,7 @@ async function officialVersion(id: InstallProviderId): Promise<string | undefine
 	} catch { return undefined; }
 }
 
-export async function inspectProviders(probeOpenCode: () => Promise<boolean>, refresh: boolean) {
+export async function inspectProviders(probeOpenCode: () => Promise<boolean | ProviderDiagnostic>, refresh: boolean) {
 	const inspect = async (id: string, name: string, source: string, executable: string | undefined,
 		probe: () => Promise<{ reason?: string; authenticationRequired?: boolean; version?: string; authenticated?: boolean }>) => {
 		const latest = refresh ? await officialVersion(id as InstallProviderId) : undefined;
@@ -55,7 +56,9 @@ export async function inspectProviders(probeOpenCode: () => Promise<boolean>, re
 			if (!openCodeRunnable().ok || !version?.startsWith('2.')) {
 				return { version, reason: 'OpenCode v2 e o helper Windows são necessários.' };
 			}
-			return { version, reason: await probeOpenCode() ? undefined : 'Nenhum modelo utilizável foi encontrado no catálogo.' };
+			const result = await probeOpenCode();
+			if (typeof result !== 'boolean') { return { version, diagnostic: result, reason: result.code === 'ready' ? undefined : result.message }; }
+			return { version, reason: result ? undefined : 'Nenhum modelo utilizável foi encontrado no catálogo.' };
 		}),
 		inspect('claude-code', 'Claude Code', 'https://code.claude.com/docs/en/setup', claudeExecutable(), () => inspectClaude(refresh).then(facts =>
 			'reason' in facts ? facts : { version: facts.version, authenticated: true })),

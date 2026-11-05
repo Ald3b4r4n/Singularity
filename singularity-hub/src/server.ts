@@ -416,13 +416,18 @@ export class HubServer {
 					throw new RpcError(-32006, error instanceof ProviderInstallError ? error.message : 'Não foi possível preparar o executável oficial.');
 				}
 			}
+			case 'providers.diagnose': {
+				const p = (request.params ?? {}) as { id?: unknown; workspace?: unknown; refresh?: unknown };
+				if (p.id !== 'opencode' || (p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) || (p.refresh !== undefined && typeof p.refresh !== 'boolean')) { throw new RpcError(ErrorCode.InvalidParams, 'Invalid diagnosis parameters'); }
+				return this.opencode.diagnose(p.workspace as string | undefined, p.refresh === true);
+			}
 			case 'providers.inspect': {
 				const p = (request.params ?? {}) as { workspace?: unknown; refresh?: unknown };
 				if ((p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) ||
 					(p.refresh !== undefined && typeof p.refresh !== 'boolean')) {
 					throw new RpcError(ErrorCode.InvalidParams, 'Invalid provider inspection parameters');
 				}
-				return inspectProviders(async () => (await this.opencode.catalog(p.workspace as string | undefined, p.refresh === true)).providers.some(provider => provider.models.length > 0), p.refresh === true);
+				return inspectProviders(() => this.opencode.diagnose(p.workspace as string | undefined, p.refresh === true), p.refresh === true);
 			}
 			case 'catalog.get':
 				return this.catalog(request.params);

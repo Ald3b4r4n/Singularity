@@ -1,0 +1,22 @@
+{
+  "sharedProbe": true,
+  "configurationAndPluginBytesAndMtimesUnchanged": true,
+  "sessionsCreated": 0,
+  "diagnostic": {
+    "service": "opencode",
+    "profile": "normal",
+    "code": "plugins",
+    "at": 1793904072053,
+    "authentication": "unknown",
+    "catalog": "unavailable",
+    "message": "A ativação dos plugins do OpenCode não terminou (HTTP 503).",
+    "recommendation": "Verifique compatibilidade e dependências dos plugins. O plugin responsável ainda não foi identificado. Não reinstale nem altere sua conta para contornar este erro.",
+    "cause": "activation-phase",
+    "integrations": [],
+    "version": "2.2.5",
+    "httpStatus": 503,
+    "operation": "providers"
+  },
+  "targetedTestsPassed": 26,
+  "exactPluginCause": "Undetermined: official plugin.list returned an empty registered-server-plugin list while provider.list/model.list reported unfinished location plugin activation."
+}

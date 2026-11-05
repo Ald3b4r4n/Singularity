@@ -1,3 +1,4 @@
+import { providerDiagnostic, classifyProviderFailure, connectionFacts, pluginActivationFailure, type ProviderDiagnostic } from './providerDiagnostics';
 import { managedProviderPath } from './providerInstall';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -33,7 +34,7 @@ const maxSessions = 8;
 const outputLimit = 12000;
 
 export class OpenCodeError extends Error {
-	constructor(message: string, readonly httpStatus?: number) { super(message); }
+	constructor(message: string, readonly httpStatus?: number, readonly pluginsBlocked = false, readonly operation?: string) { super(message); }
 }
 
 interface RawModel { id?: unknown; providerID?: unknown; variant?: unknown }
@@ -221,10 +222,14 @@ class OpenCodeProcess {
 		const [route, method] = methods[operation];
 		const response = await this.fetch(route.replace('{sessionID}', encodeURIComponent(id ?? '')), method, body, signal);
 		if (!response.ok) {
-			await response.body?.cancel();
-			throw new OpenCodeError(`OpenCode recusou ${operation} (HTTP ${response.status}).`, response.status);
+			const pluginsBlocked = await pluginActivationFailure(response);
+			throw new OpenCodeError(pluginsBlocked ? 'A ativação dos plugins do OpenCode não terminou (HTTP 503).' : `OpenCode recusou ${operation} (HTTP ${response.status}).`, response.status, pluginsBlocked, operation);
 		}
 		return (response.status === 204 ? undefined : await response.json()) as T;
+	}
+
+	async integrationFacts(): Promise<ProviderDiagnostic['integrations']> {
+		try { const response = await this.fetch('/api/integration', 'GET'); if (!response.ok) { await response.body?.cancel(); return []; } return connectionFacts(await response.json()); } catch { return []; }
 	}
 
 	async events(onEvent: (event: { type: string; data?: { sessionID?: string; delta?: unknown } }) => void, onClose: () => void): Promise<void> {
@@ -287,7 +292,8 @@ export class OpenCodeSessions {
 	private readonly history?: SessionHistory;
 	private creating = 0;
 	private closed = false;
-	private readonly catalogs = new Map<string, { at: number; result: Promise<CatalogResult> }>();
+	private readonly catalogs = new Map<string, { at: number; pending: boolean; result: Promise<CatalogResult> }>();
+	private readonly diagnostics = new Map<string, ProviderDiagnostic>();
 
 	constructor(private readonly publish: (event: Omit<HubEvent, 'seq'>) => void, private readonly recoveryDir?: string, historyDir?: string) {
 		if (historyDir && process.platform === 'win32') { this.history = new SessionHistory(historyDir, helper); }
@@ -528,24 +534,43 @@ export class OpenCodeSessions {
 		}
 		const key = workspace.toLowerCase();
 		const cached = this.catalogs.get(key);
-		if (cached && !refresh && Date.now() - cached.at < 60_000) {
+		if (cached && (cached.pending || (!refresh && Date.now() - cached.at < 60_000))) {
 			return cached.result;
 		}
 		if (this.closed) {
 			throw new OpenCodeError('Hub is shutting down.');
 		}
+		if ([...this.catalogs.values()].filter(entry => entry.pending).length >= 2) { throw new OpenCodeError('Aguarde o diagnóstico em andamento.'); }
 		const result = (async (): Promise<CatalogResult> => {
+			let version: string | undefined;
 			const server = new OpenCodeProcess(exe, workspace, await localPort());
 			try {
-				await server.ready();
-				return { services, service: 'opencode', ...(await readCatalog(server)) };
+				version = await server.ready();
+				const catalog = { services, service: 'opencode', ...(await readCatalog(server)) };
+				const integrations = await server.integrationFacts();
+				const authentication = integrations.some(i => i.authentication === 'configured') ? 'configured' : integrations.length ? 'not-configured' : 'unknown';
+				this.diagnostics.set(key, providerDiagnostic(catalog.providers.length ? 'ready' : 'catalog', { version, authentication, integrations }));
+				return catalog;
+			} catch (error) {
+				const failure = error instanceof OpenCodeError ? error : undefined;
+				this.diagnostics.set(key, providerDiagnostic(classifyProviderFailure(failure?.httpStatus, failure?.pluginsBlocked), { version, httpStatus: failure?.httpStatus, operation: failure?.operation }));
+				throw error;
 			} finally {
 				await server.stop().catch(() => undefined);
 			}
 		})();
-		this.catalogs.set(key, { at: Date.now(), result });
+		this.catalogs.set(key, { at: Date.now(), pending: true, result });
+		void result.finally(() => { const entry = this.catalogs.get(key); if (entry?.result === result) { entry.pending = false; } }).catch(() => {});
 		result.catch(() => { if (this.catalogs.get(key)?.result === result) { this.catalogs.delete(key); } });
 		return result;
+	}
+
+	async diagnose(directory?: string, refresh = false): Promise<ProviderDiagnostic> {
+		if (!openCodeExecutable()) { return providerDiagnostic('unavailable'); }
+		const workspace = await realpath(directory ?? homedir()).catch(() => undefined);
+		if (!workspace) { return providerDiagnostic('unknown'); }
+		try { await this.catalog(workspace, refresh); } catch { /* Fixed safe diagnostics are retained below. */ }
+		return structuredClone(this.diagnostics.get(workspace.toLowerCase()) ?? providerDiagnostic('unknown'));
 	}
 
 	/**
