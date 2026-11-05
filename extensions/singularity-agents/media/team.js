@@ -79,11 +79,11 @@
 		window.addEventListener('message', ({ data }) => {
 			if (data?.type === 'teams') { runs = data.runs; state = data.state; draw(); }
 			if (data?.type === 'teamCatalog') { const choice = choices[data.index]; if (choice && (!data.catalog || data.catalog.service === choice.service)) { choice.catalog = data.catalog; choice.error = data.error; configure(); draw(); } }
-			if (data?.type === 'teamReply') { pending = false; if (data.result?.id) { selected = data.result.id; drafting = false; } signature = undefined; draw(); }
+			if (data?.type === 'teamReply') { pending = false; if (data.result?.id && Array.isArray(data.result.roles)) { selected = data.result.id; drafting = false; } signature = undefined; draw(); }
 			if (data?.type === 'failed' && active) { pending = false; error = data.message; signature = undefined; draw(); }
 			if (data?.type === 'solutionReview' && active) { draw(); }
 		});
-		setInterval(() => { const span = $('team-time'), run = current(); if (active && run && span) { span.textContent = Math.max(0, Math.floor(((final(run) ? run.updatedAt : Date.now()) - run.createdAt) / 1000)) + ' s'; } }, 1000);
+		setInterval(() => { const span = $('team-time'), run = current(); if (active && run && span) { span.textContent = final(run) && !run.finishedAt ? 'Tempo indisponível' : Math.max(0, Math.floor(((final(run) ? run.finishedAt : Date.now()) - run.createdAt) / 1000)) + ' s'; } }, 1000);
 		return {
 			active: () => active, draw,
 			setActive(value) { active = value; if (value) { choices.forEach((c, i) => { if (!c.catalog) { catalog(i); } }); vscode.postMessage({ type: 'teamList' }); configure(); } else { config.hidden = true; results.hidden = true; $('prompt').maxLength = 16000; } draw(); },

@@ -149,8 +149,7 @@ export class Comparisons {
 			try {
 				for (const p of record.participants) {
 					await this.git(workspace, ['worktree', 'add', '--detach', p.workspace, base]);
-					const session = await this.adapter.create(p.workspace, p.service, p.model, p.role);
-					p.sessionId = session.id;
+					if (!team) { const session = await this.adapter.create(p.workspace, p.service, p.model, p.role); p.sessionId = session.id; }
 					this.save(record);
 				}
 			} catch (error) {
@@ -174,6 +173,13 @@ export class Comparisons {
 	}
 
 	active(): boolean { return this.creating || [...this.records.values()].some(r => r.participants.some(p => p.status === 'preparing' || p.status === 'running')); }
+	async teamSession(id: string, workspace: string, participantId: string): Promise<string> {
+		const record = this.get(id, workspace), participant = record.participants.find(p => p.id === participantId);
+		if (!record.team || !participant || participant.status !== 'idle' || participant.sessionId) { throw new Error('A sessão desta etapa já foi criada ou não pode iniciar.'); }
+		await this.verifyTree(record, participant);
+		const session = await this.adapter.create(participant.workspace, participant.service, participant.model, participant.role);
+		participant.sessionId = session.id; this.save(record); return session.id;
+	}
 	async teamPrompt(id: string, workspace: string, participantId: string, text: string): Promise<void> {
 		const record = this.get(id, workspace), participant = record.participants.find(p => p.id === participantId);
 		if (!record.team || !participant || participant.status !== 'idle') { throw new Error('Etapa indisponível para envio.'); }

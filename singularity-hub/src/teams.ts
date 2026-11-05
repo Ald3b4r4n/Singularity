@@ -10,10 +10,10 @@ import { Session, ModelInfo } from './protocol';
 export type TeamRole = 'implementer' | 'reviewer' | 'tester';
 export interface RoleChoice { service: string; model: ModelInfo }
 export interface Findings { verdict: 'approve' | 'changes_requested'; summary: string; issues: Array<{ file: string; line?: number; severity: string; message: string }>; scenarios?: string[] }
-interface Step { role: TeamRole; version: number; sessionId: string; status: 'intent' | 'sent' | 'done' | 'failed' | 'cancelled'; startedAt: number; endedAt?: number; result?: string }
+interface Step { role: TeamRole; version: number; sessionId: string; status: 'intent' | 'sent' | 'done' | 'failed' | 'cancelled'; startedAt: number; endedAt?: number; result?: string; error?: string }
 interface Version { number: number; comparisonId: string; solutionId: string; tree: string; patchHash: string; review?: Findings; testPlan?: Findings; validation?: Solution['validation']; stale?: boolean }
 export interface Team {
-	id: string; workspace: string; task: string; roles: RoleChoice[]; createdAt: number; updatedAt: number;
+	id: string; workspace: string; task: string; roles: RoleChoice[]; createdAt: number; updatedAt: number; finishedAt?: number;
 	state: 'preparing' | 'running' | 'snapshotting' | 'paused' | 'awaiting-validation' | 'completed' | 'failed' | 'cancelled' | 'exhausted' | 'unrecoverable';
 	phase: TeamRole | 'validation'; cycle: number; maxCorrections: number; comparisonId?: string;
 	steps: Step[]; versions: Version[]; contextHash?: string; chosen?: boolean; error?: string; resumeRequired?: boolean;
@@ -45,8 +45,8 @@ export class Teams {
 		private readonly sessions: () => Session[], private readonly changed: () => void) {
 		this.storage = new SessionHistory(directory, join(__dirname, 'singularity-job.exe'), 'team');
 	}
-	private save(team: Team): void {
-		team.updatedAt = Date.now();
+	private save(team: Team, touch = true): void {
+		if (touch) { team.updatedAt = Date.now(); if (['completed', 'failed', 'cancelled', 'exhausted', 'unrecoverable'].includes(team.state) && !team.finishedAt) { team.finishedAt = team.updatedAt; } }
 		this.storage.save({ id: team.id, harness: 'team', status: 'idle', workspace: team.workspace, updatedAt: team.updatedAt }, { prompt: '', result: JSON.stringify(team), status: 'idle', at: team.updatedAt }, true);
 		this.records.set(team.id, team); this.changed();
 	}
@@ -63,6 +63,7 @@ export class Teams {
 			try {
 				const team = JSON.parse(this.storage.turns(record.id).at(-1)?.result ?? 'null') as Team;
 				if (team?.id !== record.id || !Array.isArray(team.steps) || team.steps.length > 9 || !Array.isArray(team.versions) || team.versions.length > 3 || !Array.isArray(team.roles) || team.roles.length !== 3) { continue; }
+				const wasTerminal = ['completed', 'failed', 'cancelled', 'exhausted', 'unrecoverable'].includes(team.state);
 				const owned = this.comparisons.list(team.workspace).filter(c => c.workflowId === team.id).sort((a, b) => a.createdAt - b.createdAt);
 				if (owned.length) { team.comparisonId = owned.at(-1)!.id; }
 				if (!['completed', 'failed', 'cancelled', 'exhausted', 'unrecoverable'].includes(team.state)) {
@@ -72,7 +73,7 @@ export class Teams {
 						team.state = 'unrecoverable'; team.error = 'Etapa não recuperável. Nenhum prompt foi reenviado.';
 					} else { team.error = 'Hub reiniciado. Retome explicitamente para continuar a equipe.'; }
 				}
-				this.save(team);
+				this.save(team, !wasTerminal);
 			} catch { /* Invalid protected records never authorize inference. */ }
 		}
 	}
@@ -104,13 +105,15 @@ export class Teams {
 		this.save(team);
 	}
 	private implementationPrompt(team: Team, feedback?: string): string {
-		return `Papel: implementador. Versão ${team.cycle + 1}. Trabalhe somente no worktree atual. Produza arquivos reais. Nunca aplique no projeto principal.\nTarefa original:\n${team.task}\n${feedback ? 'Feedback verificável da versão anterior:\n' + feedback : ''}`;
+		return `Papel: implementador. Versão ${team.cycle + 1}. Trabalhe somente no worktree atual. Produza arquivos reais com ferramentas de edição. A revisão e os testes independentes serão conduzidos nas etapas próprias. Não execute comandos de shell, testes ou outras CLIs nesta etapa. Nunca aplique no projeto principal.\nTarefa original:\n${team.task}\n${feedback ? 'Feedback verificável da versão anterior:\n' + feedback : ''}`;
 	}
 	private async dispatch(team: Team, role: TeamRole, prompt: string): Promise<void> {
 		if (team.state === 'cancelled') { return; }
 		if (prompt.length > 16000) { throw new Error('O contexto desta etapa excede o limite de envio.'); }
 		const participant = this.participant(team, role);
-		const step: Step = { role, version: team.cycle + 1, sessionId: participant.sessionId!, status: 'intent', startedAt: Date.now() };
+		const sessionId = await this.comparisons.teamSession(team.comparisonId!, team.workspace, participant.id);
+		if ((team.state as Team['state']) === 'cancelled') { await this.comparisons.teamStopRole(team.comparisonId!, team.workspace, participant.id); return; }
+		const step: Step = { role, version: team.cycle + 1, sessionId, status: 'intent', startedAt: Date.now() };
 		team.phase = role; team.state = 'running'; team.steps.push(step); this.save(team);
 		await this.comparisons.teamPrompt(team.comparisonId!, team.workspace, participant.id, prompt);
 		step.status = 'sent'; this.save(team);
@@ -127,7 +130,7 @@ export class Teams {
 		this.busy.add(team.id);
 		try {
 			const step = team.steps.at(-1)!;
-			if (session.status !== 'done' || session.recovery) { step.status = session.status === 'idle' ? 'cancelled' : 'failed'; team.state = session.recovery ? 'unrecoverable' : 'paused'; team.error = session.summary ?? 'A etapa não terminou com sucesso.'; this.save(team); return; }
+			if (session.status !== 'done' || session.recovery) { step.status = session.status === 'idle' ? 'cancelled' : 'failed'; team.state = session.recovery ? 'unrecoverable' : 'paused'; step.error = session.summary ?? 'A etapa não terminou com sucesso.'; team.error = step.error; this.save(team); return; }
 			step.result = await this.comparisons.teamResult(team.comparisonId!, team.workspace, this.participant(team, step.role).id);
 			step.status = 'done'; step.endedAt = Date.now(); this.save(team);
 			await this.advance(team);

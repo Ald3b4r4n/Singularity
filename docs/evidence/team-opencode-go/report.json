@@ -1,0 +1,571 @@
+{
+  "environment": "Windows packaged Singularity IDE; synthetic Git repositories only",
+  "inferenceServices": [
+    "OpenCode Go"
+  ],
+  "models": [
+    {
+      "providerID": "opencode-go",
+      "id": "muse-spark-1.3-contributor",
+      "supportedEfforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ]
+    },
+    {
+      "providerID": "opencode-go",
+      "id": "deepseek-v4.1-flash",
+      "supportedEfforts": [
+        "low",
+        "high",
+        "max"
+      ]
+    },
+    {
+      "providerID": "opencode-go",
+      "id": "muse-spark-1.3-contributor",
+      "supportedEfforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ]
+    }
+  ],
+  "checks": [
+    "Required models and supported efforts read from the authenticated OpenCode Go catalog; using default effort",
+    "All three real OpenCode roles delivered snapshot-bound structured opinions",
+    "Main workspace preserved during collaboration",
+    "Authorized independent tests ran with exit zero",
+    "Team reuses the approved application pipeline",
+    "Team solution applied without automatic commit",
+    "Shared rollback restored the exact baseline",
+    "Real review identified the controlled defect and a new code snapshot invalidated old opinions",
+    "Corrected version passed fresh independent tests",
+    "Hub crash pauses the same workflow and recovers the original OpenCode session",
+    "Explicit resume never resends the prompt",
+    "Individual participant cancellation is represented truthfully",
+    "General cancellation closes all surviving contexts",
+    "Unavailable OpenCode model is refused before inference",
+    "Catalog failure is shown as unavailable",
+    "Dark Light and high contrast are captured on the real team surface",
+    "Main workspace stays clean after every workflow and rollback",
+    "Terminal workflow timestamps survive Hub restart"
+  ],
+  "fixtureOpenCodeAndHelperProcessesAfterShutdown": 0,
+  "workflows": [
+    {
+      "id": "91bcf6b5-e400-4b59-afd9-f07e789d94cc",
+      "state": "completed",
+      "cycle": 0,
+      "maxCorrections": 2,
+      "steps": [
+        {
+          "role": "implementer",
+          "sessionId": "947ce4d8-6656-4d35-a266-3a70915716b9",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "muse-spark-1.3-contributor",
+            "variant": "default"
+          }
+        },
+        {
+          "role": "reviewer",
+          "sessionId": "a3581aa6-ebb2-46d2-872e-0aaaed883461",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "deepseek-v4.1-flash",
+            "variant": "default"
+          }
+        },
+        {
+          "role": "tester",
+          "sessionId": "059cc100-c111-43cc-ba8f-a40745724003",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "muse-spark-1.3-contributor",
+            "variant": "default"
+          }
+        }
+      ],
+      "versions": [
+        {
+          "number": 1,
+          "tree": "af5f2af0c69a40c35a27bcbcce10c652532c3457",
+          "patchHash": "056fa00a19bdbb414625b08de19df630d05ea07d535f50d4fde9e9406289ddb2",
+          "stale": false,
+          "review": {
+            "verdict": "approve",
+            "summary": "sum.cjs exporta uma função que retorna a+b para números, cobrindo negativos e zero; o teste independente permanece intacto e compatível com o módulo.",
+            "issues": [],
+            "scenarios": [
+              "sum(2,3) === 5",
+              "sum(-2,3) === 1",
+              "sum(0,0) === 0",
+              "require('./sum.cjs') retorna uma função"
+            ]
+          },
+          "testPlan": {
+            "verdict": "approve",
+            "summary": "sum.cjs exporta função (a,b)=>a+b, correta para positivos, negativos e zero; sum.test.cjs preservado com asserções 2+3=5, -2+3=1, 0+0=0.",
+            "issues": [],
+            "scenarios": [
+              "sum(2,3)=5",
+              "sum(-2,3)=1",
+              "sum(0,0)=0"
+            ]
+          },
+          "validation": {
+            "state": "passed",
+            "exitCode": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "ff94e5a4-425c-447b-acd5-3eda623a3849",
+      "state": "completed",
+      "cycle": 1,
+      "maxCorrections": 2,
+      "steps": [
+        {
+          "role": "implementer",
+          "sessionId": "e2b8e6d5-186c-422b-ab79-257ad4e31fc7",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "muse-spark-1.3-contributor",
+            "variant": "default"
+          }
+        },
+        {
+          "role": "reviewer",
+          "sessionId": "0f692daf-1862-471c-aa62-97b0b9898d19",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "deepseek-v4.1-flash",
+            "variant": "default"
+          }
+        },
+        {
+          "role": "implementer",
+          "sessionId": "47f2ea36-e96c-41a3-9d67-ebbfaef03428",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "muse-spark-1.3-contributor",
+            "variant": "default"
+          }
+        },
+        {
+          "role": "reviewer",
+          "sessionId": "7fa89367-7d71-43b9-b3a6-5d1cc5a6e98f",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "deepseek-v4.1-flash",
+            "variant": "default"
+          }
+        },
+        {
+          "role": "tester",
+          "sessionId": "ddecd18d-0b7d-4fb8-9d66-c048a025727d",
+          "status": "done",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "muse-spark-1.3-contributor",
+            "variant": "default"
+          }
+        }
+      ],
+      "versions": [
+        {
+          "number": 1,
+          "tree": "61d08ae6cb6a4284739f01f7bfe2f8c5d6387914",
+          "patchHash": "2e6ed50125f0f98a4ad3b879b78152e84dc5747102e477adf1036a1f0cea6c0e",
+          "stale": true,
+          "review": {
+            "verdict": "changes_requested",
+            "summary": "A implementação de sum.cjs em sum.cjs:1 usa subtração (a-b), contrariando o critério final de aceitação, que exige soma a+b, inclusive para negativos e zero. Embora o defeito seja intencional nesta versão 1 como fixture, a correção final ainda deve ser aplicada: substituir a-b por a+b. sum.test.cjs está preservado e cobre os casos 2+3=5, -2+3=1 e 0+0=0.",
+            "issues": [
+              {
+                "file": "sum.cjs",
+                "message": "A função exportada calcula a-b em vez de a+b; deve retornar a soma a+b para satisfazer o critério final, incluindo negativos e zero.",
+                "severity": "high",
+                "line": 1
+              }
+            ],
+            "scenarios": [
+              "sum(2,3) deve retornar 5; atualmente retorna -1",
+              "sum(-2,3) deve retornar 1; atualmente retorna -5",
+              "sum(0,0) deve retornar 0; atualmente retorna 0 (passa por coincidência)",
+              "sum(-5,-7) deve retornar -12; atualmente retorna 2"
+            ]
+          },
+          "testPlan": null,
+          "validation": {
+            "state": null,
+            "exitCode": null
+          }
+        },
+        {
+          "number": 2,
+          "tree": "213901955d7b2ed349ca57ada1e4bd178aca9336",
+          "patchHash": "5e9f39d0ac28bbdc911e549c22ae8a241b06e3e33c3670250353f87040495c10",
+          "stale": false,
+          "review": {
+            "verdict": "approve",
+            "summary": "A correção final substitui o defeito intencional (a-b / 0) por adição correta a+b. O arquivo sum.cjs exporta uma função que satisfaz adição com números negativos e zero, e sum.test.cjs permanece intacto, cobrindo 2+3, -2+3 e 0+0.",
+            "issues": [],
+            "scenarios": [
+              "sum(2,3) === 5",
+              "sum(-2,3) === 1",
+              "sum(0,0) === 0",
+              "Adição com dois negativos, ex.: sum(-4,-6) === -10"
+            ]
+          },
+          "testPlan": {
+            "verdict": "approve",
+            "summary": "sum.cjs implementa corretamente a+b e sum.test.cjs está preservado com cobertura de positivos, negativos e zero.",
+            "issues": [],
+            "scenarios": [
+              "sum(2,3)=5",
+              "sum(-2,3)=1",
+              "sum(0,0)=0"
+            ]
+          },
+          "validation": {
+            "state": "passed",
+            "exitCode": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "3f17620d-909e-48f3-bcd5-461dc526d0f7",
+      "state": "cancelled",
+      "cycle": 0,
+      "maxCorrections": 2,
+      "steps": [
+        {
+          "role": "implementer",
+          "sessionId": "eeb961c1-b1f1-4da0-9f5d-cbd22bf65ba9",
+          "status": "sent",
+          "actualModel": {
+            "providerID": "opencode-go",
+            "modelID": "muse-spark-1.3-contributor",
+            "variant": "default"
+          }
+        }
+      ],
+      "versions": []
+    }
+  ],
+  "baseCommit": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+  "isolatedWorktreeGroups": [
+    {
+      "comparisonId": "1be88952-9a4d-4741-843f-040858702fa0",
+      "workflowId": "ff94e5a4-425c-447b-acd5-3eda623a3849",
+      "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+      "members": [
+        {
+          "id": "afe12c14-1208-4d7b-bbc3-6c82fcb13f1c",
+          "role": "implementer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/1be88952-9a4d-4741-843f-040858702fa0/afe12c14-1208-4d7b-bbc3-6c82fcb13f1c"
+        },
+        {
+          "id": "9e940a3e-ceb0-4a0f-ba30-d1d4d2fd898b",
+          "role": "reviewer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/1be88952-9a4d-4741-843f-040858702fa0/9e940a3e-ceb0-4a0f-ba30-d1d4d2fd898b"
+        },
+        {
+          "id": "c2c713b0-6dcf-4c5b-80ee-6d67c5552b43",
+          "role": "tester",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/1be88952-9a4d-4741-843f-040858702fa0/c2c713b0-6dcf-4c5b-80ee-6d67c5552b43"
+        }
+      ]
+    },
+    {
+      "comparisonId": "2e17ad92-1a18-4c9c-bf4c-bfa935681e96",
+      "workflowId": "3f17620d-909e-48f3-bcd5-461dc526d0f7",
+      "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+      "members": [
+        {
+          "id": "26bf0f4c-5211-419b-b288-4da12d85d5c5",
+          "role": "implementer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/2e17ad92-1a18-4c9c-bf4c-bfa935681e96/26bf0f4c-5211-419b-b288-4da12d85d5c5"
+        },
+        {
+          "id": "7cfbffaf-58b4-4b5c-b3cb-ed8edf3cc186",
+          "role": "reviewer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/2e17ad92-1a18-4c9c-bf4c-bfa935681e96/7cfbffaf-58b4-4b5c-b3cb-ed8edf3cc186"
+        },
+        {
+          "id": "45bcad1e-efc7-45a3-bdd0-8f0b443a1949",
+          "role": "tester",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/2e17ad92-1a18-4c9c-bf4c-bfa935681e96/45bcad1e-efc7-45a3-bdd0-8f0b443a1949"
+        }
+      ]
+    },
+    {
+      "comparisonId": "69305198-deeb-4670-bc60-0072821033db",
+      "workflowId": "ff94e5a4-425c-447b-acd5-3eda623a3849",
+      "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+      "members": [
+        {
+          "id": "a3afb504-0eb8-41e2-8892-006fee686e08",
+          "role": "implementer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/69305198-deeb-4670-bc60-0072821033db/a3afb504-0eb8-41e2-8892-006fee686e08"
+        },
+        {
+          "id": "e2dcd4af-a339-4676-9c22-a8fbaf982f98",
+          "role": "reviewer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/69305198-deeb-4670-bc60-0072821033db/e2dcd4af-a339-4676-9c22-a8fbaf982f98"
+        },
+        {
+          "id": "62d9ce69-bc01-4a3d-8c09-79d10206f917",
+          "role": "tester",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/69305198-deeb-4670-bc60-0072821033db/62d9ce69-bc01-4a3d-8c09-79d10206f917"
+        }
+      ]
+    },
+    {
+      "comparisonId": "dbf6d746-b530-4530-a554-8cdb5c9dc853",
+      "workflowId": "91bcf6b5-e400-4b59-afd9-f07e789d94cc",
+      "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+      "members": [
+        {
+          "id": "5d294f34-5542-4f36-890e-68c4b03c067a",
+          "role": "implementer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/dbf6d746-b530-4530-a554-8cdb5c9dc853/5d294f34-5542-4f36-890e-68c4b03c067a"
+        },
+        {
+          "id": "756930bd-8c1e-43fb-9546-c6ad16bed134",
+          "role": "reviewer",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/dbf6d746-b530-4530-a554-8cdb5c9dc853/756930bd-8c1e-43fb-9546-c6ad16bed134"
+        },
+        {
+          "id": "7f0dffdc-ffea-48af-83be-f02fdd174a0e",
+          "role": "tester",
+          "base": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+          "worktree": ".singularity-worktrees/6df3150e1205d673/dbf6d746-b530-4530-a554-8cdb5c9dc853/7f0dffdc-ffea-48af-83be-f02fdd174a0e"
+        }
+      ]
+    }
+  ],
+  "workspacePreservation": {
+    "head": "239665ce08b3d9c1365c27cbecb87124224c53e8",
+    "clean": true,
+    "indexUnchanged": true,
+    "sumBytesMatchBaseline": true,
+    "sha256": "99710779c371e235f27bc5587356781299d09e3a71e3b215ce00b9d05e3926d5"
+  },
+  "regressions": {
+    "packagedCore": {
+      "passed": true,
+      "checks": [
+        {
+          "name": "temporary workspace with a git repository",
+          "ok": true
+        },
+        {
+          "name": "launch, opening plays and leaves, window comes to the front",
+          "ok": true
+        },
+        {
+          "name": "open a file with Ctrl+P and type into it",
+          "ok": true
+        },
+        {
+          "name": "switch to Event Minimal Light and back to Dark",
+          "ok": true
+        },
+        {
+          "name": "terminal runs a command",
+          "ok": true
+        },
+        {
+          "name": "Source Control view shows the change",
+          "ok": true
+        },
+        {
+          "name": "Command Palette lists Singularity commands",
+          "ok": true
+        },
+        {
+          "name": "built-in extensions are present",
+          "ok": true
+        },
+        {
+          "name": "Singularity Agentes panel opens",
+          "ok": true
+        },
+        {
+          "name": "close the window like a user",
+          "ok": true
+        },
+        {
+          "name": "reopen: workspace and the edited file are restored",
+          "ok": true
+        },
+        {
+          "name": "explicit Hub shutdown releases its files",
+          "ok": true
+        },
+        {
+          "name": "final close and cleanup",
+          "ok": true
+        }
+      ]
+    },
+    "deterministic": {
+      "hubPreviouslyPassed": 121,
+      "extensionChecksPreviouslyPassed": 37,
+      "teamTargeted": 5,
+      "comparisonAndApplication": 21,
+      "ui": [
+        "team",
+        "comparison",
+        "solution"
+      ],
+      "terminalTimesPreserved": true
+    },
+    "packagedBrowser": {
+      "passed": true,
+      "checks": [
+        {
+          "name": "1. the Singularity Browser opens as an editor tab",
+          "ok": true
+        },
+        {
+          "name": "1b. the browser presents itself as \"Singularity Browser\" (welcome title)",
+          "ok": true
+        },
+        {
+          "name": "1c. no tab starts shared with an agent (sharing is an explicit per-tab opt-in)",
+          "ok": true
+        },
+        {
+          "name": "1d. agents cannot drive browser pages by default (enableChatTools is off)",
+          "ok": true
+        },
+        {
+          "name": "2. the address bar loads a local page (server received GET /a.html)",
+          "ok": true
+        },
+        {
+          "name": "2b. the tab title follows the page title",
+          "ok": true
+        },
+        {
+          "name": "3. a real mouse click on a link navigates (server received GET /b.html)",
+          "ok": true
+        },
+        {
+          "name": "4a. Alt+Left goes back to page A",
+          "ok": true
+        },
+        {
+          "name": "4b. Alt+Right goes forward to page B",
+          "ok": true
+        },
+        {
+          "name": "4c. F5 reloads the page (a new request reached the server)",
+          "ok": true
+        },
+        {
+          "name": "5a. the page cannot reach Node/Electron/VS Code APIs",
+          "ok": true
+        },
+        {
+          "name": "5a2. the only bridge visible to the page is the helper pair (no IPC, no IDE API)",
+          "ok": true
+        },
+        {
+          "name": "5b. the page cannot read local files through file://",
+          "ok": true
+        },
+        {
+          "name": "5c. no GitHub credential or token reached the page",
+          "ok": true
+        },
+        {
+          "name": "6. a second browser tab can be opened",
+          "ok": true
+        },
+        {
+          "name": "7. the browser (left) and the editor (right) are visible side by side",
+          "ok": true
+        },
+        {
+          "name": "8. F12 opens Developer Tools for the page",
+          "ok": true
+        },
+        {
+          "name": "9a. Event Minimal Light applies to the browser UI",
+          "ok": true
+        },
+        {
+          "name": "9b. Event Minimal Dark applies back",
+          "ok": true
+        },
+        {
+          "name": "10. resizing the window re-lays out the browser without horizontal overflow",
+          "ok": true
+        },
+        {
+          "name": "12a. regression: the integrated terminal still opens",
+          "ok": true
+        },
+        {
+          "name": "12b. regression: the Source Control view still opens",
+          "ok": true
+        },
+        {
+          "name": "12c. regression: the Extensions view still opens",
+          "ok": true
+        },
+        {
+          "name": "11a. the IDE closes normally (no forced kill)",
+          "ok": true
+        },
+        {
+          "name": "11. after closing and reopening, the browser tabs are restored",
+          "ok": true
+        },
+        {
+          "name": "11b. the restored page loads again when its tab is shown",
+          "ok": true
+        }
+      ]
+    }
+  },
+  "themeCapture": {
+    "completedTeamSelected": true,
+    "hubConnected": true,
+    "themes": [
+      "Event Minimal Dark",
+      "Event Minimal Light",
+      "Default High Contrast"
+    ]
+  }
+}

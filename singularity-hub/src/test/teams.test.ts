@@ -46,9 +46,11 @@ test('team runs sequential roles with separate identical-model sessions, immutab
 	assert.equal(assessed.versions[0].review?.verdict, 'approve'); assert.equal(assessed.versions[0].testPlan?.verdict, 'approve');
 	assert.equal(readFileSync(join(f.workspace, 'sum.cjs'), 'utf8'), 'module.exports=(a,b)=>0;\n');
 	const completed = await f.team.validate(run.id, run.workspace, { executable: process.execPath, args: ['--test'], approved: true });
-	assert.equal(completed.state, 'completed'); assert.equal(completed.versions[0].validation?.exitCode, 0);
+	assert.equal(completed.state, 'completed'); assert(Number.isFinite(completed.finishedAt)); assert.equal(completed.versions[0].validation?.exitCode, 0);
 	f.team.choose(run.id, run.workspace); const prepared = await f.team.prepare(run.id, run.workspace) as { integrity: boolean };
 	assert.equal(prepared.integrity, true); assert.equal(f.prompts.length, 3); assert(f.sessions.every(s => s.historical));
+	const beforeRecovery = f.team.list(run.workspace)[0]; const recovered = new Teams(join(f.root, 'teams'), f.comparisons, f.solutions, () => f.sessions, () => {}); await recovered.recover();
+	assert.equal(recovered.list(run.workspace)[0].finishedAt, completed.finishedAt); assert.equal(recovered.list(run.workspace)[0].updatedAt, beforeRecovery.updatedAt); assert.equal(f.prompts.length, 3);
 });
 
 test('review feedback corrects the actual defect, versions reports and invalidates the old review', async () => {
