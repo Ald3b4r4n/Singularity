@@ -193,3 +193,24 @@ body[data-vscode-theme-id="Event Minimal Dark"] button.primary.interrupt {
 
 .history-turn { padding: 8px 12px; border-inline-start: 1px solid var(--line); }
 .history-turn .response-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.comparison-mode { display: flex; gap: 8px; padding: 8px 18px; border-bottom: 1px solid var(--line); }
+.comparison-mode [aria-pressed="true"] { border-color: var(--vscode-focusBorder); color: var(--vscode-textLink-foreground); }
+#comparison-config { margin-block: 8px 12px; }
+.comparison-count, .comparison-run { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.comparison-count span { color: var(--vscode-descriptionForeground); flex: 1; }
+.comparison-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+.comparison-choices fieldset { border: 1px solid var(--line); border-radius: 8px; min-width: 0; padding: 10px; }
+.comparison-choices label { display: block; margin-top: 6px; }
+.comparison-choices select { display: block; width: 100%; margin-top: 4px; }
+.comparison-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.comparison-card { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+.comparison-card.chosen { border-color: var(--vscode-focusBorder); }
+.comparison-card h2 { font-size: 15px; margin-top: 0; }
+.comparison-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.comparison-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; }
+.comparison-diff { max-height: 40vh; overflow: auto; }
+.comparison-card details pre { overflow: auto; }
+.comparison-empty { padding: 32px 12px; }
+.comparison-task { white-space: pre-wrap; overflow-wrap: anywhere; }
+[hidden] { display: none !important; }

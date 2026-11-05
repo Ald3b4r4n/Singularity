@@ -11,6 +11,8 @@
 		prompt: $('prompt'), send: $('send')
 	};
 
+	const comparison = window.SingularityComparison(vscode, R, app);
+	window.addEventListener('comparisonMode', () => { drawComposer(); });
 	let state = { hub: { status: 'disconnected' }, sessions: [] };
 	let catalog;
 	let catalogError;
@@ -140,6 +142,7 @@
 			else if (current && current.model && sel.model && (current.model.modelID !== sel.model.id || current.model.providerID !== sel.model.providerID || (current.model.variant || '') !== sel.effort)) { note = 'A escolha será aplicada a esta sessão ao enviar.'; }
 		}
 		el.note.textContent = note;
+		comparison.draw();
 	}
 
 	function drawSessions() {
@@ -246,6 +249,7 @@
 
 	el.composer.addEventListener('submit', event => {
 		event.preventDefault();
+		if (comparison.submit()) { return; }
 		if (el.send.disabled) { return; }
 		if (busy()) {
 			interrupting = true;

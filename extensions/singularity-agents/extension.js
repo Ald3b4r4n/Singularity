@@ -183,6 +183,25 @@ class AgentsViewProvider {
 
 	async _operate(message) {
 		const post = payload => this._view?.webview.postMessage(payload);
+		if (message?.type === 'comparisonCatalog') {
+			try { post({ type: 'comparisonCatalog', index: message.index, catalog: await this._hub.catalog({ service: serviceOf(message.service), workspace: this._workspace() }) }); }
+			catch (error) { post({ type: 'comparisonCatalog', index: message.index, error: error.message }); }
+			return;
+		}
+		if (message?.type?.startsWith('comparison')) {
+			const workspace = this._workspace();
+			if (!workspace) { throw new Error('Abra um repositório Git para comparar agentes.'); }
+			const methods = { comparisonCreate: 'comparisons.create', comparisonCancel: 'comparisons.cancel', comparisonInspect: 'comparisons.inspect', comparisonOpenDiff: 'comparisons.inspect', comparisonOpenTree: 'comparisons.inspect', comparisonSelect: 'comparisons.select', comparisonCleanup: 'comparisons.cleanup' };
+			const method = methods[message.type];
+			if (!method) { await this._refreshComparisons(); return; }
+			if (message.type === 'comparisonCreate' && !vscode.workspace.isTrusted) { throw new Error('Confie no workspace antes de iniciar os agentes.'); }
+			const result = await this._hub.sessionRequest(method, { workspace, id: message.id, participantId: message.participantId, text: message.text, participants: message.participants });
+			if (message.type === 'comparisonOpenDiff') { await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ content: result.diff, language: 'diff' })); }
+			if (message.type === 'comparisonOpenTree') { await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(result.participant.workspace), { forceNewWindow: true }); }
+			post({ type: 'comparisonReply', operation: message.type, result });
+			await this._refreshComparisons();
+			return;
+		}
 		if (message?.type === 'reopen') {
 			await this._reopen(message.id);
 			return;
@@ -207,7 +226,7 @@ class AgentsViewProvider {
 			return;
 		}
 		if (message?.type === 'history') {
-			const workspace = this._workspace();
+			const workspace = this._visibleState().sessions.find(session => session.id === message.id)?.workspace;
 			if (workspace) {
 				try {
 					const turns = await this._hub.sessionRequest('session.history', { id: message.id, workspace });
@@ -301,10 +320,22 @@ class AgentsViewProvider {
 	}
 
 	_post() {
+		if (!this._comparisonTimer) { this._comparisonTimer = setTimeout(() => { this._comparisonTimer = undefined; void this._refreshComparisons(); }, 200); }
 		this._postSessions();
 		if (this._view) {
 			this._view.webview.postMessage({ type: 'state', state: this._visibleState() });
 		}
+	}
+
+	async _refreshComparisons() {
+		if (this._refreshingComparisons || this._hub.getState().hub.status !== 'connected' || !this._workspace()) { return; }
+		this._refreshingComparisons = true;
+		try {
+			this._comparisons = await this._hub.sessionRequest('comparisons.list', { workspace: this._workspace() });
+			this._view?.webview.postMessage({ type: 'comparisons', runs: this._comparisons, state: this._visibleState() });
+			this._postSessions();
+		} catch (error) { this._view?.webview.postMessage({ type: 'comparisonError', message: error.message }); }
+		finally { this._refreshingComparisons = false; }
 	}
 
 	_visibleState() {
@@ -316,7 +347,7 @@ class AgentsViewProvider {
 			catch { this._canonicalWorkspace = undefined; }
 		}
 		const key = value => value?.replace(/\\/g, '/').toLowerCase();
-		return { ...state, sessions: state.sessions.filter(session => !session.workspace || key(session.workspace) === key(this._canonicalWorkspace)) };
+		return { ...state, sessions: state.sessions.filter(session => !session.workspace || key(session.workspace) === key(this._canonicalWorkspace) || (this._comparisons ?? []).some(run => run.participants.some(p => key(p.workspace) === key(session.workspace)))) };
 	}
 
 	_postSessions() {
@@ -346,6 +377,7 @@ class AgentsViewProvider {
 <body>
 <div id="app"></div>
 <script nonce="${nonce}" src="${media('render.js')}"></script>
+<script nonce="${nonce}" src="${media('comparison.js')}"></script>
 <script nonce="${nonce}" src="${media(script)}"></script>
 </body>
 </html>`;
