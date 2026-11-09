@@ -59,3 +59,43 @@ privadas podem ser oferecidas depois. O computador precisa ficar ligado e conect
 uso único, token entregue uma vez, bloqueio por tentativas), todas as rotas sem token, lista de permissão, workspaces autorizados,
 projeção sem caminhos, idempotência do prompt, revogação, eventos com reenvio, superfície administrativa e Tailscale (sem Funnel,
 com consentimento).
+
+## No Android
+
+Instalação: abra o endereço no Chrome do celular e use "Adicionar à tela inicial" (PWA; não há Play Store nem APK). Telas:
+**Início** (Hub, provedores, sessões em andamento), **Agentes** (workspace autorizado, provedor, modelo, esforço, permissões,
+tarefa, enviar), **Sessões** (streaming, histórico, nova instrução, interromper), **Comparação** (participantes, estados e diffs
+em visualização móvel), **Equipe** (implementador, revisor e testador, etapa atual, ciclos, revisões e validação) e
+**Dispositivos** (encerrar conexão). Tema escuro e claro, identidade Event Minimal. Ficam na IDE Windows: aplicar e desfazer
+soluções, iniciar comparações e equipes, reabrir sessões, instalar provedores.
+
+## Validação (E2E)
+
+`scripts/e2e/remote-check.cjs` roda o Hub e o gateway **do pacote do Windows**, um OpenCode real (só OpenCode Go: DeepSeek V4.1 Flash
+e Muse Spark 1.3 Contributor, esforço padrão; Claude Code, Codex CLI e Gemini CLI não foram usados) e um Chromium com a tela de um
+Pixel 7 executando o PWA, em repositórios Git sintéticos (38 checagens): desligado por padrão, loopback, pareamento aprovado,
+recusado, expirado, dispositivo não autorizado, revogação, reconexão, Hub desligado e religado, listagem, streaming real,
+envio, cancelamento, retentativa sem duplicar, desconexão do celular sem interromper o agente, recuperação, comparação com
+diff, equipe, rotas fora da lista, ausência do token do Hub e preservação dos repositórios reais.
+`scripts/e2e/remote-ide-check.cjs` confere, na IDE empacotada e pela interface, os comandos, a confirmação, o gateway no runtime
+embutido e o desligamento.
+
+## Limitações
+
+- **Não foi testado em um Android físico.** Um navegador emulado com tela de celular exercita o mesmo aplicativo web, mas não
+  prova instalação, teclado, notificações nem a rede móvel reais; o aceite físico (POCO X8 Pro) está pendente.
+- **Tailscale não estava instalado nesta máquina**, então o HTTPS privado real e a verificação de que o serviço não é público
+  não foram exercitados. Está coberto por testes com um executável simulado: só `serve` (nunca `funnel`), só com consentimento,
+  e sem instalar nada. Fora de casa o computador precisa estar ligado, com o Hub e o gateway ativos e na rede privada.
+- O PWA só registra o service worker em HTTPS ou localhost; atrás do Tailscale Serve isso é atendido.
+- O código de pareamento é digitado (não há QR Code neste ciclo).
+- Com a pasta aberta por nome curto 8.3, a lista de sessões da IDE pode esconder sessões (comportamento da build aprovada); o
+  gateway compara caminhos canônicos.
+
+### Regressões no pacote (Windows)
+
+`run.cjs` (terminal, Git, Hub, Agentes, fechar e reabrir), `browser-check.cjs` (Singularity Browser, terminal, Git e extensões) e
+`agents-check.cjs` aprovados; `npm test` do Hub (158 testes, incluindo comparação, equipe, aplicação e rollback de soluções,
+gerenciador de provedores e recuperação de processos) e os 37 testes da extensão aprovados. O `agents-check` usa o modelo gratuito
+que ele mesmo escolhe: com o DeepSeek V4.1 Flash em esforço baixo a tarefa de uma palavra terminou sem texto (comportamento do
+modelo, não do produto). Claude Code e Codex CLI não foram executados nesta rodada.

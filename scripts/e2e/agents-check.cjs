@@ -228,7 +228,7 @@ async function main() {
 		'a partial result while running', 1800, 80).then(async () => snap('03a-streaming.png')).catch(() => undefined);
 	const final = await waitFor(async () => { const s = await status(); return s === 'done' || s === 'failed' ? s : undefined; }, 'task finished', 150000, 500);
 	const result = await content('.result').catch(() => '');
-	check('5c. the task ran to the end and its answer streamed into the same panel', final === 'done' && /SINGULARITY_OK/.test(result), { final, result: result.slice(0, 60) });
+	check('5c. the task ran to the end and its answer streamed into the same panel', final === 'done' && /SINGULARITY_OK/.test(result), { final, result: String(result || '').slice(0, 60) });
 	check('5d. internal events stay out of the conversation', !(await content('.events')));
 	await snap('03-tarefa-concluida.png');
 
