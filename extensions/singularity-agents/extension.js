@@ -256,7 +256,7 @@ class AgentsViewProvider {
 			const prefs = message.prefs;
 			if (prefs && typeof prefs === 'object') {
 				await this._context.globalState.update(PREFS_KEY, {
-					service: text(prefs.service, 40), providerID: text(prefs.providerID, 160), modelID: text(prefs.modelID, 160),
+					service: text(prefs.service, 40), tier: prefs.tier === 'go' || prefs.tier === 'zen' ? prefs.tier : '', providerID: text(prefs.providerID, 160), modelID: text(prefs.modelID, 160),
 					variant: typeof prefs.variant === 'string' && prefs.variant.length <= 24 ? prefs.variant : '',
 					permissionMode: typeof prefs.permissionMode === 'string' && /^[A-Za-z-]{0,24}$/.test(prefs.permissionMode) ? prefs.permissionMode : ''
 				});

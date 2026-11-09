@@ -81,7 +81,7 @@
 		el.ws.title = displayedWorkspace || 'Escolher workspace';
 		el.ws.setAttribute('aria-label', 'Workspace: ' + el.ws.textContent);
 
-		fill(el.service, sel.services.map(s => ({ value: s.id, label: s.name + R.SERVICE_NOTE[s.status], disabled: s.status !== 'available' })), sel.service, loading ? 'Carregando…' : 'Sem serviços');
+		fill(el.service, sel.services.flatMap(s => s.id === 'opencode' ? [{ value: 'opencode:go', label: 'OpenCode Go' + R.SERVICE_NOTE[s.status], disabled: s.status !== 'available' }, { value: 'opencode:zen', label: 'OpenCode Zen' + R.SERVICE_NOTE[s.status], disabled: s.status !== 'available' }] : [{ value: s.id, label: s.name + R.SERVICE_NOTE[s.status], disabled: s.status !== 'available' }]), sel.serviceKey, loading ? 'Carregando…' : 'Sem serviços');
 		const names = new Map();
 		for (const model of sel.models) { names.set(model.name, (names.get(model.name) || 0) + 1); }
 		fill(el.model, sel.models.map(m => ({
@@ -169,7 +169,7 @@
 	function remember() {
 		prefsTouched = true;
 		const sel = R.resolve(catalog, prefs);
-		prefs = { service: sel.service, providerID: sel.model?.providerID, modelID: sel.model && sel.model.id, variant: sel.effort, permissionMode: prefs.permissionMode || '' };
+		prefs = { service: sel.service, ...(sel.tier ? { tier: sel.tier } : {}), providerID: sel.model?.providerID, modelID: sel.model && sel.model.id, variant: sel.effort, permissionMode: prefs.permissionMode || '' };
 		vscode.postMessage({ type: 'prefs', prefs });
 	}
 
@@ -201,7 +201,7 @@
 			targetSeen = !!target();
 			const model = target()?.model;
 			const used = target();
-			if (model && used) { prefs = { ...prefs, service: used.harness, providerID: model.providerID, modelID: model.modelID, variant: model.variant || '' }; }
+			if (model && used) { prefs = { ...prefs, service: used.harness, ...(used.harness === 'opencode' ? { tier: model.providerID === 'opencode' ? 'zen' : 'go' } : {}), providerID: model.providerID, modelID: model.modelID, variant: model.variant || '' }; }
 			if (used && catalog && catalog.service !== used.harness) { requestCatalog(false, used.harness); }
 			drawSessions(); drawComposer();
 			if (data.focusComposer) { el.prompt.focus(); }
@@ -240,7 +240,7 @@
 	});
 
 	// Each selector changes only what depends on it; the text being typed is never touched.
-	el.service.addEventListener('change', () => { prefs = { service: el.service.value, permissionMode: R.validPermission(el.service.value, prefs.permissionMode) }; message = ''; remember(); requestCatalog(false, el.service.value); });
+	el.service.addEventListener('change', () => { const [chosen, tier] = el.service.value.split(':'); prefs = { service: chosen, ...(tier ? { tier } : {}), permissionMode: R.validPermission(chosen, prefs.permissionMode) }; message = ''; remember(); requestCatalog(false, chosen); });
 	el.model.addEventListener('change', () => {
 		const model = R.resolve(catalog, prefs).models.find(m => m.key === el.model.value);
 		if (!model) { return; }

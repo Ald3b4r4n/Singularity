@@ -84,6 +84,13 @@
 		var selectable = services.filter(function (s) { return s.status === 'available'; });
 		var service = (find(selectable, prefs.service) || selectable[0] || {}).id;
 		var providers = catalog && catalog.service === service ? (catalog.providers || []) : [];
+		// OpenCode Go and OpenCode Zen are two different plans: the person picks one, and only its models are listed.
+		var tier = '';
+		if (service === 'opencode') {
+			tier = prefs.tier === 'zen' || prefs.tier === 'go' ? prefs.tier : prefs.providerID === 'opencode' ? 'zen' : 'go';
+			var only = providers.filter(function (p) { return p.id === (tier === 'go' ? 'opencode-go' : 'opencode'); });
+			if (only.length) { providers = only; }
+		}
 		var models = providers.flatMap(function (provider) {
 			return provider.models.map(function (model) {
 				return { ...model, providerID: provider.id, providerName: provider.name, key: JSON.stringify([provider.id, model.id]) };
@@ -96,7 +103,7 @@
 		var model = choose(prefs) || choose(def) || models[0];
 		var efforts = model ? model.efforts : [];
 		var effort = efforts.includes(prefs.variant) ? prefs.variant : '';
-		return { services, service, models, model, efforts, effort, canSend: !!(service && model) };
+		return { services, service, tier, serviceKey: service === 'opencode' ? 'opencode:' + tier : service, models, model, efforts, effort, canSend: !!(service && model) };
 	}
 
 	/** OpenCode Go and OpenCode Zen are different providers; say which one a model belongs to. */
