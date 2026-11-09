@@ -32,6 +32,9 @@
 		else if (m.type === 'error') { notice.textContent = 'Não foi possível ler o uso: ' + m.message; }
 		else if (m.type === 'usage') { notice.textContent = 'Atualizado em ' + new Date(m.usage.generatedAt).toLocaleTimeString('pt-BR') + '.'; root.replaceChildren(...m.usage.services.map(card)); }
 	});
+	const toggle = document.getElementById('claude-plan');
+	window.addEventListener('message', event => { if (event.data.type === 'usage') { const on = !!(event.data.usage.settings && event.data.usage.settings.claudePlan); toggle.textContent = on ? 'Ocultar limites do plano Claude' : 'Mostrar limites do plano Claude'; toggle.dataset.on = on ? '1' : ''; } });
+	toggle.addEventListener('click', () => vscode.postMessage({ action: toggle.dataset.on ? 'disableClaudePlan' : 'enableClaudePlan' }));
 	document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ action: 'refresh' }));
 	vscode.postMessage({ action: 'ready' });
 })();

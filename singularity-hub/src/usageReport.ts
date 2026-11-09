@@ -141,7 +141,7 @@ function readClaude(now: number, startOfDay: number, home: string): ServiceUsage
 			}
 		}
 	}
-	return bucket.result({ note: 'O Claude Code não grava neste computador o limite do plano (janela de 5 horas e semanal); veja com /usage dentro dele. Os tokens abaixo vêm dos registros dele.' });
+	return bucket.result({ note: 'O Claude Code não grava neste computador o limite do plano (janela de 5 horas e semanal); veja com /usage dentro dele ou ative "Mostrar limites do plano Claude" em Uso e limites, na IDE. Os tokens abaixo vêm dos registros dele.' });
 }
 
 function readCodex(now: number, startOfDay: number, home: string): ServiceUsage {

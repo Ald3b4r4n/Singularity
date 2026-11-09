@@ -1,4 +1,6 @@
 import { usageReport } from './usageReport';
+import { claudePlan } from './claudePlan';
+import * as fsUsage from 'node:fs';
 import { Teams } from './teams';
 import { Solutions } from './solutions';
 import { Comparisons } from './comparisons';
@@ -64,7 +66,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['usage.get', 'teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['usage.get', 'usage.configure', 'teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -438,8 +440,21 @@ export class HubServer {
 				}
 				return inspectProviders(() => this.opencode.diagnose(p.workspace as string | undefined, p.refresh === true), p.refresh === true);
 			}
-			case 'usage.get':
-				return usageReport({ fresh: (request.params as { fresh?: unknown } | undefined)?.fresh === true });
+			case 'usage.get': {
+				const fresh = (request.params as { fresh?: unknown } | undefined)?.fresh === true;
+				const report = usageReport({ fresh });
+				const enabled = this.usageSetting();
+				const services = enabled ? await claudePlan({ fresh }).then(result => report.services.map(service => service.id !== 'claude-code' ? service : 'plan' in result
+					? { ...service, plan: result.plan, note: 'Limites do plano lidos agora da sua conta Claude. Os tokens vêm dos registros do Claude Code neste computador.' }
+					: { ...service, note: result.unavailable })) : report.services;
+				return { ...report, services, settings: { claudePlan: enabled } };
+			}
+			case 'usage.configure': {
+				const enable = (request.params as { claudePlan?: unknown } | undefined)?.claudePlan === true;
+				const file = join(hubHome(), 'usage-settings.json');
+				fsUsage.writeFileSync(file, JSON.stringify({ claudePlan: enable }), { mode: 0o600 });
+				return { claudePlan: enable };
+			}
 			case 'catalog.get':
 				return this.catalog(request.params);
 			case 'session.create':
@@ -463,6 +478,11 @@ export class HubServer {
 	}
 
 	/** catalog.get { service?, workspace?, refresh? }: what can be run here, read from the service itself. */
+	/** Opt-in, per computer: whether the Claude plan windows are read from the person's own Claude login. Off until they turn it on. */
+	private usageSetting(): boolean {
+		try { return (JSON.parse(fsUsage.readFileSync(join(hubHome(), 'usage-settings.json'), 'utf8')) as { claudePlan?: unknown }).claudePlan === true; } catch { return false; }
+	}
+
 	private async catalog(params: unknown): Promise<unknown> {
 		const p = (params ?? {}) as { service?: unknown; workspace?: unknown; refresh?: unknown };
 		if ((p.service !== undefined && p.service !== 'opencode' && p.service !== 'claude-code' && p.service !== 'codex-cli') || (p.workspace !== undefined && (typeof p.workspace !== 'string' || p.workspace.length > 1024)) || (p.refresh !== undefined && typeof p.refresh !== 'boolean')) {
