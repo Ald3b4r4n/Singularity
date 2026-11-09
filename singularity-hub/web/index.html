@@ -1,2 +1,29 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><title>Singularity Remote</title></head><body>Singularity Remote</body></html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#050505">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="/style.css">
+<title>Singularity Remote</title>
+</head>
+<body>
+<div id="app" class="app">
+	<header class="top">
+		<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.8" fill="none" stroke="currentColor" stroke-width="2"/><g transform="rotate(-14 12 12)"><ellipse cx="12" cy="12" rx="10.8" ry="1.5" fill="currentColor"/></g></svg>
+		<div class="brand"><h1>SINGULARITY</h1><p id="subtitle">Remote</p></div>
+		<span id="link" class="chip" role="status" aria-live="polite">conectando</span>
+	</header>
+	<main id="view" class="view" tabindex="-1"></main>
+	<nav id="tabs" class="tabs" aria-label="Seções" hidden></nav>
+	<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</div>
+<noscript><p class="noscript">O Singularity Remote precisa de JavaScript.</p></noscript>
+<script src="/app.js"></script>
+</body>
+</html>
