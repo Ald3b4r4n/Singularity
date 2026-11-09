@@ -104,3 +104,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .meter-fill { height: 100%; background: var(--ok); border-radius: 999px; }
 .meter.warn .meter-fill { background: var(--warn); }
 .meter.bad .meter-fill { background: var(--bad); }
+
+/* pending send */
+.pending { border-left: 4px solid var(--accent); }
+.pending.unknown, .pending.failed, .pending.blocked, .pending.conflict { border-left-color: var(--warn); }
+.pending.blocked, .pending.failed { border-left-color: var(--bad); }
+.clamp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

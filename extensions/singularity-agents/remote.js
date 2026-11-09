@@ -108,6 +108,18 @@ function register(context) {
 			vscode.window.showInformationMessage(message);
 		})),
 
+		vscode.commands.registerCommand('singularity.remote.requests', wrap(async () => {
+			if (!(await requireRunning())) { return; }
+			const info = await control().adminRequest('GET', '/admin/requests');
+			const c = info.counts;
+			const summary = `Confirmados: ${c.confirmed + c.reconciled} · Falharam antes do envio: ${c['failed-before-send']} · Em processamento: ${c.processing + c.received} · Estado desconhecido: ${c.unknown}`;
+			if (c.blocked) {
+				const choice = await modal('O registro de envios remotos está bloqueado', 'O arquivo do registro está ilegível ou corrompido. Por segurança, nenhum envio do celular é feito até ele ser reiniciado. O arquivo antigo é guardado ao lado, nunca apagado. Tarefas enviadas pouco antes podem ter chegado ao agente: confira as sessões antes de reenviar.', 'Reiniciar o registro');
+				if (choice === 'Reiniciar o registro') { await control().adminRequest('POST', '/admin/requests/reset', { confirm: true }); vscode.window.showInformationMessage('Registro reiniciado. O envio pelo celular voltou a funcionar.'); }
+				return;
+			}
+			vscode.window.showInformationMessage(info.unresolved.length ? `${summary}. Há ${info.unresolved.length} envio(s) sem confirmação: o celular mostra as opções de verificar, reenviar ou descartar.` : `${summary}. Nenhum envio pendente de decisão.`);
+		})),
 		vscode.commands.registerCommand('singularity.remote.devices', wrap(async () => {
 			if (!(await requireRunning())) { return; }
 			const info = await state();

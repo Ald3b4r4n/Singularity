@@ -74,4 +74,17 @@ describe('Singularity Remote web client', () => {
 		assert.match(css, /grid-template-columns: repeat\(6, 1fr\)/);
 		assert.match(css, /safe-area-inset-bottom/);
 	});
+
+	it('keeps one request id per send, reuses it on every retry and never retries on its own when the outcome is unknown', () => {
+		const app = read('app.js');
+		assert.match(app, /requestId: requestId\(\)/, 'the id is made once, when the send starts');
+		assert.equal((app.match(/requestId\(\)/g) || []).length, 1, 'only the one place that starts a send makes an id');
+		assert.match(app, /'X-Request-Id': pending\.requestId/);
+		assert.match(app, /Tarefa já registrada/);
+		assert.match(app, /Estado do envio desconhecido/);
+		assert.match(app, /Reenviar mesmo assim/);
+		assert.match(app, /localStorage\.setItem\(PENDING_KEY/);
+		// an unknown outcome is shown to the person; the only automatic retry is for a lost connection and a "processing" answer, both with the same id
+		assert.doesNotMatch(app, /state === 'unknown'[^}]*dispatchPending\(\)/);
+	});
 });

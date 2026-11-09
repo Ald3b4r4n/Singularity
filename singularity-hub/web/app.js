@@ -74,12 +74,12 @@
 			response = await fetch(path, { method: options.method || 'GET', headers, body: options.body === undefined ? undefined : JSON.stringify(options.body), cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' });
 		} catch {
 			link.textContent = 'sem conexão'; link.className = 'chip bad';
-			throw new Error('Sem conexão com o computador.');
+			const lost = new Error('Sem conexão com o computador.'); lost.network = true; throw lost;
 		}
 		if (response.status === 401 && token) { forget(); throw new Error('Este dispositivo não está mais autorizado.'); }
 		let data = {};
 		try { data = await response.json(); } catch { /* an empty body */ }
-		if (!response.ok) { throw new Error(data.error || 'Erro ' + response.status); }
+		if (!response.ok) { const failure = new Error(data.error || 'Erro ' + response.status); failure.status = response.status; failure.state = data.state; throw failure; }
 		return data;
 	}
 	function forget() { token = null; safeSet(TOKEN_KEY, null); stopStream(); render(); }
@@ -313,14 +313,68 @@
 		sending = true; render();
 		try {
 			const created = await api('/api/sessions', { method: 'POST', body: { confirm: true, workspaceId: agentsForm.workspaceId, service: baseService(), model: { providerID: model.providerID, modelID: model.id, ...(agentsForm.effort ? { variant: agentsForm.effort } : {}) }, ...(agentsForm.permission ? { permissionMode: agentsForm.permission } : {}) } });
-			// one request id per task: if the connection drops and the app retries, the agent still receives the prompt once
-			await api('/api/sessions/' + created.session.id + '/prompt', { method: 'POST', headers: { 'X-Request-Id': requestId() }, body: { confirm: true, text } });
-			agentsForm.text = '';
+			// the session exists now; the instruction goes through the pending send, so a retry keeps the same request id
 			await refresh();
 			openSessionView(created.session.id);
+			sending = false;
+			await startSend(created.session.id, text);
+			return;
 		} catch (error) { toast(error.message); }
 		sending = false; render();
 	}
+
+	// ---------- sending an instruction: one request id per operation ----------
+	// The id is made once, when the person taps send, and is reused by every retry of that same operation (a dropped connection, a reload,
+	// a second tap). The computer registers it before the agent is asked, so a retry can never make the agent receive it twice.
+	const PENDING_KEY = 'singularity.remote.pending';
+	let pendingSend = (() => { try { const saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); return saved && typeof saved.sessionId === 'string' && typeof saved.requestId === 'string' && typeof saved.text === 'string' ? { ...saved, busy: false } : undefined; } catch { return undefined; } })();
+	function savePending() { try { if (pendingSend) { localStorage.setItem(PENDING_KEY, JSON.stringify({ sessionId: pendingSend.sessionId, requestId: pendingSend.requestId, text: pendingSend.text, status: pendingSend.status, message: pendingSend.message })); } else { localStorage.removeItem(PENDING_KEY); } } catch { /* storage may be unavailable */ } }
+	function startSend(sessionId, text) { pendingSend = { sessionId, text, requestId: requestId(), status: 'sending', message: 'Enviando…', busy: false }; savePending(); return dispatchPending(); }
+	async function dispatchPending() {
+		const pending = pendingSend;
+		if (!pending || pending.busy) { return; }
+		pending.busy = true; pending.status = 'sending'; pending.message = 'Enviando…'; render();
+		try {
+			const result = await api('/api/sessions/' + pending.sessionId + '/prompt', { method: 'POST', headers: { 'X-Request-Id': pending.requestId }, body: { confirm: true, text: pending.text } });
+			if (result.state === 'processing') { pending.status = 'waiting'; pending.message = 'Aguardando confirmação…'; pending.busy = false; savePending(); render(); setTimeout(() => { if (pendingSend === pending) { dispatchPending(); } }, 2000); return; }
+			toast(result.duplicate ? 'Tarefa já registrada.' : 'Tarefa recebida.');
+			pendingSend = undefined; savePending(); followUp = ''; agentsForm.text = ''; follow = true;
+			await refresh(); loadHistory(pending.sessionId);
+		} catch (error) {
+			pending.busy = false;
+			if (error.network) { pending.status = 'waiting'; pending.message = 'Sem conexão: o envio será conferido quando a conexão voltar. Nada será enviado duas vezes.'; }
+			else if (error.state === 'unknown') { pending.status = 'unknown'; pending.message = 'Não foi possível confirmar se esta tarefa chegou ao agente.'; }
+			else if (error.state === 'conflict') { pending.status = 'conflict'; pending.message = 'Este envio já foi usado para outra instrução. Escreva a tarefa de novo.'; }
+			else if (error.state === 'blocked') { pending.status = 'blocked'; pending.message = error.message; }
+			else { pending.status = 'failed'; pending.message = error.message + ' O envio não chegou ao agente; pode tentar de novo.'; }
+			savePending();
+		}
+		if (pendingSend === pending) { pending.busy = false; }
+		render();
+	}
+	async function resolvePending(action) {
+		const pending = pendingSend;
+		if (!pending) { return; }
+		try {
+			await api('/api/sessions/' + pending.sessionId + '/requests/' + pending.requestId, { method: 'POST', body: { confirm: true, action } });
+			if (action === 'discard') { pendingSend = undefined; savePending(); toast('Envio descartado.'); render(); return; }
+			await dispatchPending();
+		} catch (error) { toast(error.message); }
+	}
+	function discardLocal() { pendingSend = undefined; savePending(); render(); }
+	function pendingBanner(sessionId) {
+		const pending = pendingSend;
+		if (!pending || (sessionId && pending.sessionId !== sessionId)) { return null; }
+		const buttons = pending.status === 'unknown'
+			? [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Verificar de novo'), h('button', { class: 'secondary', type: 'button', onclick: () => resolvePending('retry') }, 'Reenviar mesmo assim'), h('button', { class: 'secondary', type: 'button', onclick: () => resolvePending('discard') }, 'Descartar')]
+			: pending.status === 'conflict' || pending.status === 'blocked' ? [h('button', { class: 'secondary', type: 'button', onclick: discardLocal }, 'Entendi')]
+			: pending.status === 'sending' ? [] : [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Tentar de novo')];
+		return h('section', { class: 'card stack pending ' + pending.status, role: 'status', 'aria-live': 'polite' },
+			h('strong', { text: pending.status === 'unknown' ? 'Estado do envio desconhecido' : pending.status === 'sending' ? 'Enviando' : pending.status === 'waiting' ? 'Aguardando confirmação' : 'Envio pendente' }),
+			h('div', { class: 'muted small', text: pending.message }), h('div', { class: 'muted small clamp', text: pending.text.slice(0, 140) }),
+			buttons.length ? h('div', { class: 'row' }, ...buttons) : null);
+	}
+	window.addEventListener('online', () => { if (pendingSend && pendingSend.status === 'waiting') { dispatchPending(); } });
 
 	let history = { id: '', turns: [] };
 	async function loadHistory(id) {
@@ -357,7 +411,8 @@
 				session.prompt ? bubble('user', session.prompt) : null,
 				session.result ? bubble('agent', session.result, running) : (running ? h('div', { class: 'bubble agent typing', 'aria-live': 'polite', text: 'O agente está trabalhando…' }) : null)),
 			running ? h('div', { class: 'chatbar' }, h('button', { class: 'danger stop', type: 'button', onclick: () => interrupt(session) }, 'Interromper tarefa')) : null,
-			!running && !session.historical ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); sendFollowUp(session); } }, h('textarea', { id: 'follow', rows: '1', maxlength: '16000', placeholder: 'Escreva uma instrução…', 'aria-label': 'Nova instrução', oninput: event => { followUp = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, followUp), h('button', { class: 'send', type: 'submit', 'aria-label': 'Enviar' }, '↑')) : null,
+			pendingBanner(session.id),
+			!running && !session.historical ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); sendFollowUp(session); } }, h('textarea', { id: 'follow', rows: '1', maxlength: '16000', placeholder: 'Escreva uma instrução…', 'aria-label': 'Nova instrução', oninput: event => { followUp = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, followUp), h('button', { class: 'send', type: 'submit', 'aria-label': 'Enviar', disabled: !!pendingSend }, '↑')) : null,
 			session.historical ? h('p', { class: 'muted', text: session.resumable ? 'Sessão arquivada. Reabra-a na IDE do computador para continuar.' : 'Sessão arquivada.' }) : null);
 		afterSessionRender();
 	}
@@ -367,7 +422,8 @@
 	async function sendFollowUp(session) {
 		const text = followUp.trim();
 		if (!text) { return; }
-		try { await api('/api/sessions/' + session.id + '/prompt', { method: 'POST', headers: { 'X-Request-Id': requestId() }, body: { confirm: true, text } }); followUp = ''; follow = true; await refresh(); loadHistory(session.id); } catch (error) { toast(error.message); }
+		if (pendingSend) { return dispatchPending(); }
+		await startSend(session.id, text);
 	}
 
 	// ---------- comparison ----------

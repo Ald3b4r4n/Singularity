@@ -5,6 +5,7 @@ import { FailureLimiter, RateBucket } from '../auth';
 import { ensureSecureDir, writeFileAtomic } from '../secure';
 import { Session } from '../protocol';
 import { BridgeError, BridgeUnavailable, HubBridge, HubEventRecord } from './bridge';
+import { LedgerError, RequestLedger } from './ledger';
 import { Pairing } from './pairing';
 import { bearerOf, hostAllowed, newToken, originAllowed, sameSecret } from './security';
 import { Device, RemoteStore, Workspace } from './store';
@@ -80,7 +81,7 @@ export class RemoteGateway {
 	private readonly authFailures = new FailureLimiter(10, 60_000, 30_000);
 	private readonly buckets = new Map<string, RateBucket>();
 	private readonly streams = new Set<{ res: http.ServerResponse; device: string }>();
-	private readonly handled = new Map<string, { at: number; result: unknown }>();
+	readonly ledger: RequestLedger;
 	private readonly sessionWorkspace = new Map<string, string>();
 	private tailnet = false;
 
@@ -88,12 +89,14 @@ export class RemoteGateway {
 		this.store = new RemoteStore(opts.directory);
 		this.bridge = opts.bridge ?? new HubBridge(opts.hubHome);
 		this.pairing = new Pairing(name => this.store.authorize(name), opts.now);
+		this.ledger = new RequestLedger(opts.directory, { now: opts.now });
 	}
 
 	// ---------- lifecycle ----------
 
 	async start(): Promise<void> {
 		ensureSecureDir(this.opts.directory);
+		this.ledger.open();
 		this.adminToken = newToken();
 		writeFileAtomic(join(this.opts.directory, 'admin.token'), this.adminToken);
 		this.publicServer = http.createServer((req, res) => void this.onPublic(req, res));
@@ -118,6 +121,7 @@ export class RemoteGateway {
 
 	async stop(): Promise<void> {
 		this.bridge.close();
+		this.ledger.close();
 		for (const stream of this.streams) { stream.res.end(); }
 		this.streams.clear();
 		await Promise.all([this.publicServer, this.adminServer].map(server => new Promise<void>(resolve => {
@@ -128,8 +132,6 @@ export class RemoteGateway {
 		fs.rmSync(join(this.opts.directory, 'gateway.json'), { force: true });
 		fs.rmSync(join(this.opts.directory, 'admin.token'), { force: true });
 	}
-
-	private now(): number { return (this.opts.now ?? Date.now)(); }
 
 	// ---------- shared HTTP helpers ----------
 
@@ -299,14 +301,21 @@ export class RemoteGateway {
 			const text = typeof body.text === 'string' ? body.text.trim() : '';
 			if (!text || text.length > 16000) { throw new HttpError(400, 'Tarefa vazia ou grande demais.'); }
 			// A request id makes a retry after a dropped connection a no-op: the prompt is never sent twice.
-			const requestId = typeof req.headers['x-request-id'] === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(req.headers['x-request-id']) ? `${device.id}:${req.headers['x-request-id']}` : undefined;
-			if (!requestId) { throw new HttpError(400, 'X-Request-Id é obrigatório.'); }
-			this.sweepHandled();
-			const previous = this.handled.get(requestId);
-			if (previous) { return this.send(res, 200, { ...(previous.result as object), duplicate: true }); }
-			const result = await this.bridge.call('session.prompt', { id: action[1], text });
-			this.handled.set(requestId, { at: this.now(), result });
-			return this.send(res, 200, result);
+			const rawRequestId = typeof req.headers['x-request-id'] === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(req.headers['x-request-id']) ? req.headers['x-request-id'] : undefined;
+			if (!rawRequestId) { throw new HttpError(400, 'X-Request-Id é obrigatório.'); }
+			return this.sendPrompt(res, device.id, action[1], rawRequestId, text);
+		}
+		const resolve = /^\/api\/sessions\/([0-9a-f-]{36})\/requests\/([A-Za-z0-9_-]{8,64})$/.exec(url.pathname);
+		if (resolve && (req.method === 'GET' || req.method === 'POST')) {
+			await this.ownSession(resolve[1]);
+			const record = this.ledger.get(device.id, resolve[1], resolve[2]);
+			if (!record) { throw new HttpError(404, 'Este envio não está registrado.'); }
+			if (req.method === 'POST') {
+				const body = await this.readBody(req);
+				if (body.confirm !== true || (body.action !== 'retry' && body.action !== 'discard')) { throw new HttpError(400, 'Escolha explicitamente reenviar ou descartar.'); }
+				try { this.ledger.resolve(record, body.action); } catch (error) { throw new HttpError(409, (error as Error).message); }
+			}
+			return this.send(res, 200, { state: record.state, resolution: record.resolution ?? null, attempts: record.attempts });
 		}
 		if (route === 'GET /api/usage') { return this.send(res, 200, await this.bridge.call('usage.get', {})); }
 		if (route === 'GET /api/comparisons' || route === 'GET /api/teams') {
@@ -333,11 +342,55 @@ export class RemoteGateway {
 		return this.send(res, 404, { error: 'Rota não permitida.' });
 	}
 
-	private sweepHandled(): void {
-		const limit = this.now() - 10 * 60_000;
-		for (const [key, value] of this.handled) { if (value.at < limit) { this.handled.delete(key); } }
-		while (this.handled.size > 500) { this.handled.delete(this.handled.keys().next().value as string); }
+	/**
+	 * The one place that sends an instruction to the Hub. The ledger decides first and writes "processing" to disk before anything is
+	 * dispatched; the answers below never invent an outcome: a lost connection after dispatch is "unknown", never "failed".
+	 */
+	private async sendPrompt(res: http.ServerResponse, deviceId: string, sessionId: string, requestId: string, text: string): Promise<void> {
+		let decision;
+		try { decision = this.ledger.begin(deviceId, sessionId, requestId, text); } catch (error) {
+			if (error instanceof LedgerError) { return this.send(res, 503, { state: 'blocked', error: 'Não foi possível registrar o envio com segurança; nada foi enviado ao agente.' }); }
+			throw error;
+		}
+		switch (decision.kind) {
+			case 'blocked': return this.send(res, 503, { state: 'blocked', error: decision.reason });
+			case 'conflict': return this.send(res, 409, { state: 'conflict', error: 'Este identificador já foi usado para outra instrução ou outra sessão.' });
+			case 'in-progress': return this.send(res, 202, { state: 'processing' });
+			case 'duplicate': return this.send(res, 200, { duplicate: true, state: decision.record.state, resolution: decision.record.resolution ?? null });
+			case 'unknown': {
+				if (await this.reconcile(decision.record.sessionId, decision.record, text)) { return this.send(res, 200, { duplicate: true, state: 'reconciled', resolution: 'sent' }); }
+				return this.send(res, 409, { state: 'unknown', needsResolution: true, error: 'Não foi possível confirmar se esta instrução chegou ao agente.' });
+			}
+			case 'dispatch': break;
+		}
+		const record = decision.record;
+		try {
+			const result = await this.bridge.call('session.prompt', { id: sessionId, text });
+			this.ledger.confirm(record);
+			return this.send(res, 200, { ...(result && typeof result === 'object' ? result as object : {}), state: 'confirmed' });
+		} catch (error) {
+			if (error instanceof BridgeUnavailable || error instanceof BridgeError) {
+				// the Hub was not connected, or it answered with a refusal: the instruction did not run
+				try { this.ledger.failedBeforeSend(record, error instanceof BridgeError ? 'O Hub recusou a instrução.' : 'O Hub não estava conectado.'); } catch { /* the state stays "processing" in memory only; the next start marks it unknown */ }
+				return this.fail(res, error);
+			}
+			try { this.ledger.unknown(record, 'A conexão com o Hub caiu antes da confirmação.'); } catch { /* the next start marks it unknown */ }
+			if (await this.reconcile(sessionId, record, text)) { return this.send(res, 200, { state: 'reconciled', resolution: 'sent' }); }
+			return this.send(res, 409, { state: 'unknown', needsResolution: true, error: 'Não foi possível confirmar se esta instrução chegou ao agente.' });
+		}
 	}
+
+	/** Looks for the instruction in what the Hub itself recorded after the send began. Conclusive only when it is found. */
+	private async reconcile(sessionId: string, record: import('./ledger').LedgerRecord, text: string): Promise<boolean> {
+		try {
+			const { workspace } = await this.ownSession(sessionId);
+			const turns = await this.bridge.call<Array<{ prompt?: unknown; at?: unknown }>>('session.history', { id: sessionId, workspace: workspace.path });
+			const found = turns.some(turn => typeof turn.prompt === 'string' && typeof turn.at === 'number' && turn.at >= record.createdAt - 2000 && this.ledger.digest(sessionId, turn.prompt.trim()) === this.ledger.digest(sessionId, text));
+			if (found) { this.ledger.reconciled(record); }
+			return found;
+		} catch { return false; }
+	}
+
 
 	// ---------- events ----------
 
@@ -407,6 +460,12 @@ export class RemoteGateway {
 				const id = String(body.id);
 				this.closeStreams(id);
 				return this.send(res, 200, { ok: this.store.revoke(id) });
+			}
+			if (route === 'GET /admin/requests') { return this.send(res, 200, { counts: this.ledger.counts(), unresolved: this.ledger.unresolved() }); }
+			if (route === 'POST /admin/requests/reset') {
+				if (body.confirm !== true) { throw new HttpError(400, 'A reinicialização precisa ser confirmada.'); }
+				this.ledger.reset();
+				return this.send(res, 200, { counts: this.ledger.counts() });
 			}
 			if (route === 'GET /admin/tailscale') { return this.send(res, 200, await tailscaleState(this.opts.env, this.opts.tailscaleRunner)); }
 			if (route === 'POST /admin/tailscale/serve') {
