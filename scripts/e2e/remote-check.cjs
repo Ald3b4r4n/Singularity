@@ -178,7 +178,7 @@ async function main() {
 	let lengths = [];
 	const watchUntil = Date.now() + 120000;
 	while (Date.now() < watchUntil) {
-		const length = await page.evaluate(() => (document.querySelector('#view .result[aria-live]') || { textContent: '' }).textContent.length);
+		const length = await page.evaluate(() => (document.querySelector('#view .bubble.live .text') || { textContent: '' }).textContent.length);
 		if (!lengths.length || length !== lengths[lengths.length - 1]) { lengths.push(length); }
 		if (await page.evaluate(() => /concluída|falhou/.test(document.getElementById('view').innerText))) { break; }
 		await delay(300);

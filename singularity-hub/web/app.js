@@ -287,6 +287,9 @@
 			...(live.length ? live.map(sessionCard) : [h('div', { class: 'empty', text: 'Nenhuma sessão ativa.' })]),
 			archived.length ? h('h3', { text: 'Arquivadas' }) : null, ...archived.map(sessionCard));
 	}
+	function bubble(who, text, live) {
+		return h('div', { class: 'bubble ' + who + (live ? ' live' : ''), ...(live ? { 'aria-live': 'polite' } : {}) }, h('div', { class: 'who', text: who === 'user' ? 'Você' : live ? 'Agente · ao vivo' : 'Agente' }), h('div', { class: 'text', text }));
+	}
 	function renderSessionDetail() {
 		const session = openSession;
 		const running = session.status === 'running' || session.status === 'waiting';
@@ -297,11 +300,12 @@
 			h('h2', { text: (SERVICE_NAME[session.harness] || session.harness) + ' · ' + session.workspaceName }),
 			h('div', { class: 'row' }, statusChip(session.status), chip(modelText(session.model)), session.permissionMode ? chip(session.permissionMode) : null),
 			session.summary ? h('p', { class: 'chip warn', role: 'status', text: session.summary }) : null,
-			...prior.flatMap(turn => [h('h3', { text: 'Você' }), h('div', { class: 'result', text: turn.prompt }), turn.result ? h('h3', { text: 'Agente' }) : null, turn.result ? h('div', { class: 'result', text: turn.result }) : null]),
-			session.prompt ? h('h3', { text: 'Você' }) : null, session.prompt ? h('div', { class: 'result', text: session.prompt }) : null,
-			session.result ? h('h3', { text: 'Agente' + (running ? ' (ao vivo)' : '') }) : null, session.result ? h('div', { class: 'result', 'aria-live': 'polite', text: session.result }) : null,
-			running ? h('div', { class: 'actions' }, h('button', { class: 'danger', type: 'button', onclick: () => interrupt(session) }, 'Interromper tarefa')) : null,
-			!running && !session.historical ? h('section', { class: 'card stack' }, h('h3', { text: 'Nova instrução' }), h('textarea', { id: 'follow', maxlength: '16000', placeholder: 'Continue a conversa com este agente…', oninput: event => { followUp = event.target.value; } }, followUp), h('button', { class: 'primary', type: 'button', onclick: () => sendFollowUp(session) }, 'Enviar')) : null,
+			h('div', { class: 'chat' },
+				...prior.flatMap(turn => [bubble('user', turn.prompt), turn.result ? bubble('agent', turn.result) : null]),
+				session.prompt ? bubble('user', session.prompt) : null,
+				session.result ? bubble('agent', session.result, running) : (running ? h('div', { class: 'bubble agent typing', 'aria-live': 'polite', text: 'O agente está trabalhando…' }) : null)),
+			running ? h('div', { class: 'chatbar' }, h('button', { class: 'danger stop', type: 'button', onclick: () => interrupt(session) }, 'Interromper tarefa')) : null,
+			!running && !session.historical ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); sendFollowUp(session); } }, h('textarea', { id: 'follow', rows: '1', maxlength: '16000', placeholder: 'Escreva uma instrução…', 'aria-label': 'Nova instrução', oninput: event => { followUp = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, followUp), h('button', { class: 'send', type: 'submit', 'aria-label': 'Enviar' }, '↑')) : null,
 			session.historical ? h('p', { class: 'muted', text: session.resumable ? 'Sessão arquivada. Reabra-a na IDE do computador para continuar.' : 'Sessão arquivada.' }) : null);
 	}
 	async function interrupt(session) {

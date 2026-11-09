@@ -73,3 +73,19 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (prefers-contrast: more) { :root { --line: #8a8d96; } }
 @media (forced-colors: active) { .chip, .card, select, input, textarea { border-color: CanvasText; } }
 @media (prefers-reduced-motion: no-preference) { .toast { transition: opacity .2s; } }
+
+/* conversation */
+.chat { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 12px; }
+.bubble { max-width: 88%; padding: 10px 14px; border-radius: 18px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.bubble .who { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.bubble .text { white-space: pre-wrap; font-size: 15px; line-height: 1.5; }
+.bubble.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); border-bottom-right-radius: 6px; }
+.bubble.agent { align-self: flex-start; background: var(--surface); border-bottom-left-radius: 6px; }
+.bubble.live { border-color: var(--accent); }
+.bubble.typing { color: var(--muted); font-size: 14px; }
+.chatbar { position: sticky; bottom: calc(64px + env(safe-area-inset-bottom)); display: flex; align-items: flex-end; gap: 8px; padding: 8px; margin-top: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 26px; }
+.chatbar textarea { flex: 1; min-height: 44px; max-height: 140px; height: 44px; border: 0; background: transparent; padding: 11px 8px 11px 12px; resize: none; border-radius: 20px; }
+.chatbar textarea:focus-visible { outline: none; }
+.chatbar:focus-within { border-color: var(--accent); }
+.chatbar .send { flex: none; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 22px; font-weight: 700; line-height: 1; cursor: pointer; }
+.chatbar .stop { width: 100%; border-radius: 20px; }
