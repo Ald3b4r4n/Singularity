@@ -15,7 +15,7 @@
 		const head = el('div', 'row'); head.append(el('span', '', w.label), el('strong', '', String(w.usedPercent).replace('.', ',') + '% usado')); box.append(head);
 		const track = el('div', 'track'); track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', w.label); track.setAttribute('aria-valuenow', String(w.usedPercent));
 		const fill = el('div', 'fill'); fill.style.width = Math.min(100, w.usedPercent) + '%'; track.append(fill); box.append(track);
-		if (w.resetsAt) { box.append(el('p', 'muted', 'Renova em ' + new Date(w.resetsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))); }
+		if (w.resetsAt) { box.append(el('p', 'muted', 'Renova em ' + new Date(w.resetsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))); } else if (w.resetsText) { box.append(el('p', 'muted', 'Renova ' + w.resetsText)); }
 		return box;
 	}
 	function card(s) {

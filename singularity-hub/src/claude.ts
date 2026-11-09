@@ -71,6 +71,14 @@ function capture(executable: string, args: string[], timeout = 15000): Promise<{
 	});
 }
 
+/** Claude Code's own `/usage` report (a local command: no model is called). Undefined when Claude Code is not installed or does not answer. */
+export async function claudeUsageText(): Promise<string | undefined> {
+	const executable = claudeExecutable();
+	if (!executable) { return undefined; }
+	const result = await capture(executable, ['-p', '/usage'], 60000);
+	return result.code === 0 ? result.stdout : undefined;
+}
+
 export interface ClaudeFacts {
 	executable: string;
 	version: string;

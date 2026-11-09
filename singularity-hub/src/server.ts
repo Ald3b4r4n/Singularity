@@ -445,7 +445,7 @@ export class HubServer {
 				const report = usageReport({ fresh });
 				const enabled = this.usageSetting();
 				const services = enabled ? await claudePlan({ fresh }).then(result => report.services.map(service => service.id !== 'claude-code' ? service : 'plan' in result
-					? { ...service, plan: result.plan, note: 'Limites do plano lidos agora da sua conta Claude. Os tokens vêm dos registros do Claude Code neste computador.' }
+					? { ...service, plan: result.plan, note: 'Limites do plano como o /usage do Claude Code informa agora. Os tokens vêm dos registros do Claude Code neste computador.' }
 					: { ...service, note: result.unavailable })) : report.services;
 				return { ...report, services, settings: { claudePlan: enabled } };
 			}

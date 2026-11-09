@@ -27,7 +27,7 @@ body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);backgr
 		if (message.action === 'ready' || message.action === 'refresh') { void load(); }
 		if (message.action === 'enableClaudePlan' || message.action === 'disableClaudePlan') {
 			if (message.action === 'enableClaudePlan') {
-				const choice = await vscode.window.showWarningMessage('Mostrar os limites do plano do Claude?', { modal: true, detail: 'O Singularity vai ler o login do Claude Code que já está neste computador e consultar a API de uso da Anthropic, só da sua conta, para mostrar a janela de 5 horas e a semanal. O login não é copiado, guardado nem exibido, e nada disso vai para o código nem para outras pessoas. Você pode desligar quando quiser.' }, 'Ativar');
+				const choice = await vscode.window.showWarningMessage('Mostrar os limites do plano do Claude?', { modal: true, detail: 'O Singularity vai executar o comando /usage do Claude Code que já está instalado neste computador, só da sua conta, para mostrar a janela de 5 horas e a semanal. Não chama modelo, não gasta tokens e não lê nem guarda seu login. Nada disso vai para o código nem para outras pessoas. Você pode desligar quando quiser.' }, 'Ativar');
 				if (choice !== 'Ativar') { return; }
 			}
 			try { await hub.sessionRequest('usage.configure', { claudePlan: message.action === 'enableClaudePlan' }); } catch (error) { void vscode.window.showErrorMessage(String((error && error.message) || error)); }

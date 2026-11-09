@@ -9,7 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 export interface Tokens { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number; total: number; messages: number; cost?: number }
-export interface PlanWindow { label: string; usedPercent: number; resetsAt?: number }
+export interface PlanWindow { label: string; usedPercent: number; resetsAt?: number; resetsText?: string }
 export interface ServiceUsage {
 	id: string;
 	name: string;

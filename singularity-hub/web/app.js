@@ -211,7 +211,7 @@
 		const level = window.usedPercent >= 85 ? 'bad' : window.usedPercent >= 60 ? 'warn' : 'ok';
 		return h('div', { class: 'meter ' + level }, h('div', { class: 'row between' }, h('span', { text: window.label }), h('strong', { text: window.usedPercent.toString().replace('.', ',') + '% usado' })),
 			h('div', { class: 'meter-track', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(window.usedPercent), 'aria-label': window.label }, bar),
-			window.resetsAt ? h('div', { class: 'muted small', text: 'Renova em ' + new Date(window.resetsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) }) : null);
+			window.resetsAt ? h('div', { class: 'muted small', text: 'Renova em ' + new Date(window.resetsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) }) : window.resetsText ? h('div', { class: 'muted small', text: 'Renova ' + window.resetsText }) : null);
 	}
 	function usageCard(service) {
 		return h('article', { class: 'card stack' }, h('strong', { text: service.name }),
