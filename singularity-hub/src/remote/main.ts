@@ -10,7 +10,9 @@ import { RemoteGateway } from './gateway';
 
 async function main(): Promise<void> {
 	const home = hubHome();
-	const gateway = new RemoteGateway({ directory: remoteDirectory(home), hubHome: home, webDir: join(__dirname, '..', '..', 'web') });
+	// Fixed ports are for tests that must keep the same browser origin across a gateway restart; both are loopback-only like the defaults.
+	const port = (name: string): number | undefined => { const value = Number(process.env[name]); return Number.isInteger(value) && value >= 1024 && value <= 65535 ? value : undefined; };
+	const gateway = new RemoteGateway({ directory: remoteDirectory(home), hubHome: home, webDir: join(__dirname, '..', '..', 'web'), publicPort: port('SINGULARITY_REMOTE_PUBLIC_PORT'), adminPort: port('SINGULARITY_REMOTE_ADMIN_PORT') });
 	await gateway.start();
 	const stop = (): void => { void gateway.stop().finally(() => process.exit(0)); };
 	process.once('SIGTERM', stop);
