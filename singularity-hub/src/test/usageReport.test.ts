@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, it } from 'node:test';
-import { usageReport } from '../usageReport';
+import { mapOpenCodeLimits, usageReport } from '../usageReport';
 
 describe('usage report', () => {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'singularity-usage-'));
@@ -45,5 +45,13 @@ describe('usage report', () => {
 		assert.ok(service('opencode-go') && service('opencode-zen'));
 		assert.match(service('opencode-go').note ?? '', /OpenCode/);
 		assert.doesNotMatch(JSON.stringify(report), /singularity-usage-|\.jsonl|[A-Za-z]:\\/);
+	});
+
+	it('maps the OpenCode Go meters and Zen budgets to plain windows and drops the Console link and workspace name', () => {
+		const mapped = mapOpenCodeLimits({ data: { go: { rolling: { percent: 0, resetsAt: 1794260000000 }, weekly: { percent: 4, resetsAt: 1794780000000 }, monthly: { percent: 9.04, limited: false, resetsAt: 1796000000000 } }, budgets: [{ id: 'b1', limit: 20, spent: 5, resetsAt: 1796000000000, models: [{ name: 'modelo-x' }] }], workspace: { name: 'Meu espaço', usageURL: 'https://opencode.ai/workspace/wrk_x/go' } } });
+		assert.deepEqual(mapped.go.map(item => [item.label, item.usedPercent]), [['Janela de 5 horas', 0], ['Semanal', 4], ['Mensal', 9]]);
+		assert.deepEqual(mapped.zen.map(item => [item.label, item.usedPercent]), [['Orçamento · modelo-x', 25]]);
+		assert.doesNotMatch(JSON.stringify(mapped), /opencode\.ai|Meu espaço|wrk_/);
+		assert.deepEqual(mapOpenCodeLimits('nope'), { go: [], zen: [] });
 	});
 });

@@ -24,6 +24,7 @@ const methods = {
 	messages: ['/api/session/{sessionID}/message', 'GET', 'session.message.list'],
 	events: ['/api/event', 'GET', 'event.subscribe'],
 	providers: ['/api/provider', 'GET', 'provider.list'],
+	usageLimits: ['/api/experimental/usage/limits', 'GET', 'experimental.usage.limits'],
 	models: ['/api/model', 'GET', 'model.list'],
 	defaultModel: ['/api/model/default', 'GET', 'model.default'],
 	switchModel: ['/api/session/{sessionID}/model', 'POST', 'session.switchModel']
@@ -572,6 +573,28 @@ export class OpenCodeSessions {
 		void result.finally(() => { const entry = this.catalogs.get(key); if (entry?.result === result) { entry.pending = false; } }).catch(() => {});
 		// Cache failures too: rendering diagnostics must not start a second process. Explicit refresh bypasses settled entries.
 		void result.catch(() => {});
+		return result;
+	}
+
+	private limitsCache?: { at: number; result: Promise<unknown> };
+
+	/**
+	 * OpenCode Go (rolling, weekly, monthly) and Zen budget limits, as the OpenCode server itself reports them (the same call its own
+	 * clients make). OpenCode keeps doing the login and the request to its Console; the Singularity never touches that credential.
+	 * A short-lived server answers and is stopped right after; the answer is kept for a minute.
+	 */
+	async usageLimits(directory?: string, refresh = false): Promise<unknown> {
+		const exe = openCodeExecutable();
+		if (!exe || this.closed) { return undefined; }
+		if (!refresh && this.limitsCache && Date.now() - this.limitsCache.at < 60_000) { return this.limitsCache.result; }
+		const workspace = await realpath(directory ?? homedir()).catch(() => undefined);
+		if (!workspace) { return undefined; }
+		const result = (async (): Promise<unknown> => {
+			const server = new OpenCodeProcess(exe, workspace, await localPort(), undefined, 'normal');
+			try { await server.ready(); return await server.request('usageLimits'); } finally { await server.stop().catch(() => undefined); }
+		})();
+		this.limitsCache = { at: Date.now(), result };
+		void result.catch(() => { if (this.limitsCache?.result === result) { this.limitsCache = undefined; } });
 		return result;
 	}
 

@@ -201,6 +201,10 @@
 	// ---------- usage ----------
 	let usage;
 	const fmt = value => value >= 1e9 ? (value / 1e9).toFixed(2).replace('.', ',') + ' bi' : value >= 1e6 ? (value / 1e6).toFixed(1).replace('.', ',') + ' mi' : value >= 1e3 ? (value / 1e3).toFixed(1).replace('.', ',') + ' mil' : String(value);
+	function inText(at) {
+		const minutes = Math.max(0, Math.round((at - Date.now()) / 60000)), days = Math.floor(minutes / 1440), hours = Math.floor((minutes % 1440) / 60);
+		return days ? days + ' d ' + hours + ' h' : hours ? hours + ' h ' + (minutes % 60) + ' min' : minutes + ' min';
+	}
 	function tokensLine(label, t) {
 		return h('div', { class: 'usage-row' }, h('span', { class: 'usage-label', text: label }),
 			h('span', { class: 'usage-value', text: t.messages ? fmt(t.input + t.reasoning) + ' entrada · ' + fmt(t.output) + ' saída' + (t.cacheRead + t.cacheWrite ? ' · ' + fmt(t.cacheRead + t.cacheWrite) + ' cache' : '') + (t.cost ? ' · US$ ' + t.cost.toFixed(2).replace('.', ',') : '') : 'sem uso' }));
@@ -211,7 +215,7 @@
 		const level = window.usedPercent >= 85 ? 'bad' : window.usedPercent >= 60 ? 'warn' : 'ok';
 		return h('div', { class: 'meter ' + level }, h('div', { class: 'row between' }, h('span', { text: window.label }), h('strong', { text: window.usedPercent.toString().replace('.', ',') + '% usado' })),
 			h('div', { class: 'meter-track', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(window.usedPercent), 'aria-label': window.label }, bar),
-			window.resetsAt ? h('div', { class: 'muted small', text: 'Renova em ' + new Date(window.resetsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) }) : window.resetsText ? h('div', { class: 'muted small', text: 'Renova ' + window.resetsText }) : null);
+			window.resetsAt ? h('div', { class: 'muted small', text: 'Renova em ' + inText(window.resetsAt) + ' · ' + new Date(window.resetsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) }) : window.resetsText ? h('div', { class: 'muted small', text: 'Renova ' + window.resetsText }) : null);
 	}
 	function usageCard(service) {
 		return h('article', { class: 'card stack' }, h('strong', { text: service.name }),

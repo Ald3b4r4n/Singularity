@@ -193,6 +193,31 @@ function readCodex(now: number, startOfDay: number, home: string): ServiceUsage 
 	});
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * What the OpenCode server answers for /api/experimental/usage/limits: OpenCode Go meters (rolling, weekly, monthly) and Zen budgets.
+ * Only percentages, labels and reset times are kept; the Console link and workspace names are dropped.
+ */
+export function mapOpenCodeLimits(body: unknown): { go: PlanWindow[]; zen: PlanWindow[] } {
+	const result = { go: [] as PlanWindow[], zen: [] as PlanWindow[] };
+	const data = isRecord(body) && isRecord(body.data) ? body.data : undefined;
+	if (!data) { return result; }
+	if (isRecord(data.go)) {
+		for (const [key, label] of [['rolling', 'Janela de 5 horas'], ['weekly', 'Semanal'], ['monthly', 'Mensal']] as const) {
+			const meter = data.go[key];
+			if (!isRecord(meter) || typeof meter.percent !== 'number' || !Number.isFinite(meter.percent)) { continue; }
+			result.go.push({ label, usedPercent: Math.max(0, Math.min(100, Math.round(meter.percent * 10) / 10)), ...(typeof meter.resetsAt === 'number' && meter.resetsAt > 0 ? { resetsAt: meter.resetsAt } : {}) });
+		}
+	}
+	for (const row of Array.isArray(data.budgets) ? data.budgets : []) {
+		if (!isRecord(row) || typeof row.limit !== 'number' || typeof row.spent !== 'number' || row.limit <= 0) { continue; }
+		const models = (Array.isArray(row.models) ? row.models : []).map(item => isRecord(item) && typeof item.name === 'string' ? item.name : undefined).filter((item): item is string => !!item).slice(0, 2);
+		result.zen.push({ label: 'Orçamento' + (models.length ? ' · ' + models.join(', ') : ''), usedPercent: Math.max(0, Math.min(100, Math.round(row.spent / row.limit * 1000) / 10)), ...(typeof row.resetsAt === 'number' && row.resetsAt > 0 ? { resetsAt: row.resetsAt } : {}) });
+	}
+	return result;
+}
+
 let cache: { at: number; report: UsageReport } | undefined;
 
 export function usageReport(options: { home?: string; now?: number; fresh?: boolean } = {}): UsageReport {

@@ -1,4 +1,4 @@
-import { usageReport } from './usageReport';
+import { mapOpenCodeLimits, usageReport } from './usageReport';
 import { claudePlan } from './claudePlan';
 import * as fsUsage from 'node:fs';
 import { Teams } from './teams';
@@ -444,9 +444,15 @@ export class HubServer {
 				const fresh = (request.params as { fresh?: unknown } | undefined)?.fresh === true;
 				const report = usageReport({ fresh });
 				const enabled = this.usageSetting();
-				const services = enabled ? await claudePlan({ fresh }).then(result => report.services.map(service => service.id !== 'claude-code' ? service : 'plan' in result
+				const limits = mapOpenCodeLimits(await this.opencode.usageLimits(undefined, fresh).catch(() => undefined));
+				const copies = report.services.map(service => ({ ...service }));
+				for (const service of copies) {
+					const windows = service.id === 'opencode-go' ? limits.go : service.id === 'opencode-zen' ? limits.zen : [];
+					if (windows.length) { service.plan = { windows }; service.note = 'Limites como o OpenCode informa agora. Os tokens vêm do banco local do OpenCode.'; }
+				}
+				const services = enabled ? await claudePlan({ fresh }).then(result => copies.map(service => service.id !== 'claude-code' ? service : 'plan' in result
 					? { ...service, plan: result.plan, note: 'Limites do plano como o /usage do Claude Code informa agora. Os tokens vêm dos registros do Claude Code neste computador.' }
-					: { ...service, note: result.unavailable })) : report.services;
+					: { ...service, note: result.unavailable })) : copies;
 				return { ...report, services, settings: { claudePlan: enabled } };
 			}
 			case 'usage.configure': {
