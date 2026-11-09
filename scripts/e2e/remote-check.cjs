@@ -165,7 +165,7 @@ async function main() {
 	await page.waitForSelector('#workspace');
 	await page.waitForFunction(() => document.querySelectorAll('#model option').length > 3, null, { timeout: 90000 });
 	check('8. only the authorized workspace is offered, with the real catalog', (await page.locator('#workspace option').allInnerTexts()).join() === 'repo' && (await page.locator('#service option').allInnerTexts()).some(t => /Gemini CLI \(em breve\)/.test(t)));
-	await page.selectOption('#service', 'opencode');
+	await page.selectOption('#service', 'opencode:go');
 	await delay(3000);
 	await page.waitForFunction(() => [...document.querySelectorAll('#model option')].some(o => /deepseek-v4\.1-flash"/.test(o.value)), null, { timeout: 60000 });
 	const flashValue = await page.evaluate(() => [...document.querySelectorAll('#model option')].find(o => /"deepseek-v4\.1-flash"\]$/.test(o.value) && /opencode-go/.test(o.value)).value);

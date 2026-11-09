@@ -185,16 +185,18 @@ async function main() {
 	await waitFor(() => disabled('#model').then(d => d === false), 'real catalog loaded in the editor', 120000);
 	hub = await HubConnection.connect({ home, clientName: 'agents-e2e' });
 	const truth = await hub.request('catalog.get', { workspace }, 120000);
-	const opencode = truth.providers.find(p => p.id === 'opencode');
+	// OpenCode Go and OpenCode Zen are two entries of the integration selector; the default entry is Go, whose provider is 'opencode-go'
+	const opencode = truth.providers.find(p => p.id === 'opencode-go');
 	const options = id => editor((doc, id) => [...doc.getElementById(id).options].map(o => ({ value: o.value, text: o.textContent, disabled: o.disabled })), id);
 	const integrations = await options('service');
 	const availableIds = truth.services.filter(s => s.status === 'available').map(s => s.id).sort().join();
 	check('3a. only integrations with a working adapter are enabled; Gemini CLI is em breve',
-		integrations.filter(s => !s.disabled).map(s => s.value).sort().join() === availableIds && ['gemini-cli'].every(id => integrations.find(s => s.value === id)?.disabled && /em breve/.test(integrations.find(s => s.value === id).text)), integrations.map(s => s.text));
+		[...new Set(integrations.filter(s => !s.disabled).map(s => s.value.split(':')[0]))].sort().join() === availableIds && ['gemini-cli'].every(id => integrations.find(s => s.value === id)?.disabled && /em breve/.test(integrations.find(s => s.value === id).text)), integrations.map(s => s.text));
 	const modelKey = (providerId, modelId) => JSON.stringify([providerId, modelId]);
-	const modelKeys = truth.providers.flatMap(provider => provider.models.map(model => modelKey(provider.id, model.id)));
-	check('3b. the selector shows exactly the real catalog', JSON.stringify((await options('model')).map(m => m.value)) === JSON.stringify(modelKeys));
-	check('3c. the integration default is preselected', !truth.default || (await value('#model')) === modelKey(truth.default.providerID, truth.default.modelID));
+	const modelKeys = opencode.models.map(model => modelKey(opencode.id, model.id));
+	check('3b. the selector shows exactly the real catalog of the chosen plan (OpenCode Go)', JSON.stringify((await options('model')).map(m => m.value)) === JSON.stringify(modelKeys));
+	const preferred = truth.default && truth.default.providerID === opencode.id ? truth.default.modelID : opencode.models[0].id;
+	check('3c. the default of the plan is preselected', (await value('#model')) === modelKey(opencode.id, preferred), preferred);
 	await typePrompt('');
 	await snap('01-agentes-inicial.png');
 
@@ -203,7 +205,7 @@ async function main() {
 	const withEffort = opencode.models.find(m => m.id === process.env.SINGULARITY_E2E_OPENCODE_MODEL && m.efforts.includes('low')) ||
 		opencode.models.find(m => /free/.test(m.id) && m.efforts.includes('low') && m.efforts.length >= 2);
 	must('4b. OpenCode offers a free model with effort levels', !!withEffort, withEffort?.id);
-	await pick('model', modelKey('opencode', withEffort.id));
+	await pick('model', modelKey('opencode-go', withEffort.id));
 	const efforts = await options('effort');
 	check('4c. effort selector uses exactly the real model levels', JSON.stringify(efforts.map(e => e.value)) === JSON.stringify(['', ...withEffort.efforts]));
 	await pick('effort', 'low');
@@ -219,7 +221,7 @@ async function main() {
 	await waitFor(async () => !!(await status()), 'the session card appears', 90000);
 	const created = (await sessionsOnHub())[0];
 	check('5a. the session was created at send time, in the chosen workspace, with the chosen model and effort',
-		created.harness === 'opencode' && /workspace$/i.test(created.workspace) && created.model && created.model.providerID === 'opencode' && created.model.modelID === withEffort.id && created.model.variant === 'low', created.model);
+		created.harness === 'opencode' && /workspace$/i.test(created.workspace) && created.model && created.model.providerID === 'opencode-go' && created.model.modelID === withEffort.id && created.model.variant === 'low', created.model);
 	const cardText = await content('.session');
 	check('5b. the card shows the service, the model really used and the effort', /OpenCode/.test(cardText) && cardText.includes((opencode.models.find(m => m.id === withEffort.id)).name) && /Baixo/.test(cardText), cardText.replace(/\s+/g, ' ').slice(0, 160));
 	check('5bb. the submitted prompt is visible above the result', /SINGULARITY_OK/.test(await content('.submitted')));
@@ -271,7 +273,7 @@ async function main() {
 	const after = (await sessionsOnHub())[0];
 	check('8c. after reopening, the same Hub and the same session are shown', hub.hello.hub.instanceId === instance && after.id === before.id &&
 		(await editor(doc => doc.querySelector('.session').dataset.id)) === before.id);
-	check('8d. the preferences were remembered', (await editor(doc => doc.querySelector('#model').value)) === modelKey('opencode', withEffort.id));
+	check('8d. the preferences were remembered', (await editor(doc => doc.querySelector('#model').value)) === modelKey('opencode-go', withEffort.id));
 
 	await snap('04-reaberto-dark.png');
 	await activate('#new');

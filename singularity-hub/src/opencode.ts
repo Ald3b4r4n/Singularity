@@ -581,6 +581,7 @@ export class OpenCodeSessions {
 	}
 
 	private limitsCache?: { at: number; result: Promise<unknown> };
+	private lastLimits?: { at: number; body: unknown };
 
 	/**
 	 * OpenCode Go (rolling, weekly, monthly) and Zen budget limits, as the OpenCode server itself reports them (the same call its own
@@ -594,8 +595,13 @@ export class OpenCodeSessions {
 		const workspace = await realpath(directory ?? homedir()).catch(() => undefined);
 		if (!workspace) { return undefined; }
 		const result = (async (): Promise<unknown> => {
-			const server = new OpenCodeProcess(exe, workspace, await localPort(), undefined, 'normal');
-			try { await server.ready(); return await server.request('usageLimits'); } finally { await server.stop().catch(() => undefined); }
+			// the Console answer can fail once in a while: one more try, then the last good reading (up to 30 minutes old) instead of a blank
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const server = new OpenCodeProcess(exe, workspace, await localPort(), undefined, 'normal');
+				try { await server.ready(); const body = await server.request('usageLimits'); this.lastLimits = { at: Date.now(), body }; return body; } catch { /* try again */ } finally { await server.stop().catch(() => undefined); }
+			}
+			if (this.lastLimits && Date.now() - this.lastLimits.at < 30 * 60_000) { return this.lastLimits.body; }
+			throw new OpenCodeError('Não foi possível ler os limites do OpenCode agora.');
 		})();
 		this.limitsCache = { at: Date.now(), result };
 		void result.catch(() => { if (this.limitsCache?.result === result) { this.limitsCache = undefined; } });
