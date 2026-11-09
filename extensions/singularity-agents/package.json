@@ -45,6 +45,36 @@
     },
     "commands": [
       {
+        "command": "singularity.remote.enable",
+        "title": "Ativar acesso remoto (celular)",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.remote.disable",
+        "title": "Desativar acesso remoto",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.remote.pair",
+        "title": "Parear dispositivo Android",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.remote.devices",
+        "title": "Dispositivos pareados",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.remote.authorizeWorkspace",
+        "title": "Workspaces do acesso remoto",
+        "category": "Singularity"
+      },
+      {
+        "command": "singularity.remote.tailscale",
+        "title": "Rede privada do acesso remoto (Tailscale)",
+        "category": "Singularity"
+      },
+      {
         "command": "singularity.agents.manageProviders",
         "title": "Gerenciar provedores",
         "category": "Singularity"

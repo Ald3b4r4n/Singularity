@@ -22,7 +22,7 @@ test('contributes a secondary side bar container with a webview view, both named
 });
 
 test('every contributed command is registered, and every %key% exists in package.nls.json', () => {
-	const source = read('extension.js');
+	const source = read('extension.js') + read('remote.js');
 	for (const c of pkg.contributes.commands) { assert.ok(source.includes(`'${c.command}'`), `${c.command} registered`); }
 	const keys = [...JSON.stringify(pkg).matchAll(/"%([^%"]+)%"/g)].map(m => m[1]);
 	assert.ok(keys.length > 0);

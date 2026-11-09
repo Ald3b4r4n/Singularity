@@ -432,6 +432,7 @@ class AgentsViewProvider {
 }
 
 function activate(context) {
+	require('./remote.js').register(context);
 	const settings = () => vscode.workspace.getConfiguration('singularity.agents');
 	const hub = new RealHubClient({ nodePath: settings().get('hub.nodePath', '') });
 	// Showing the panel is what starts the Hub (when autoStart is on). Reconnecting after a drop never starts one by itself.

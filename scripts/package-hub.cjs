@@ -95,6 +95,8 @@ async function main() {
 	fs.rmSync(target, { recursive: true, force: true });
 	fs.mkdirSync(target, { recursive: true });
 	copy(path.join(hub, 'dist'), path.join(target, 'dist'), src => !/[\\/]dist[\\/]test([\\/]|$)/.test(src) && !/\.(map|d\.ts)$/.test(src));
+	// the Singularity Remote web client (served by the gateway; no third-party code)
+	copy(path.join(hub, 'web'), path.join(target, 'web'));
 	copy(path.join(stage, 'node_modules'), path.join(target, 'node_modules'));
 	const pkg = JSON.parse(fs.readFileSync(path.join(hub, 'package.json'), 'utf8'));
 	delete pkg.scripts; delete pkg.devDependencies;
