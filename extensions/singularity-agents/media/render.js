@@ -101,8 +101,7 @@
 
 	/** OpenCode Go and OpenCode Zen are different providers; say which one a model belongs to. */
 	function providerTag(model) {
-		var text = model.providerID + ' ' + (model.providerName || '');
-		return /go/i.test(text) ? 'Go' : (/zen/i.test(text) || model.providerID === 'opencode') ? 'Zen' : (model.providerName || model.providerID);
+		return model.providerID === 'opencode-go' ? 'Go' : model.providerID === 'opencode' ? 'Zen' : (model.providerName || model.providerID);
 	}
 
 	function serviceName(catalog, id) {

@@ -188,7 +188,7 @@ export class RemoteGateway {
 		const entry = WEB_FILES[pathname];
 		let data: Buffer;
 		try { data = fs.readFileSync(join(this.opts.webDir, entry.file)); } catch { return this.send(res, 404, { error: 'Cliente web indisponível.' }); }
-		res.writeHead(200, { 'content-type': entry.type, 'content-length': data.length, 'cache-control': entry.file === 'sw.js' || entry.file === 'index.html' ? 'no-cache' : 'public, max-age=300', ...this.securityHeaders() });
+		res.writeHead(200, { 'content-type': entry.type, 'content-length': data.length, 'cache-control': 'no-cache', ...this.securityHeaders() });
 		res.end(data);
 	}
 

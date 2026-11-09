@@ -221,7 +221,7 @@
 		for (const provider of catalog.providers || []) { if (provider.id === providerID) { const model = provider.models.find(item => item.id === modelID); if (model) { return { providerID, ...model }; } } }
 		return undefined;
 	}
-	const providerLabel = provider => /go/i.test(provider.id + ' ' + provider.name) ? 'Go' : /zen/i.test(provider.id + ' ' + provider.name) || provider.id === 'opencode' ? 'Zen' : provider.name;
+	const providerLabel = provider => provider.id === 'opencode-go' ? 'Go' : provider.id === 'opencode' ? 'Zen' : provider.name;
 	function select(id, label, options, value, onchange) {
 		return h('div', null, h('label', { for: id, text: label }), h('select', { id, onchange: event => onchange(event.target.value) }, ...options.map(([val, text, disabled]) => h('option', { value: val, selected: val === value, disabled }, text))));
 	}
