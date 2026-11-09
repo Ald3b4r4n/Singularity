@@ -1,4 +1,8 @@
 import { mapOpenCodeLimits, usageReport } from './usageReport';
+import { classify, readInstances, shutdownInstance, terminate as terminateProcess, windowsLister } from './processes';
+import { HubConnection } from './client';
+import { discover } from './discovery';
+import { readGatewayInfo } from './remote/control';
 import { claudePlan } from './claudePlan';
 import * as fsUsage from 'node:fs';
 import { Teams } from './teams';
@@ -66,7 +70,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['usage.get', 'usage.configure', 'teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['processes.inspect', 'processes.terminate', 'processes.shutdown', 'usage.get', 'usage.configure', 'teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -440,6 +444,21 @@ export class HubServer {
 				}
 				return inspectProviders(() => this.opencode.diagnose(p.workspace as string | undefined, p.refresh === true), p.refresh === true);
 			}
+			case 'processes.inspect':
+				return classify(await windowsLister(), await this.processContext());
+			case 'processes.terminate': {
+				const p = (request.params ?? {}) as { pid?: unknown; created?: unknown; confirm?: unknown; confirmActiveWork?: unknown };
+				if (typeof p.pid !== 'number' || typeof p.created !== 'number') { throw new RpcError(-32602, 'pid e created são obrigatórios.'); }
+				return terminateProcess({ pid: p.pid, created: p.created, confirm: p.confirm === true, confirmActiveWork: p.confirmActiveWork === true }, { lister: windowsLister, context: () => this.processContext() });
+			}
+			case 'processes.shutdown': {
+				const p = (request.params ?? {}) as { pid?: unknown; created?: unknown; confirm?: unknown; confirmActiveWork?: unknown };
+				if (typeof p.pid !== 'number' || typeof p.created !== 'number') { throw new RpcError(-32602, 'pid e created são obrigatórios.'); }
+				return shutdownInstance({ pid: p.pid, created: p.created, confirm: p.confirm === true, confirmActiveWork: p.confirmActiveWork === true }, {
+					lister: windowsLister, context: () => this.processContext(),
+					connect: async (other: string) => { const c = await HubConnection.connect({ home: other, clientName: 'singularity-process-manager', timeoutMs: 5000 }); const sessions = (await c.request<unknown[]>('sessions.list')).length; return { sessions, stop: async () => { await c.request('hub.shutdown', {}); } }; }
+				});
+			}
 			case 'usage.get': {
 				const fresh = (request.params as { fresh?: unknown } | undefined)?.fresh === true;
 				const report = usageReport({ fresh });
@@ -484,6 +503,31 @@ export class HubServer {
 	}
 
 	/** catalog.get { service?, workspace?, refresh? }: what can be run here, read from the service itself. */
+	private async processContext(): Promise<import('./processes').Context> {
+		const startedAtMs = Date.parse(this.opts.startedAt);
+		const home = hubHome();
+		let gateway: { pid: number } | undefined;
+		try { const info = readGatewayInfo(home); if (info) { gateway = { pid: info.pid }; } } catch { /* no gateway */ }
+		let recoveryRecords = 0;
+		try { recoveryRecords = fsUsage.readdirSync(join(home, 'recovery')).filter(name => name.endsWith('.dpapi')).length; } catch { /* none */ }
+		const records = readInstances();
+		// what each registered home says now, and whether the Hub it points to still answers its identity proof
+		const homes = new Map<string, { pid: number; startedAtMs: number; answers: boolean }>();
+		for (const record of records) {
+			if (homes.has(record.home) || record.home === home) { continue; }
+			try {
+				const info = JSON.parse(fsUsage.readFileSync(join(record.home, 'connection.json'), 'utf8')) as { pid?: unknown; startedAt?: unknown };
+				if (typeof info.pid === 'number' && typeof info.startedAt === 'string') { homes.set(record.home, { pid: info.pid, startedAtMs: Date.parse(info.startedAt), answers: await discover(record.home, 1500).then(() => true, () => false) }); }
+			} catch { /* no connection record */ }
+		}
+		return {
+			current: { pid: process.pid, startedAtMs }, gateway, recoveryRecords,
+			owned: [...this.opencode.processes(), ...this.claude.processes(), ...this.codex.processes()],
+			records,
+			homeHub: (other: string) => homes.get(other)
+		};
+	}
+
 	/** Opt-in, per computer: whether the Claude plan windows are read from the person's own Claude login. Off until they turn it on. */
 	private usageSetting(): boolean {
 		try { return (JSON.parse(fsUsage.readFileSync(join(hubHome(), 'usage-settings.json'), 'utf8')) as { claudePlan?: unknown }).claudePlan === true; } catch { return false; }

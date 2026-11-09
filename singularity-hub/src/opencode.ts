@@ -121,6 +121,7 @@ const recoveryId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const loopbackOrigin = /^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/;
 
 class OpenCodeProcess {
+	get pid(): number { return this.helperPid; }
 	private readonly stream = new AbortController();
 	private readonly authorization: string;
 	private readonly origin: string;
@@ -290,6 +291,9 @@ interface Managed {
 }
 
 export class OpenCodeSessions {
+	/** The helper process of every live session, by session. */
+	processes(): Array<{ pid: number; sessionId: string }> { return [...this.sessions.values()].filter(item => item.server.pid > 0).map(item => ({ pid: item.server.pid, sessionId: item.view.id })); }
+
 	private readonly sessions = new Map<string, Managed>();
 	private readonly unrecoverable = new Map<string, Session>();
 	private readonly history?: SessionHistory;

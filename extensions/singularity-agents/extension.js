@@ -452,6 +452,39 @@ function activate(context) {
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),
 		vscode.window.registerWebviewPanelSerializer(EDITOR_ID, { deserializeWebviewPanel: async (view, saved) => provider.attachEditor(view, saved) }),
 		{ dispose: hub.onDidChange(() => provider._post()) },
+		vscode.commands.registerCommand('singularity.agents.processes', async () => {
+			try {
+				await hub.start(true);
+				const snapshot = await hub.sessionRequest('processes.inspect', {});
+				if (!snapshot.entries.length) { void vscode.window.showInformationMessage('Nenhum processo do Singularity foi encontrado.'); return; }
+				const icon = entry => entry.role === 'current-hub' ? '$(check)' : entry.canTerminate ? '$(warning)' : entry.canShutdown ? '$(debug-stop)' : entry.verified ? '$(shield)' : '$(question)';
+				const items = snapshot.entries.map(entry => ({
+					label: `${icon(entry)} ${entry.label} · PID ${entry.pid}`,
+					description: `${entry.children} filho(s) · ${entry.sessions.length} sessão(ões) · desde ${new Date(entry.created).toLocaleString('pt-BR')}`,
+					detail: `${entry.reason} ${entry.recommendation}`, entry
+				}));
+				const picked = await vscode.window.showQuickPick(items, { title: `Processos do Singularity (${snapshot.foreignIgnored} de terceiros ignorados)`, placeHolder: 'Selecione um item encerrável para ver a ação; os demais são preservados', matchOnDetail: true });
+				if (!picked) { return; }
+				const entry = picked.entry;
+				if (entry.canShutdown) {
+					const ask = await vscode.window.showWarningMessage(`Pedir que ${entry.label} (PID ${entry.pid}) encerre sozinho?`, { modal: true, detail: `${entry.reason}\n\nÉ o encerramento do próprio Hub, autenticado com as credenciais da pasta dele; nenhum processo é morto de fora. Se ele tiver sessões, será preciso confirmar de novo.` }, 'Pedir encerramento');
+					if (ask !== 'Pedir encerramento') { return; }
+					let result = await hub.sessionRequest('processes.shutdown', { pid: entry.pid, created: entry.created, confirm: true });
+					if (!result.shutdown && /sessão\(ões\)/.test(result.reason)) {
+						const again = await vscode.window.showWarningMessage(result.reason, { modal: true }, 'Encerrar também as sessões');
+						if (again === 'Encerrar também as sessões') { result = await hub.sessionRequest('processes.shutdown', { pid: entry.pid, created: entry.created, confirm: true, confirmActiveWork: true }); }
+					}
+					void (result.shutdown ? vscode.window.showInformationMessage('O Hub encerrou.') : vscode.window.showWarningMessage('Nada foi encerrado: ' + result.reason));
+					return;
+				}
+				if (!entry.canTerminate) { void vscode.window.showInformationMessage(`${entry.label}: ${entry.recommendation}`); return; }
+				const detail = `${entry.reason}\n\n${entry.hasActiveWork ? 'ATENÇÃO: há agentes ou sessões ligados a ele; eles serão encerrados junto.' : 'Não há agentes nem sessões ligados a ele.'}\n\nA identidade será conferida de novo imediatamente antes de encerrar.`;
+				const choice = await vscode.window.showWarningMessage(`Encerrar ${entry.label} (PID ${entry.pid})?`, { modal: true, detail }, 'Encerrar');
+				if (choice !== 'Encerrar') { return; }
+				const result = await hub.sessionRequest('processes.terminate', { pid: entry.pid, created: entry.created, confirm: true, confirmActiveWork: entry.hasActiveWork });
+				void (result.terminated ? vscode.window.showInformationMessage('Processo encerrado.') : vscode.window.showWarningMessage('Nada foi encerrado: ' + result.reason));
+			} catch (error) { void vscode.window.showErrorMessage(String((error && error.message) || error)); }
+		}),
 		vscode.commands.registerCommand('singularity.agents.usage', () => require('./usagePanel').openUsage(hub)),
 		vscode.commands.registerCommand('singularity.agents.manageProviders', async () => {
 			try {

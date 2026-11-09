@@ -44,7 +44,24 @@ async function main(): Promise<number> {
 		console.log('did not start');
 		return 1;
 	}
-	console.log('usage: node dist/cli.js status | start | stop');
+	if (command === 'processes' || command === 'terminate') {
+		try {
+			const c = await HubConnection.connect({ home, clientName: 'singularity-cli' });
+			if (command === 'processes') {
+				const snapshot = await c.request<{ entries: unknown[]; foreignIgnored: number }>('processes.inspect', {}, 60000);
+				console.log(JSON.stringify(snapshot, null, 2));
+			} else {
+				const [pid, created] = [Number(process.argv[3]), Number(process.argv[4])];
+				console.log(JSON.stringify(await c.request('processes.terminate', { pid, created, confirm: process.argv.includes('--confirm'), confirmActiveWork: process.argv.includes('--active') }, 60000)));
+			}
+			c.close();
+			return 0;
+		} catch (e) {
+			console.log(JSON.stringify({ running: false, reason: (e as Error).message }));
+			return 1;
+		}
+	}
+	console.log('usage: node dist/cli.js status | start | stop | processes | terminate <pid> <created> --confirm [--active]');
 	return 2;
 }
 

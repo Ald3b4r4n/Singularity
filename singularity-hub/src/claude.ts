@@ -176,6 +176,7 @@ interface Managed {
 type Publish = (event: Omit<HubEvent, 'seq'>) => void;
 
 class ClaudeRun {
+	get pid(): number | undefined { return this.child.pid; }
 	private readonly pipeId = randomUUID();
 	private readonly control = randomBytes(32).toString('hex');
 	private readonly child;
@@ -346,6 +347,9 @@ export class ClaudeCodeSessions {
 	}
 
 	recover(): void { this.history?.load(); }
+
+	/** The helper processes of the runs that are going on right now, by session. */
+	processes(): Array<{ pid: number; sessionId: string }> { return [...this.sessions.values()].flatMap(item => item.run?.pid ? [{ pid: item.run.pid, sessionId: item.view.id }] : []); }
 
 	list(): Session[] {
 		const historical = this.history?.list().filter(session => !this.sessions.has(session.id)) ?? [];
