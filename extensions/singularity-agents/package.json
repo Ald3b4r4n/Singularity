@@ -60,6 +60,11 @@
         "category": "Singularity"
       },
       {
+        "command": "singularity.remote.profiles",
+        "title": "Perfis de teste do acesso remoto",
+        "category": "Singularity"
+      },
+      {
         "command": "singularity.remote.requests",
         "title": "Registro de envios remotos",
         "category": "Singularity"

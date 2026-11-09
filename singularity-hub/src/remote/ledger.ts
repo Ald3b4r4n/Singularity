@@ -21,8 +21,13 @@ export type Resolution = 'sent' | 'not-sent' | 'discarded';
 export interface LedgerRecord {
 	key: string;
 	deviceId: string;
+	/** What is being done: 'prompt' for an instruction to an agent, or a multi-agent action. */
+	action: string;
+	/** The thing it is done to: a session, or an authorised workspace / comparison / team (opaque ids). */
 	sessionId: string;
 	requestId: string;
+	/** An opaque id the Hub gave back (a new comparison or team), kept so a repeated request returns the same one. */
+	ref?: string;
 	digest: string;
 	state: RequestState;
 	createdAt: number;
@@ -120,7 +125,7 @@ export class RequestLedger {
 
 	close(): void { this.closed = true; if (this.locked) { try { fs.rmSync(this.lockFile, { force: true }); } catch { /* ignore */ } this.locked = false; } }
 
-	digest(sessionId: string, text: string): string { return createHmac('sha256', this.salt).update(sessionId).update('\n').update(text).digest('hex'); }
+	digest(sessionId: string, text: string, action = 'prompt'): string { return createHmac('sha256', this.salt).update(action === 'prompt' ? '' : action + '\n').update(sessionId).update('\n').update(text).digest('hex'); }
 
 	private persist(): void {
 		// a ledger that was closed belongs to a gateway that is gone: it never writes over what a newer one is doing
@@ -145,10 +150,11 @@ export class RequestLedger {
 	}
 
 	/** Decides what to do with a send and, when it must be dispatched, persists "processing" first. */
-	begin(deviceId: string, sessionId: string, requestId: string, text: string): Decision {
+	begin(deviceId: string, sessionId: string, requestId: string, text: string, action = 'prompt'): Decision {
 		if (this.blockedReason) { return { kind: 'blocked', reason: this.blockedReason }; }
-		const key = `${deviceId}:${sessionId}:${requestId}`;
-		const digest = this.digest(sessionId, text);
+		// prompts keep the original key, so what was recorded before multi-agent actions existed is still recognised
+		const key = action === 'prompt' ? `${deviceId}:${sessionId}:${requestId}` : `${deviceId}:${action}:${sessionId}:${requestId}`;
+		const digest = this.digest(sessionId, text, action);
 		const existing = this.records.get(key);
 		if (existing) {
 			if (existing.digest !== digest) { return { kind: 'conflict' }; }
@@ -161,22 +167,22 @@ export class RequestLedger {
 			try { return { kind: 'dispatch', record: this.set(existing, 'processing', { attempts: existing.attempts + 1 }) }; } catch (error) { this.inflight.delete(key); throw error; }
 		}
 		this.sweep();
-		const record: LedgerRecord = { key, deviceId, sessionId, requestId, digest, state: 'received', createdAt: this.now(), updatedAt: this.now(), attempts: 1 };
+		const record: LedgerRecord = { key, deviceId, action, sessionId, requestId, digest, state: 'received', createdAt: this.now(), updatedAt: this.now(), attempts: 1 };
 		this.records.set(key, record);
 		this.inflight.add(key);
 		try { this.persist(); this.set(record, 'processing'); } catch (error) { this.records.delete(key); this.inflight.delete(key); throw error; }
 		return { kind: 'dispatch', record };
 	}
 
-	get(deviceId: string, sessionId: string, requestId: string): LedgerRecord | undefined { return this.records.get(`${deviceId}:${sessionId}:${requestId}`); }
+	get(deviceId: string, sessionId: string, requestId: string, action = 'prompt'): LedgerRecord | undefined { return this.records.get(action === 'prompt' ? `${deviceId}:${sessionId}:${requestId}` : `${deviceId}:${action}:${sessionId}:${requestId}`); }
 
-	confirm(record: LedgerRecord): LedgerRecord { this.inflight.delete(record.key); return this.set(record, 'confirmed'); }
+	confirm(record: LedgerRecord, ref?: string): LedgerRecord { this.inflight.delete(record.key); return this.set(record, 'confirmed', ref ? { ref } : {}); }
 	failedBeforeSend(record: LedgerRecord, note: string): LedgerRecord { this.inflight.delete(record.key); return this.set(record, 'failed-before-send', { note }); }
 	/** The connection was lost after the instruction may have reached the Hub: not failed, not confirmed. */
 	unknown(record: LedgerRecord, note: string): LedgerRecord { this.inflight.delete(record.key); return this.set(record, 'unknown', { note }); }
 
 	/** The Hub's own history showed the instruction: settled without sending anything. */
-	reconciled(record: LedgerRecord): LedgerRecord { return this.set(record, 'reconciled', { resolution: 'sent', by: 'history' }); }
+	reconciled(record: LedgerRecord, ref?: string): LedgerRecord { return this.set(record, 'reconciled', { resolution: 'sent', by: 'history', ...(ref ? { ref } : {}) }); }
 
 	/** The person decides an unknown request: it can be tried again with the same id, or dropped. */
 	resolve(record: LedgerRecord, action: 'retry' | 'discard'): LedgerRecord {

@@ -441,7 +441,7 @@ describe('store', () => {
 describe('bridge', () => {
 	it('refuses any Hub method that is not on the list', async () => {
 		const real = new HubBridge(path.join(root, 'no-hub'));
-		for (const method of ['hub.shutdown', 'session.stop', 'solutions.apply', 'teams.start', 'providers.install', 'session.deleteHistory']) {
+		for (const method of ['hub.shutdown', 'session.stop', 'solutions.apply', 'providers.install', 'session.deleteHistory', 'solutions.undo', 'solutions.prepare', 'comparisons.cleanup', 'processes.terminate', 'processes.shutdown', 'usage.configure']) {
 			await assert.rejects(real.call(method as never), /não permitido/i, method);
 		}
 		real.close();

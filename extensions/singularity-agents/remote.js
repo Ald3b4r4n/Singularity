@@ -108,6 +108,32 @@ function register(context) {
 			vscode.window.showInformationMessage(message);
 		})),
 
+		vscode.commands.registerCommand('singularity.remote.profiles', wrap(async () => {
+			if (!(await requireRunning())) { return; }
+			const current = await state();
+			const { profiles } = await control().adminRequest('GET', '/admin/profiles');
+			const entries = [{ label: '$(add) Cadastrar perfil de teste', add: true }, ...profiles.map(profile => {
+				const workspace = current.workspaces.find(item => item.id === profile.workspaceId);
+				return { label: '$(trash) Remover ' + profile.label, description: workspace ? workspace.name : '', detail: `${profile.executable} ${profile.args.join(' ')}`.trim(), remove: profile.id };
+			})];
+			const picked = await vscode.window.showQuickPick(entries, { title: 'Perfis de teste que o celular pode usar', placeHolder: 'O celular só escolhe um perfil já cadastrado aqui; nunca informa um comando' });
+			if (!picked) { return; }
+			if (picked.remove) { await control().adminRequest('POST', '/admin/profiles/remove', { id: picked.remove }); vscode.window.showInformationMessage('Perfil removido.'); return; }
+			if (!current.workspaces.length) { vscode.window.showInformationMessage('Autorize um workspace antes de cadastrar um perfil de teste.'); return; }
+			const workspace = await vscode.window.showQuickPick(current.workspaces.map(item => ({ label: item.name, description: item.path, id: item.id })), { title: 'Para qual workspace?' });
+			if (!workspace) { return; }
+			const label = await vscode.window.showInputBox({ title: 'Nome do perfil de teste', placeHolder: 'Testes do projeto', validateInput: value => value.trim() && value.length <= 60 ? undefined : 'Informe um nome de até 60 caracteres.' });
+			if (!label) { return; }
+			const file = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Usar este executável', title: 'Executável dos testes (por exemplo npm.cmd, pytest.exe ou um .cmd do projeto)' });
+			if (!file || !file[0]) { return; }
+			const argsText = await vscode.window.showInputBox({ title: 'Argumentos (separados por espaço; vazio para nenhum)', placeHolder: 'test --silent' });
+			if (argsText === undefined) { return; }
+			const args = argsText.trim() ? argsText.trim().split(/\s+/) : [];
+			const choice = await modal('Cadastrar este perfil de teste para o celular?', `Workspace: ${workspace.label}\nExecutável: ${file[0].fsPath}\nArgumentos: ${args.join(' ') || '(nenhum)'}\n\nO celular poderá pedir para rodar exatamente este comando como validação independente de uma equipe, depois de cada confirmação dele. Ele nunca verá nem poderá alterar o comando.`, 'Cadastrar');
+			if (choice !== 'Cadastrar') { return; }
+			await control().adminRequest('POST', '/admin/profiles/add', { workspaceId: workspace.id, label: label.trim(), executable: file[0].fsPath, args, confirm: true });
+			vscode.window.showInformationMessage('Perfil cadastrado.');
+		})),
 		vscode.commands.registerCommand('singularity.remote.requests', wrap(async () => {
 			if (!(await requireRunning())) { return; }
 			const info = await control().adminRequest('GET', '/admin/requests');

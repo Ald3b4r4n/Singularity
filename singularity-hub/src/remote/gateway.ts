@@ -5,7 +5,9 @@ import { FailureLimiter, RateBucket } from '../auth';
 import { ensureSecureDir, writeFileAtomic } from '../secure';
 import { Session } from '../protocol';
 import { BridgeError, BridgeUnavailable, HubBridge, HubEventRecord } from './bridge';
+import { HttpError } from './errors';
 import { LedgerError, RequestLedger } from './ledger';
+import { canonical, parseComparison, parseTeam, verifyChoices } from './orchestration';
 import { Pairing } from './pairing';
 import { bearerOf, hostAllowed, newToken, originAllowed, sameSecret } from './security';
 import { Device, RemoteStore, Workspace } from './store';
@@ -33,7 +35,6 @@ const WEB_FILES: Record<string, { file: string; type: string }> = {
 	'/icon-512.png': { file: 'icon-512.png', type: 'image/png' }
 };
 
-class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 
 /** Keeps only plain data: primitives, arrays and objects, bounded, without anything that looks like a path, a command or a secret. */
 export function plain(value: unknown, depth = 4, stringLimit = 4000): unknown {
@@ -317,6 +318,7 @@ export class RemoteGateway {
 			}
 			return this.send(res, 200, { state: record.state, resolution: record.resolution ?? null, attempts: record.attempts });
 		}
+		if (await this.orchestrate(req, res, url, route, device)) { return; }
 		if (route === 'GET /api/usage') { return this.send(res, 200, await this.bridge.call('usage.get', {})); }
 		if (route === 'GET /api/comparisons' || route === 'GET /api/teams') {
 			const workspaces = this.store.workspaces();
@@ -340,6 +342,172 @@ export class RemoteGateway {
 			return this.send(res, 200, { revoked: true });
 		}
 		return this.send(res, 404, { error: 'Rota não permitida.' });
+	}
+
+	// ---------- Remote 2.0: start and steer comparisons and teams ----------
+
+	private requestIdOf(req: http.IncomingMessage): string {
+		const value = req.headers['x-request-id'];
+		if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(value)) { throw new HttpError(400, 'X-Request-Id é obrigatório.'); }
+		return value;
+	}
+
+	private async orchestrate(req: http.IncomingMessage, res: http.ServerResponse, url: URL, route: string, device: Device): Promise<boolean> {
+		if (route === 'GET /api/validation-profiles') {
+			const workspace = this.requireWorkspace(url.searchParams.get('workspaceId'));
+			// only the label and an opaque id: what runs is never shown to the phone and never chosen by it
+			this.send(res, 200, { profiles: this.store.profiles(workspace.id).map(({ id, label }) => ({ id, label })) });
+			return true;
+		}
+		const detail = /^\/api\/(comparisons|teams)\/([0-9a-f-]{36})$/.exec(url.pathname);
+		if (req.method === 'GET' && detail) {
+			const workspace = this.requireWorkspace(url.searchParams.get('workspaceId'));
+			const records = await this.bridge.call<Array<{ id?: string }>>(detail[1] === 'comparisons' ? 'comparisons.list' : 'teams.list', { workspace: workspace.path });
+			const found = records.find(record => record.id === detail[2]);
+			if (!found) { throw new HttpError(404, 'Não encontrado neste workspace.'); }
+			this.send(res, 200, { ...(plain(found, 6) as object), workspaceId: workspace.id, workspaceName: workspace.name });
+			return true;
+		}
+		const operation = /^\/api\/operations\/([a-z.]{3,40})\/([A-Za-z0-9_-]{4,64})\/([A-Za-z0-9_-]{8,64})$/.exec(url.pathname);
+		if (operation && (req.method === 'GET' || req.method === 'POST')) {
+			const record = this.ledger.get(device.id, operation[2], operation[3], operation[1]);
+			if (!record) { throw new HttpError(404, 'Este envio não está registrado.'); }
+			if (req.method === 'POST') {
+				const body = await this.readBody(req);
+				if (body.confirm !== true || (body.action !== 'retry' && body.action !== 'discard')) { throw new HttpError(400, 'Escolha explicitamente tentar de novo ou descartar.'); }
+				try { this.ledger.resolve(record, body.action); } catch (error) { throw new HttpError(409, (error as Error).message); }
+			}
+			this.send(res, 200, { state: record.state, resolution: record.resolution ?? null, attempts: record.attempts, ref: record.ref ?? null });
+			return true;
+		}
+		if (req.method !== 'POST') { return false; }
+
+		if (route === 'POST /api/comparisons') {
+			const body = await this.readBody(req);
+			if (body.confirm !== true) { throw new HttpError(400, 'A ação precisa ser confirmada pelo usuário.'); }
+			const rid = this.requestIdOf(req);
+			const input = parseComparison(body);
+			const workspace = this.requireWorkspace(input.workspaceId);
+			await this.operate(res, device.id, { action: 'comparison.create', scope: workspace.id, rid, content: { text: input.text, participants: input.participants }, status: 201,
+				perform: async () => {
+					await verifyChoices(this.bridge, workspace.path, input.participants);
+					const created = await this.bridge.call<{ id: string }>('comparisons.create', { workspace: workspace.path, text: input.text, participants: input.participants });
+					return { ref: created.id, body: { comparison: { id: created.id, workspaceId: workspace.id } } };
+				},
+				reconcile: async () => {
+					const wanted = JSON.stringify(canonical({ text: input.text, participants: input.participants }));
+					const list = await this.bridge.call<Array<{ id: string; prompt: string; createdAt: number; participants: Array<{ service: string; model: { providerID: string; modelID: string; variant?: string } }> }>>('comparisons.list', { workspace: workspace.path });
+					const since = this.ledger.get(device.id, workspace.id, rid, 'comparison.create')?.createdAt ?? 0;
+					const match = list.find(item => item.createdAt >= since - 2000 && JSON.stringify(canonical({ text: item.prompt, participants: item.participants.map(p => ({ service: p.service, model: { providerID: p.model.providerID, modelID: p.model.modelID, ...(p.model.variant ? { variant: p.model.variant } : {}) } })) })) === wanted);
+					return { found: !!match, ref: match?.id };
+				} });
+			return true;
+		}
+		if (route === 'POST /api/teams') {
+			const body = await this.readBody(req);
+			if (body.confirm !== true) { throw new HttpError(400, 'A ação precisa ser confirmada pelo usuário.'); }
+			const rid = this.requestIdOf(req);
+			const input = parseTeam(body);
+			const workspace = this.requireWorkspace(input.workspaceId);
+			await this.operate(res, device.id, { action: 'team.start', scope: workspace.id, rid, content: { text: input.text, roles: input.roles, maxCorrections: input.maxCorrections }, status: 201,
+				perform: async () => {
+					await verifyChoices(this.bridge, workspace.path, input.roles);
+					const created = await this.bridge.call<{ id: string }>('teams.start', { workspace: workspace.path, text: input.text, participants: input.roles, maxCorrections: input.maxCorrections });
+					return { ref: created.id, body: { team: { id: created.id, workspaceId: workspace.id } } };
+				},
+				reconcile: async () => {
+					const list = await this.bridge.call<Array<{ id: string; task: string; createdAt: number; maxCorrections: number; roles: Array<{ service: string; model: { providerID: string; modelID: string; variant?: string } }> }>>('teams.list', { workspace: workspace.path });
+					const since = this.ledger.get(device.id, workspace.id, rid, 'team.start')?.createdAt ?? 0;
+					const wanted = JSON.stringify(canonical({ text: input.text, roles: input.roles, maxCorrections: input.maxCorrections }));
+					const match = list.find(item => item.createdAt >= since - 2000 && JSON.stringify(canonical({ text: item.task, roles: item.roles.map(p => ({ service: p.service, model: { providerID: p.model.providerID, modelID: p.model.modelID, ...(p.model.variant ? { variant: p.model.variant } : {}) } })), maxCorrections: item.maxCorrections })) === wanted);
+					return { found: !!match, ref: match?.id };
+				} });
+			return true;
+		}
+
+		const action = /^\/api\/(comparisons|teams)\/([0-9a-f-]{36})\/(cancel|select|resume|choose|validate)$/.exec(url.pathname);
+		if (!action) { return false; }
+		const body = await this.readBody(req);
+		if (body.confirm !== true) { throw new HttpError(400, 'A ação precisa ser confirmada pelo usuário.'); }
+		const rid = this.requestIdOf(req);
+		const workspace = this.requireWorkspace(body.workspaceId);
+		const [, kind, id, verb] = action;
+		const allowed = kind === 'comparisons' ? ['cancel', 'select'] : ['cancel', 'resume', 'choose', 'validate'];
+		if (!allowed.includes(verb)) { throw new HttpError(404, 'Ação não disponível.'); }
+		const participantId = typeof body.participantId === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(body.participantId) ? body.participantId : undefined;
+		const role = typeof body.role === 'string' && ['implementer', 'reviewer', 'tester'].includes(body.role) ? body.role : undefined;
+		if (kind === 'comparisons' && verb === 'select' && !participantId) { throw new HttpError(400, 'Escolha a solução a revisar.'); }
+		let profile: { executable: string; args: string[] } | undefined;
+		if (kind === 'teams' && verb === 'validate') {
+			profile = this.store.profileById(workspace.id, body.profileId);
+			if (!profile) { throw new HttpError(403, 'Este perfil de teste não está cadastrado para este workspace. Cadastre-o na IDE Windows.'); }
+		}
+		const stateOf = async (): Promise<Record<string, any> | undefined> => (await this.bridge.call<Array<Record<string, any>>>(kind === 'comparisons' ? 'comparisons.list' : 'teams.list', { workspace: workspace.path })).find(item => item.id === id);
+		await this.operate(res, device.id, { action: `${kind}.${verb}`, scope: id, rid, content: { workspace: workspace.id, participantId, role, profileId: profile ? body.profileId : undefined }, status: 200,
+			perform: async () => {
+				const params = { id, workspace: workspace.path };
+				if (kind === 'comparisons' && verb === 'cancel') { await this.bridge.call('comparisons.cancel', { ...params, ...(participantId ? { participantId } : {}) }); }
+				else if (kind === 'comparisons') { await this.bridge.call('comparisons.select', { ...params, participantId }); }
+				else if (verb === 'cancel') { await this.bridge.call('teams.cancel', { ...params, ...(role ? { role } : {}) }); }
+				else if (verb === 'resume') { await this.bridge.call('teams.resume', params); }
+				else if (verb === 'choose') { await this.bridge.call('teams.choose', params); }
+				else { await this.bridge.call('teams.validate', { ...params, command: { executable: profile!.executable, args: profile!.args, approved: true } }); }
+				return { body: { ok: true } };
+			},
+			reconcile: async () => {
+				const item = await stateOf().catch(() => undefined);
+				if (!item) { return { found: false }; }
+				if (kind === 'comparisons' && verb === 'select') { return { found: item.selected === participantId }; }
+				if (kind === 'comparisons') { return { found: (item.participants ?? []).some((p: { id: string; status: string }) => (!participantId || p.id === participantId) && p.status === 'cancelled') }; }
+				if (verb === 'cancel') { return { found: item.state === 'cancelled' || (role ? (item.cancelledRoles ?? []).includes(role) : false) }; }
+				if (verb === 'choose') { return { found: item.chosen === true }; }
+				if (verb === 'resume') { return { found: item.state !== 'paused' }; }
+				return { found: (item.versions ?? []).some((v: { validation?: unknown }) => !!v.validation) };
+			} });
+		return true;
+	}
+
+	/**
+	 * One multi-agent operation, through the same persistent ledger as the instructions: written to disk before the Hub is asked, bound to
+	 * device, workspace/target, action and content, never repeated on its own when its outcome is unknown, reconciled with what the Hub shows.
+	 */
+	private async operate(res: http.ServerResponse, deviceId: string, spec: {
+		action: string; scope: string; rid: string; content: unknown; status: number;
+		perform: () => Promise<{ ref?: string; body: object }>; reconcile: () => Promise<{ found: boolean; ref?: string }>;
+	}): Promise<void> {
+		let decision;
+		try { decision = this.ledger.begin(deviceId, spec.scope, spec.rid, JSON.stringify(canonical(spec.content)), spec.action); } catch (error) {
+			if (error instanceof LedgerError) { return this.send(res, 503, { state: 'blocked', error: 'Não foi possível registrar a operação com segurança; nada foi iniciado.' }); }
+			throw error;
+		}
+		const settle = async (record: import('./ledger').LedgerRecord): Promise<boolean> => {
+			try { const evidence = await spec.reconcile(); if (evidence.found) { this.ledger.reconciled(record, evidence.ref ?? record.ref); } return evidence.found; } catch { return false; }
+		};
+		switch (decision.kind) {
+			case 'blocked': return this.send(res, 503, { state: 'blocked', error: decision.reason });
+			case 'conflict': return this.send(res, 409, { state: 'conflict', error: 'Este identificador já foi usado para outra operação.' });
+			case 'in-progress': return this.send(res, 202, { state: 'processing' });
+			case 'duplicate': return this.send(res, 200, { duplicate: true, state: decision.record.state, resolution: decision.record.resolution ?? null, ref: decision.record.ref ?? null });
+			case 'unknown': {
+				if (await settle(decision.record)) { return this.send(res, 200, { duplicate: true, state: 'reconciled', resolution: 'sent', ref: decision.record.ref ?? null }); }
+				return this.send(res, 409, { state: 'unknown', needsResolution: true, error: 'Não foi possível confirmar se esta operação foi iniciada.' });
+			}
+			case 'dispatch': break;
+		}
+		const record = decision.record;
+		try {
+			const result = await spec.perform();
+			this.ledger.confirm(record, result.ref);
+			return this.send(res, spec.status, { ...result.body, state: 'confirmed' });
+		} catch (error) {
+			if (error instanceof BridgeUnavailable || error instanceof BridgeError || error instanceof HttpError) {
+				try { this.ledger.failedBeforeSend(record, error instanceof Error ? error.message.slice(0, 160) : 'Recusado.'); } catch { /* the next start marks it unknown */ }
+				return this.fail(res, error);
+			}
+			try { this.ledger.unknown(record, 'A conexão com o Hub caiu antes da confirmação.'); } catch { /* the next start marks it unknown */ }
+			if (await settle(record)) { return this.send(res, 200, { state: 'reconciled', resolution: 'sent', ref: record.ref ?? null }); }
+			return this.send(res, 409, { state: 'unknown', needsResolution: true, error: 'Não foi possível confirmar se esta operação foi iniciada.' });
+		}
 	}
 
 	/**
@@ -456,6 +624,12 @@ export class RemoteGateway {
 				return this.send(res, 200, { workspace: this.store.addWorkspace(body.path) });
 			}
 			if (route === 'POST /admin/workspaces/remove') { return this.send(res, 200, { ok: this.store.removeWorkspace(String(body.id)) }); }
+			if (route === 'GET /admin/profiles') { return this.send(res, 200, { profiles: this.store.profiles() }); }
+			if (route === 'POST /admin/profiles/add') {
+				if (body.confirm !== true) { throw new HttpError(400, 'O cadastro precisa ser confirmado.'); }
+				try { return this.send(res, 200, { profile: this.store.addProfile(String(body.workspaceId), String(body.label ?? ''), String(body.executable ?? ''), Array.isArray(body.args) ? body.args as string[] : []) }); } catch (error) { throw new HttpError(400, (error as Error).message); }
+			}
+			if (route === 'POST /admin/profiles/remove') { return this.send(res, 200, { ok: this.store.removeProfile(String(body.id)) }); }
 			if (route === 'POST /admin/devices/revoke') {
 				const id = String(body.id);
 				this.closeStreams(id);

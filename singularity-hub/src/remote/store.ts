@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { realpathSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { ensureSecureDir, readSecureFile, writeFileAtomic } from '../secure';
 import { hashToken, newId, newToken, sameSecret } from './security';
 
@@ -15,8 +15,20 @@ export interface Device {
 }
 
 export interface Workspace { id: string; path: string; name: string }
+/**
+ * An independent-validation command that the owner registered on Windows, for one authorised workspace. The phone only ever sees
+ * the id and the label; the executable and arguments never leave this file, and the phone cannot supply either.
+ */
+export interface ValidationProfile { id: string; workspaceId: string; label: string; executable: string; args: string[] }
 
-interface Persisted { v: 1; workspaces: Workspace[]; devices: Device[]; tailnetNames: string[] }
+interface Persisted { v: 1; workspaces: Workspace[]; devices: Device[]; tailnetNames: string[]; profiles: ValidationProfile[] }
+
+export const MAX_PROFILES = 16;
+
+const isProfile = (value: unknown): value is ValidationProfile => {
+	const item = value as Partial<ValidationProfile> | undefined;
+	return !!item && typeof item.id === 'string' && typeof item.workspaceId === 'string' && typeof item.label === 'string' && typeof item.executable === 'string' && Array.isArray(item.args) && item.args.every(arg => typeof arg === 'string');
+};
 
 export const MAX_DEVICES = 8;
 export const MAX_WORKSPACES = 16;
@@ -28,7 +40,7 @@ export const DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * does not hold an "enabled" flag, because the gateway process simply is not running until then.
  */
 export class RemoteStore {
-	private data: Persisted = { v: 1, workspaces: [], devices: [], tailnetNames: [] };
+	private data: Persisted = { v: 1, workspaces: [], devices: [], tailnetNames: [], profiles: [] };
 	private readonly file: string;
 
 	constructor(readonly directory: string) {
@@ -41,7 +53,7 @@ export class RemoteStore {
 		try {
 			const parsed = JSON.parse(readSecureFile(this.file)) as Partial<Persisted>;
 			if (parsed.v === 1 && Array.isArray(parsed.workspaces) && Array.isArray(parsed.devices)) {
-				this.data = { v: 1, workspaces: parsed.workspaces.slice(0, MAX_WORKSPACES), devices: parsed.devices.slice(0, 64), tailnetNames: Array.isArray(parsed.tailnetNames) ? parsed.tailnetNames.slice(0, 4) : [] };
+				this.data = { v: 1, workspaces: parsed.workspaces.slice(0, MAX_WORKSPACES), devices: parsed.devices.slice(0, 64), tailnetNames: Array.isArray(parsed.tailnetNames) ? parsed.tailnetNames.slice(0, 4) : [], profiles: Array.isArray(parsed.profiles) ? parsed.profiles.filter(isProfile).slice(0, MAX_PROFILES) : [] };
 			}
 		} catch { /* an unreadable or unprotected file is treated as empty: nothing stays authorized */ }
 	}
@@ -66,9 +78,38 @@ export class RemoteStore {
 		return { ...item };
 	}
 
+	// ---------- independent-validation profiles ----------
+
+	profiles(workspaceId?: string): ValidationProfile[] { return this.data.profiles.filter(item => !workspaceId || item.workspaceId === workspaceId).map(item => ({ ...item, args: [...item.args] })); }
+
+	profileById(workspaceId: string, id: unknown): ValidationProfile | undefined {
+		const found = typeof id === 'string' ? this.data.profiles.find(item => item.id === id && item.workspaceId === workspaceId) : undefined;
+		return found && { ...found, args: [...found.args] };
+	}
+
+	addProfile(workspaceId: string, label: string, executable: string, args: string[]): ValidationProfile {
+		if (!this.workspaceById(workspaceId)) { throw new Error('Workspace não autorizado.'); }
+		if (!/^[^\r\n]{1,60}$/.test(label)) { throw new Error('Informe um nome curto para o perfil de teste.'); }
+		if (!isAbsolute(executable) || !existsSync(executable)) { throw new Error('O executável do teste precisa ser um caminho absoluto existente.'); }
+		if (!Array.isArray(args) || args.length > 20 || args.some(arg => typeof arg !== 'string' || arg.length > 300 || /[\0\r\n]/.test(arg))) { throw new Error('Argumentos inválidos.'); }
+		if (this.data.profiles.length >= MAX_PROFILES) { throw new Error('Limite de perfis de teste atingido.'); }
+		const item: ValidationProfile = { id: newId(), workspaceId, label, executable, args: [...args] };
+		this.data.profiles.push(item);
+		this.save();
+		return { ...item, args: [...item.args] };
+	}
+
+	removeProfile(id: string): boolean {
+		const before = this.data.profiles.length;
+		this.data.profiles = this.data.profiles.filter(item => item.id !== id);
+		if (this.data.profiles.length !== before) { this.save(); return true; }
+		return false;
+	}
+
 	removeWorkspace(id: string): boolean {
 		const before = this.data.workspaces.length;
 		this.data.workspaces = this.data.workspaces.filter(item => item.id !== id);
+		this.data.profiles = this.data.profiles.filter(item => item.workspaceId !== id);
 		if (this.data.workspaces.length !== before) { this.save(); return true; }
 		return false;
 	}
