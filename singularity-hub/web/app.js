@@ -140,7 +140,18 @@
 		render();
 	}
 
+	// The conversation follows the text as it grows, as long as the person is at the bottom; scrolling up pauses it and shows a button that goes back down.
+	let follow = true;
+	const nearBottom = () => document.documentElement.scrollHeight - (window.scrollY + window.innerHeight) < 160;
+	const jump = h('button', { class: 'jump', type: 'button', hidden: true, 'aria-label': 'Ir para o fim da conversa', onclick: () => { follow = true; scrollToEnd(true); updateJump(); } }, '↓');
+	document.body.appendChild(jump);
+	function scrollToEnd(smooth) { window.scrollTo({ top: document.documentElement.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); }
+	function updateJump() { jump.hidden = !(screen === 'sessions' && openSession && !follow); }
+	window.addEventListener('scroll', () => { if (screen === 'sessions' && openSession) { follow = nearBottom(); updateJump(); } }, { passive: true });
+	function afterSessionRender() { if (follow) { scrollToEnd(false); } updateJump(); }
+
 	function render() {
+		jump.hidden = true;
 		renderTabs();
 		if (!token) { return renderPairing(); }
 		const screens = { home: renderHome, agents: renderAgents, sessions: renderSessions, compare: renderCompare, team: renderTeam, devices: renderDevices };
@@ -185,7 +196,7 @@
 			h('div', { class: 'muted small', text: modelText(session.model) }),
 			session.prompt ? h('div', { class: 'muted', text: session.prompt.slice(0, 140) }) : null);
 	}
-	function openSessionView(id) { openSession = sessions.find(item => item.id === id); screen = 'sessions'; safeSet(VIEW_KEY, 'sessions'); render(); loadHistory(id); }
+	function openSessionView(id) { follow = true; openSession = sessions.find(item => item.id === id); screen = 'sessions'; safeSet(VIEW_KEY, 'sessions'); render(); loadHistory(id); }
 
 	function renderHome() {
 		$('subtitle').textContent = 'Remote';
@@ -287,8 +298,11 @@
 			...(live.length ? live.map(sessionCard) : [h('div', { class: 'empty', text: 'Nenhuma sessão ativa.' })]),
 			archived.length ? h('h3', { text: 'Arquivadas' }) : null, ...archived.map(sessionCard));
 	}
+	function richText(text) {
+		return String(text).split(/\*\*(.+?)\*\*/g).map((part, index) => index % 2 ? h('strong', { text: part }) : part);
+	}
 	function bubble(who, text, live) {
-		return h('div', { class: 'bubble ' + who + (live ? ' live' : ''), ...(live ? { 'aria-live': 'polite' } : {}) }, h('div', { class: 'who', text: who === 'user' ? 'Você' : live ? 'Agente · ao vivo' : 'Agente' }), h('div', { class: 'text', text }));
+		return h('div', { class: 'bubble ' + who + (live ? ' live' : ''), ...(live ? { 'aria-live': 'polite' } : {}) }, h('div', { class: 'who', text: who === 'user' ? 'Você' : live ? 'Agente · ao vivo' : 'Agente' }), h('div', { class: 'text' }, ...richText(text)));
 	}
 	function renderSessionDetail() {
 		const session = openSession;
@@ -307,6 +321,7 @@
 			running ? h('div', { class: 'chatbar' }, h('button', { class: 'danger stop', type: 'button', onclick: () => interrupt(session) }, 'Interromper tarefa')) : null,
 			!running && !session.historical ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); sendFollowUp(session); } }, h('textarea', { id: 'follow', rows: '1', maxlength: '16000', placeholder: 'Escreva uma instrução…', 'aria-label': 'Nova instrução', oninput: event => { followUp = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, followUp), h('button', { class: 'send', type: 'submit', 'aria-label': 'Enviar' }, '↑')) : null,
 			session.historical ? h('p', { class: 'muted', text: session.resumable ? 'Sessão arquivada. Reabra-a na IDE do computador para continuar.' : 'Sessão arquivada.' }) : null);
+		afterSessionRender();
 	}
 	async function interrupt(session) {
 		try { await api('/api/sessions/' + session.id + '/interrupt', { method: 'POST', body: { confirm: true } }); toast('Interrupção enviada.'); } catch (error) { toast(error.message); }
@@ -314,7 +329,7 @@
 	async function sendFollowUp(session) {
 		const text = followUp.trim();
 		if (!text) { return; }
-		try { await api('/api/sessions/' + session.id + '/prompt', { method: 'POST', headers: { 'X-Request-Id': requestId() }, body: { confirm: true, text } }); followUp = ''; await refresh(); loadHistory(session.id); } catch (error) { toast(error.message); }
+		try { await api('/api/sessions/' + session.id + '/prompt', { method: 'POST', headers: { 'X-Request-Id': requestId() }, body: { confirm: true, text } }); followUp = ''; follow = true; await refresh(); loadHistory(session.id); } catch (error) { toast(error.message); }
 	}
 
 	// ---------- comparison ----------

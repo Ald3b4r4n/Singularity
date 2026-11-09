@@ -216,6 +216,7 @@
 			'<div class="header-actions"><span id="hub" class="hubline" aria-live="polite"></span>' +
 			'<button type="button" data-action="openSettings">Configurações</button></div></header>' +
 			'<main class="list" aria-label="Tarefa do agente"><div id="sessions"></div></main>' +
+			'<button type="button" id="jump" class="jump" hidden aria-label="Ir para o fim da conversa" title="Ir para o fim">↓</button>' +
 			'<form id="composer" class="composer" aria-label="Nova tarefa">' +
 			'<div class="target-row"><span id="target" class="target-label"></span><button type="button" id="new" data-action="new" hidden>Nova sessão</button>' +
 			'<button class="workspace-control" type="button" id="ws" data-action="pickWorkspace"></button></div>' +

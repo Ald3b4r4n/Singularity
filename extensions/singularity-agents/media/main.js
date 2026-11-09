@@ -147,8 +147,21 @@
 		comparison.draw();
 	}
 
+	let follow = true;
+	let followedTarget;
+	const jumpButton = document.getElementById('jump');
+	const listBox = () => el.sessions.closest('.list');
+	function updateJump() {
+		const composer = document.getElementById('composer');
+		if (jumpButton) { jumpButton.hidden = follow; if (composer) { jumpButton.style.bottom = (composer.offsetHeight + 28) + 'px'; } }
+	}
+	function toEnd(smooth) { const box = listBox(); follow = true; box.scrollTo({ top: box.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); updateJump(); }
+	listBox().addEventListener('scroll', () => { const box = listBox(); follow = box.scrollHeight - box.scrollTop - box.clientHeight < 80; updateJump(); }, { passive: true });
+	if (jumpButton) { jumpButton.addEventListener('click', () => toEnd(true)); }
+
 	function drawSessions() {
 		const selected = target();
+		if ((selected && selected.id) !== followedTarget) { followedTarget = selected && selected.id; follow = true; }
 		const key = selected && [selected.id, selected.updatedAt, selected.historical].join(':');
 		if (key !== historyKey) {
 			if (historyKey?.split(':')[0] !== selected?.id) { transcript = []; }
@@ -159,9 +172,10 @@
 		if (markup !== lastMarkup) {
 			const scroll = el.sessions.closest('.list');
 			const top = scroll.scrollTop;
-			const atBottom = scroll.scrollHeight - top - scroll.clientHeight < 4;
 			el.sessions.innerHTML = lastMarkup = markup;
-			scroll.scrollTop = atBottom ? scroll.scrollHeight : top;
+			// the conversation follows the text while the person is at the bottom; scrolling up pauses it
+			scroll.scrollTop = follow ? scroll.scrollHeight : top;
+			updateJump();
 		}
 		saveDraft();
 	}
@@ -268,7 +282,7 @@
 		const text = el.prompt.value.trim();
 		if (el.send.disabled || !text || !sel.canSend) { return; }
 		submittedDraft = el.prompt.value;
-		sending = true; message = '';
+		sending = true; message = ''; follow = true;
 		vscode.postMessage({
 			type: 'send', text, sessionId: targetId, service: sel.service, permissionMode: R.validPermission(sel.service, prefs.permissionMode),
 			selection: { providerID: sel.model.providerID, modelID: sel.model.id, variant: sel.effort || undefined }
