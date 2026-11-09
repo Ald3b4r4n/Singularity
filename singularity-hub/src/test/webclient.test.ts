@@ -87,4 +87,13 @@ describe('Singularity Remote web client', () => {
 		// an unknown outcome is shown to the person; the only automatic retry is for a lost connection and a "processing" answer, both with the same id
 		assert.doesNotMatch(app, /state === 'unknown'[^}]*dispatchPending\(\)/);
 	});
+
+	it('has the multi-agent screens and keeps their safety: confirmation, one id per operation, no command field, no apply or undo', () => {
+		const app = read('app.js');
+		for (const text of ['Nova comparação', 'Nova equipe', 'Confirmar e iniciar', 'Implementador', 'Revisor', 'Testador', 'Ciclos de correção', 'Cancelar a equipe', 'Selecionar para revisão', 'Retomar a equipe', 'Rodar a validação', 'Toque de novo para confirmar', 'cadastrado na IDE']) { assert.ok(app.includes(text), text); }
+		assert.doesNotMatch(app, /solutions\/(apply|undo)|\/apply|\/undo|\/api\/rpc/, 'nothing that applies or undoes is reachable from the phone');
+		assert.doesNotMatch(app, /executable|commandLine|args:\s*\[/, 'the phone never builds a command');
+		assert.match(app, /Toque de novo para confirmar/);
+		assert.match(app, /function typing\(\)/, 'a periodic refresh never rebuilds the screen under a field in use');
+	});
 });

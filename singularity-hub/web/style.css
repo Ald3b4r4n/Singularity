@@ -110,3 +110,19 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .pending.unknown, .pending.failed, .pending.blocked, .pending.conflict { border-left-color: var(--warn); }
 .pending.blocked, .pending.failed { border-left-color: var(--bad); }
 .clamp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* multi-agent forms and tracking */
+.field { display: grid; gap: 4px; min-width: 0; }
+.field > span { font-size: 13px; color: var(--muted); }
+fieldset.agent { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin: 0; display: grid; gap: 10px; min-width: 0; }
+fieldset.agent legend { padding: 0 6px; font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.form { min-width: 0; }
+.form select, .form textarea { max-width: 100%; }
+.clamp2, .clamp3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.clamp2 { -webkit-line-clamp: 2; line-clamp: 2; }
+.clamp3 { -webkit-line-clamp: 3; line-clamp: 3; }
+.view h2 { overflow-wrap: anywhere; }
+.row > * { min-width: 0; }
+.chip { max-width: 100%; }
+.timeline { padding-left: 18px; margin: 4px 0; }
+.timeline li { overflow-wrap: anywhere; margin: 4px 0; }

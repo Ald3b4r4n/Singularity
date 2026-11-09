@@ -26,7 +26,7 @@
 
 	let token = safeGet(TOKEN_KEY);
 	let screen = safeGet(VIEW_KEY) || 'home';
-	let status, sessions = [], openSession, catalog, comparisons, teams, lastSeq = 0, streaming = false, pollTimer;
+	let status, sessions = [], openSession, catalog, comparisons = [], teams = [], lastSeq = 0, streaming = false, pollTimer;
 	let agentsForm = { workspaceId: '', service: '', model: '', effort: '', permission: '', text: '' };
 	let sending = false;
 
@@ -127,7 +127,7 @@
 		tabs.hidden = !token;
 		tabs.replaceChildren(...SCREENS.map(([key, label]) => h('button', { type: 'button', 'aria-current': screen === key ? 'page' : null, onclick: () => go(key) }, icon(key), label)));
 	}
-	function go(next) { screen = next; openSession = next === 'sessions' ? openSession : undefined; safeSet(VIEW_KEY, next); render(); }
+	function go(next) { if (next === screen) { compareView = undefined; teamView = undefined; armed = ''; } screen = next; openSession = next === 'sessions' ? openSession : undefined; safeSet(VIEW_KEY, next); render(); }
 
 	async function refresh() {
 		if (!token) { return; }
@@ -137,8 +137,10 @@
 			link.textContent = status.hub.connected ? 'ao vivo' : 'Hub desligado'; link.className = 'chip ' + (status.hub.connected ? 'ok' : 'bad');
 			if (!agentsForm.workspaceId && status.workspaces[0]) { agentsForm.workspaceId = status.workspaces[0].id; }
 		} catch (error) { if (token) { toast(error.message); } }
-		render();
+		if (!typing()) { render(); }
 	}
+	/** A periodic refresh must never rebuild the screen under a field the person is using: it would close the Android keyboard. */
+	function typing() { const active = document.activeElement; return !!active && view.contains(active) && /^(TEXTAREA|INPUT|SELECT)$/.test(active.tagName); }
 
 	// The conversation follows the text as it grows, as long as the person is at the bottom; scrolling up pauses it and shows a button that goes back down.
 	let follow = true;
@@ -152,10 +154,12 @@
 
 	function render() {
 		jump.hidden = true;
+		if (screen !== 'compare' && screen !== 'team') { stopPolling(); }
 		renderTabs();
 		if (!token) { return renderPairing(); }
 		const screens = { home: renderHome, agents: renderAgents, sessions: renderSessions, compare: renderCompare, team: renderTeam, devices: renderDevices, usage: renderUsage };
-		(screens[screen] || renderHome)();
+		// a screen that fails to draw must say so, never leave the previous one standing
+		Promise.resolve().then(() => (screens[screen] || renderHome)()).catch(error => { toast('Não foi possível abrir esta tela: ' + (error && error.message ? error.message : error)); });
 	}
 
 	// ---------- pairing ----------
@@ -287,7 +291,8 @@
 	}
 	const providerLabel = provider => provider.id === 'opencode-go' ? 'Go' : provider.id === 'opencode' ? 'Zen' : provider.name;
 	function select(id, label, options, value, onchange) {
-		return h('div', null, h('label', { for: id, text: label }), h('select', { id, onchange: event => onchange(event.target.value) }, ...options.map(([val, text, disabled]) => h('option', { value: val, selected: val === value, disabled }, text))));
+		const control = h('select', { ...(id ? { id } : {}), onchange: event => onchange(event.target.value) }, ...options.map(([val, text, disabled]) => h('option', { value: val, selected: val === value, disabled }, text)));
+		return id ? h('div', null, h('label', { for: id, text: label }), control) : h('label', { class: 'field' }, h('span', { text: label }), control);
 	}
 	function renderAgents() {
 		$('subtitle').textContent = 'Remote · agentes';
@@ -323,55 +328,70 @@
 		sending = false; render();
 	}
 
-	// ---------- sending an instruction: one request id per operation ----------
-	// The id is made once, when the person taps send, and is reused by every retry of that same operation (a dropped connection, a reload,
-	// a second tap). The computer registers it before the agent is asked, so a retry can never make the agent receive it twice.
+	// ---------- sending: one request id per operation ----------
+	// An instruction, a new comparison, a new team or a control (cancel, resume, select, validate) is ONE operation with ONE request id,
+	// made when the person taps and reused by every retry of that same operation (a dropped connection, a reload, a second tap). The
+	// computer registers it before anything is started, so a retry can never make it happen twice.
 	const PENDING_KEY = 'singularity.remote.pending';
-	let pendingSend = (() => { try { const saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); return saved && typeof saved.sessionId === 'string' && typeof saved.requestId === 'string' && typeof saved.text === 'string' ? { ...saved, busy: false } : undefined; } catch { return undefined; } })();
-	function savePending() { try { if (pendingSend) { localStorage.setItem(PENDING_KEY, JSON.stringify({ sessionId: pendingSend.sessionId, requestId: pendingSend.requestId, text: pendingSend.text, status: pendingSend.status, message: pendingSend.message })); } else { localStorage.removeItem(PENDING_KEY); } } catch { /* storage may be unavailable */ } }
-	function startSend(sessionId, text) { pendingSend = { sessionId, text, requestId: requestId(), status: 'sending', message: 'Enviando…', busy: false }; savePending(); return dispatchPending(); }
+	const PENDING_FIELDS = ['kind', 'action', 'scope', 'path', 'body', 'text', 'requestId', 'status', 'message'];
+	let pendingSend = (() => { try { const saved = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); return saved && typeof saved.path === 'string' && typeof saved.requestId === 'string' && typeof saved.scope === 'string' && saved.body && typeof saved.body === 'object' ? { ...saved, busy: false } : undefined; } catch { return undefined; } })();
+	function savePending() { try { if (pendingSend) { localStorage.setItem(PENDING_KEY, JSON.stringify(Object.fromEntries(PENDING_FIELDS.map(key => [key, pendingSend[key]])))); } else { localStorage.removeItem(PENDING_KEY); } } catch { /* storage may be unavailable */ } }
+	function startOp(spec) { pendingSend = { ...spec, requestId: requestId(), status: 'sending', message: 'Enviando…', busy: false }; savePending(); return dispatchPending(); }
+	function startSend(sessionId, text) { return startOp({ kind: 'prompt', action: 'prompt', scope: sessionId, path: '/api/sessions/' + sessionId + '/prompt', text, body: { confirm: true, text } }); }
+	const DONE = { prompt: ['Tarefa recebida.', 'Tarefa já registrada.'], comparison: ['Comparação iniciada.', 'Comparação já registrada.'], team: ['Equipe iniciada.', 'Equipe já registrada.'], control: ['Feito.', 'Já registrado.'] };
+	async function finishPending(pending, result) {
+		pendingSend = undefined; savePending(); armed = '';
+		if (pending.kind === 'prompt') { followUp = ''; agentsForm.text = ''; follow = true; await refresh(); loadHistory(pending.scope); return; }
+		const ref = result.ref || (result.comparison && result.comparison.id) || (result.team && result.team.id);
+		if (pending.kind === 'comparison') { compareForm.open = false; compareForm.text = ''; if (ref) { compareView = { id: ref, workspaceId: pending.scope }; } comparisons = []; }
+		if (pending.kind === 'team') { teamForm.open = false; teamForm.text = ''; if (ref) { teamView = { id: ref, workspaceId: pending.scope }; } teams = []; }
+		if (pending.kind === 'control') { if (compareView) { compareView.data = undefined; } if (teamView) { teamView.data = undefined; } }
+		render();
+	}
 	async function dispatchPending() {
 		const pending = pendingSend;
 		if (!pending || pending.busy) { return; }
 		pending.busy = true; pending.status = 'sending'; pending.message = 'Enviando…'; render();
 		try {
-			const result = await api('/api/sessions/' + pending.sessionId + '/prompt', { method: 'POST', headers: { 'X-Request-Id': pending.requestId }, body: { confirm: true, text: pending.text } });
+			const result = await api(pending.path, { method: 'POST', headers: { 'X-Request-Id': pending.requestId }, body: pending.body });
 			if (result.state === 'processing') { pending.status = 'waiting'; pending.message = 'Aguardando confirmação…'; pending.busy = false; savePending(); render(); setTimeout(() => { if (pendingSend === pending) { dispatchPending(); } }, 2000); return; }
-			toast(result.duplicate ? 'Tarefa já registrada.' : 'Tarefa recebida.');
-			pendingSend = undefined; savePending(); followUp = ''; agentsForm.text = ''; follow = true;
-			await refresh(); loadHistory(pending.sessionId);
+			toast((DONE[pending.kind] || DONE.control)[result.duplicate ? 1 : 0]);
+			await finishPending(pending, result);
+			return;
 		} catch (error) {
 			pending.busy = false;
-			if (error.network) { pending.status = 'waiting'; pending.message = 'Sem conexão: o envio será conferido quando a conexão voltar. Nada será enviado duas vezes.'; }
-			else if (error.state === 'unknown') { pending.status = 'unknown'; pending.message = 'Não foi possível confirmar se esta tarefa chegou ao agente.'; }
-			else if (error.state === 'conflict') { pending.status = 'conflict'; pending.message = 'Este envio já foi usado para outra instrução. Escreva a tarefa de novo.'; }
+			if (error.network) { pending.status = 'waiting'; pending.message = 'Sem conexão: o envio será conferido quando a conexão voltar. Nada será feito duas vezes.'; }
+			else if (error.state === 'unknown') { pending.status = 'unknown'; pending.message = 'Não foi possível confirmar se isto chegou ao computador.'; }
+			else if (error.state === 'conflict') { pending.status = 'conflict'; pending.message = 'Este envio já foi usado para outra operação. Faça de novo.'; }
 			else if (error.state === 'blocked') { pending.status = 'blocked'; pending.message = error.message; }
-			else { pending.status = 'failed'; pending.message = error.message + ' O envio não chegou ao agente; pode tentar de novo.'; }
+			else { pending.status = 'failed'; pending.message = error.message + ' Nada foi iniciado; pode tentar de novo.'; }
 			savePending();
 		}
 		if (pendingSend === pending) { pending.busy = false; }
 		render();
 	}
-	async function resolvePending(action) {
+	async function resolvePending(decision) {
 		const pending = pendingSend;
 		if (!pending) { return; }
+		const path = pending.kind === 'prompt' ? '/api/sessions/' + pending.scope + '/requests/' + pending.requestId : '/api/operations/' + pending.action + '/' + pending.scope + '/' + pending.requestId;
 		try {
-			await api('/api/sessions/' + pending.sessionId + '/requests/' + pending.requestId, { method: 'POST', body: { confirm: true, action } });
-			if (action === 'discard') { pendingSend = undefined; savePending(); toast('Envio descartado.'); render(); return; }
+			await api(path, { method: 'POST', body: { confirm: true, action: decision } });
+			if (decision === 'discard') { pendingSend = undefined; savePending(); toast('Envio descartado.'); render(); return; }
 			await dispatchPending();
 		} catch (error) { toast(error.message); }
 	}
 	function discardLocal() { pendingSend = undefined; savePending(); render(); }
-	function pendingBanner(sessionId) {
+	/** The banner of the operation that is going on or that needs a decision, for the screens it belongs to. */
+	function pendingBanner(belongs) {
 		const pending = pendingSend;
-		if (!pending || (sessionId && pending.sessionId !== sessionId)) { return null; }
+		if (!pending || (belongs && !belongs(pending))) { return null; }
 		const buttons = pending.status === 'unknown'
 			? [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Verificar de novo'), h('button', { class: 'secondary', type: 'button', onclick: () => resolvePending('retry') }, 'Reenviar mesmo assim'), h('button', { class: 'secondary', type: 'button', onclick: () => resolvePending('discard') }, 'Descartar')]
 			: pending.status === 'conflict' || pending.status === 'blocked' ? [h('button', { class: 'secondary', type: 'button', onclick: discardLocal }, 'Entendi')]
 			: pending.status === 'sending' ? [] : [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Tentar de novo')];
 		return h('section', { class: 'card stack pending ' + pending.status, role: 'status', 'aria-live': 'polite' },
 			h('strong', { text: pending.status === 'unknown' ? 'Estado do envio desconhecido' : pending.status === 'sending' ? 'Enviando' : pending.status === 'waiting' ? 'Aguardando confirmação' : 'Envio pendente' }),
-			h('div', { class: 'muted small', text: pending.message }), h('div', { class: 'muted small clamp', text: pending.text.slice(0, 140) }),
+			h('div', { class: 'muted small', text: pending.message }), h('div', { class: 'muted small clamp', text: String(pending.text || '').slice(0, 140) }),
 			buttons.length ? h('div', { class: 'row' }, ...buttons) : null);
 	}
 	window.addEventListener('online', () => { if (pendingSend && pendingSend.status === 'waiting') { dispatchPending(); } });
@@ -411,7 +431,7 @@
 				session.prompt ? bubble('user', session.prompt) : null,
 				session.result ? bubble('agent', session.result, running) : (running ? h('div', { class: 'bubble agent typing', 'aria-live': 'polite', text: 'O agente está trabalhando…' }) : null)),
 			running ? h('div', { class: 'chatbar' }, h('button', { class: 'danger stop', type: 'button', onclick: () => interrupt(session) }, 'Interromper tarefa')) : null,
-			pendingBanner(session.id),
+			pendingBanner(item => item.kind === 'prompt' && item.scope === session.id),
 			!running && !session.historical ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); sendFollowUp(session); } }, h('textarea', { id: 'follow', rows: '1', maxlength: '16000', placeholder: 'Escreva uma instrução…', 'aria-label': 'Nova instrução', oninput: event => { followUp = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, followUp), h('button', { class: 'send', type: 'submit', 'aria-label': 'Enviar', disabled: !!pendingSend }, '↑')) : null,
 			session.historical ? h('p', { class: 'muted', text: session.resumable ? 'Sessão arquivada. Reabra-a na IDE do computador para continuar.' : 'Sessão arquivada.' }) : null);
 		afterSessionRender();
@@ -426,50 +446,246 @@
 		await startSend(session.id, text);
 	}
 
-	// ---------- comparison ----------
+	// ---------- multi-agent: comparisons and teams, started and followed from the phone ----------
+	// The phone chooses agents, models and efforts from the real catalog and confirms. The computer runs them in isolated Git worktrees;
+	// nothing is applied to the project from here (applying and undoing stay in the Windows IDE).
+	const catalogs = new Map();
+	const compareForm = { open: false, workspaceId: '', text: '', count: 2, agents: [{ service: 'opencode:go', model: '', effort: '' }, { service: 'opencode:go', model: '', effort: '' }, { service: 'opencode:go', model: '', effort: '' }] };
+	const teamForm = { open: false, workspaceId: '', text: '', maxCorrections: 2, roles: { implementer: { service: 'opencode:go', model: '', effort: '' }, reviewer: { service: 'opencode:go', model: '', effort: '' }, tester: { service: 'opencode:go', model: '', effort: '' } } };
+	let compareView, teamView, armed = '', liveTimer;
+	const MODEL_NAME = model => model ? (model.providerID === 'opencode-go' ? 'Go · ' : model.providerID === 'opencode' ? 'Zen · ' : '') + model.modelID + (model.variant ? ' · ' + (EFFORT[model.variant] || model.variant) : '') : 'modelo padrão';
+
+	function serviceChoices() { return (status ? status.providers : []).filter(item => item.status === 'available').flatMap(item => item.id === 'opencode' ? [['opencode:go', 'OpenCode Go'], ['opencode:zen', 'OpenCode Zen']] : [[item.id, item.name]]); }
+	async function ensureCatalog(workspaceId, key) {
+		const base = String(key).split(':')[0], cacheKey = workspaceId + '|' + base;
+		if (!workspaceId || catalogs.has(cacheKey)) { return; }
+		catalogs.set(cacheKey, 'loading');
+		try { catalogs.set(cacheKey, await api('/api/catalog?workspaceId=' + encodeURIComponent(workspaceId) + '&service=' + encodeURIComponent(base))); } catch (error) { catalogs.delete(cacheKey); toast(error.message); }
+		render();
+	}
+	function modelsFor(workspaceId, key) {
+		const catalog = catalogs.get(workspaceId + '|' + String(key).split(':')[0]);
+		if (!catalog || catalog === 'loading') { return undefined; }
+		const tier = String(key).split(':')[1];
+		const providers = (catalog.providers || []).filter(p => tier === 'go' ? p.id === 'opencode-go' : tier === 'zen' ? p.id === 'opencode' : true);
+		return providers.flatMap(p => p.models.map(m => ({ ...m, providerID: p.id, key: JSON.stringify([p.id, m.id]) })));
+	}
+	/** The real choice behind an agent picker, or undefined while the catalog is still loading or nothing is chosen. */
+	function choiceOf(workspaceId, agent) {
+		const models = modelsFor(workspaceId, agent.service);
+		const model = models && models.find(item => item.key === agent.model);
+		return model ? { service: String(agent.service).split(':')[0], model: { providerID: model.providerID, modelID: model.id, ...(agent.effort ? { variant: agent.effort } : {}) } } : undefined;
+	}
+	/** Once the catalog of an agent's provider is known, an agent with nothing chosen gets a sensible default (never an invented model). */
+	function applyDefault(workspaceId, agent, preferred) {
+		const models = modelsFor(workspaceId, agent.service);
+		if (models && models.length && !models.some(item => item.key === agent.model)) { const pick = (preferred && models.find(item => preferred.test(item.id))) || models[0]; agent.model = pick.key; agent.effort = ''; }
+	}
+	function agentPicker(workspaceId, agent, title, preferred) {
+		applyDefault(workspaceId, agent, preferred);
+		const models = modelsFor(workspaceId, agent.service);
+		const model = models && models.find(item => item.key === agent.model);
+		return h('fieldset', { class: 'agent' }, h('legend', { text: title }),
+			select('', 'Provedor', serviceChoices().map(([value, label]) => [value, label]), agent.service, value => { agent.service = value; agent.model = ''; agent.effort = ''; ensureCatalog(workspaceId, value); render(); }),
+			select('', 'Modelo', models ? models.map(item => [item.key, item.name || item.id]) : [['', 'Carregando…']], agent.model, value => { agent.model = value; agent.effort = ''; render(); }),
+			select('', 'Esforço', [['', 'Padrão do modelo'], ...((model && model.efforts) || []).map(level => [level, EFFORT[level] || level])], agent.effort, value => { agent.effort = value; }));
+	}
+	function workspaceField(form) {
+		if (!status || !status.workspaces.length) { return h('p', { class: 'muted', text: 'Nenhum workspace autorizado. Use “Workspaces do acesso remoto” na IDE.' }); }
+		if (!form.workspaceId || !status.workspaces.some(item => item.id === form.workspaceId)) { form.workspaceId = status.workspaces[0].id; }
+		return select('', 'Workspace autorizado', status.workspaces.map(item => [item.id, item.name]), form.workspaceId, value => { form.workspaceId = value; catalogs.clear(); render(); });
+	}
+	function textField(form, label, max) {
+		return h('div', null, h('label', { text: label }), h('textarea', { maxlength: String(max), placeholder: 'Descreva o que os agentes devem fazer…', oninput: event => { form.text = event.target.value; const button = document.getElementById('start-op'); if (button) { button.disabled = !(form.text.trim() && form.canStart && form.canStart()); } } }, form.text));
+	}
+	const stopPolling = () => { if (liveTimer) { clearInterval(liveTimer); liveTimer = undefined; } };
+	function poll(fn) { stopPolling(); liveTimer = setInterval(() => { if (!document.hidden && !pendingSend && !typing()) { fn(); } }, 3000); }
+	/** Two taps for what cannot be undone: the first arms the button, the second does it. */
+	function armedButton(key, label, danger, action) {
+		return h('button', { class: danger ? 'danger' : 'secondary', type: 'button', onclick: () => { if (armed === key) { armed = ''; action(); } else { armed = key; render(); } } }, armed === key ? 'Toque de novo para confirmar' : label);
+	}
+	const duration = (from, to) => { if (!from) { return ''; } const seconds = Math.max(0, Math.round(((to || Date.now()) - from) / 1000)); return seconds >= 3600 ? Math.floor(seconds / 3600) + ' h ' + Math.floor((seconds % 3600) / 60) + ' min' : seconds >= 60 ? Math.floor(seconds / 60) + ' min ' + (seconds % 60) + ' s' : seconds + ' s'; };
+	const ACTIVE_PARTICIPANT = ['preparing', 'running', 'waiting'];
+
+	// ----- comparison -----
+	function compareStartForm() {
+		const form = compareForm;
+		const wid = form.workspaceId || (status && status.workspaces[0] && status.workspaces[0].id) || '';
+		const agents = form.agents.slice(0, form.count);
+		const PREFERRED = [/muse-spark-1\.3.*contributor/, /deepseek-v4\.1-flash$/, /muse-spark-1\.3.*contributor/];
+		agents.forEach((agent, index) => { ensureCatalog(wid, agent.service); applyDefault(wid, agent, PREFERRED[index]); });
+		const choices = agents.map(agent => choiceOf(wid, agent));
+		const distinct = new Set(choices.filter(Boolean).map(choice => JSON.stringify(choice))).size === choices.length;
+		form.canStart = () => !!wid && choices.every(Boolean) && distinct;
+		const ready = !!form.text.trim() && form.canStart();
+		return h('section', { class: 'card stack form' }, h('strong', { text: 'Nova comparação' }), workspaceField(form), textField(form, 'Tarefa', 16000),
+			h('div', { class: 'actions two' }, ...[2, 3].map(n => h('button', { class: form.count === n ? 'primary' : 'secondary', type: 'button', 'aria-pressed': String(form.count === n), onclick: () => { form.count = n; render(); } }, n + ' agentes'))),
+			...agents.map((agent, index) => agentPicker(wid, agent, 'Agente ' + (index + 1), PREFERRED[index])),
+			choices.every(Boolean) && !distinct ? h('p', { class: 'chip warn', text: 'Escolha agentes ou modelos diferentes.' }) : null,
+			h('p', { class: 'muted small', text: 'Ao confirmar, ' + form.count + ' agentes começam a trabalhar no computador, cada um em uma cópia isolada do projeto. Nada é aplicado ao projeto principal.' }),
+			h('div', { class: 'actions two' }, h('button', { class: 'secondary', type: 'button', onclick: () => { form.open = false; render(); } }, 'Fechar'),
+				h('button', { id: 'start-op', class: 'primary', type: 'button', disabled: !ready, onclick: () => form.text.trim() && form.canStart() && startOp({ kind: 'comparison', action: 'comparison.create', scope: form.workspaceId, path: '/api/comparisons', text: form.text.trim(), body: { confirm: true, workspaceId: form.workspaceId, text: form.text.trim(), participants: choices } }) }, 'Confirmar e iniciar')));
+	}
 	async function renderCompare() {
 		$('subtitle').textContent = 'Remote · comparação';
-		show(h('h2', { text: 'Comparação' }), h('div', { class: 'empty', text: 'Lendo…' }));
-		try { comparisons = (await api('/api/comparisons')).comparisons; } catch (error) { toast(error.message); comparisons = []; }
-		if (screen !== 'compare') { return; }
-		show(h('h2', { text: 'Comparação' }), ...(comparisons.length ? comparisons.map(comparisonCard) : [h('div', { class: 'empty', text: 'Nenhuma comparação neste workspace.' })]));
+		if (compareView) { return renderCompareDetail(); }
+		stopPolling();
+		const draw = () => show(h('div', { class: 'row between' }, h('h2', { text: 'Comparação' }), compareForm.open ? null : h('button', { class: 'primary', type: 'button', onclick: () => { compareForm.open = true; render(); } }, 'Nova comparação')),
+			pendingBanner(item => item.kind === 'comparison'),
+			compareForm.open ? compareStartForm() : null,
+			...(comparisons.filter(item => !item.team).length ? comparisons.filter(item => !item.team).map(comparisonCard) : [h('div', { class: 'empty', text: 'Nenhuma comparação ainda. Toque em “Nova comparação”.' })]));
+		if (!comparisons.length) { show(h('h2', { text: 'Comparação' }), h('div', { class: 'empty', text: 'Lendo…' })); }
+		const load = async () => { try { const next = (await api('/api/comparisons')).comparisons; if (JSON.stringify(next) !== JSON.stringify(comparisons)) { comparisons = next; if (screen === 'compare' && !compareView && !compareForm.open) { draw(); } } } catch (error) { if (!comparisons.length) { toast(error.message); } } };
+		await load();
+		if (screen !== 'compare' || compareView) { return; }
+		draw();
+		poll(load);
 	}
 	function comparisonCard(comparison) {
-		return h('article', { class: 'card stack' }, h('div', { class: 'row between' }, h('strong', { text: comparison.workspaceName }), comparison.team ? chip('equipe') : chip('comparação')), h('div', { class: 'muted', text: String(comparison.prompt || '').slice(0, 160) }), h('div', { class: 'muted small', text: when(comparison.createdAt) }),
-			...(comparison.participants || []).map(participant => h('div', { class: 'row between' }, h('span', { text: (SERVICE_NAME[participant.service] || participant.service) + (participant.role ? ' · ' + participant.role : '') + (comparison.selected === participant.id ? ' ★' : '') }), h('span', { class: 'row' }, statusChip(participant.status), participant.status === 'done' || participant.status === 'ready' ? h('button', { class: 'secondary', type: 'button', onclick: () => showDiff(comparison, participant) }, 'Diff') : null))));
+		const running = (comparison.participants || []).filter(p => ACTIVE_PARTICIPANT.includes(p.status)).length;
+		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: () => { compareView = { id: comparison.id, workspaceId: comparison.workspaceId }; render(); }, onkeydown: event => { if (event.key === 'Enter') { compareView = { id: comparison.id, workspaceId: comparison.workspaceId }; render(); } } },
+			h('div', { class: 'row between' }, h('strong', { text: comparison.workspaceName }), chip(running ? running + ' em execução' : 'concluída', running ? 'warn' : 'ok')),
+			h('div', { class: 'muted clamp2', text: String(comparison.prompt || '') }), h('div', { class: 'muted small', text: when(comparison.createdAt) }),
+			h('div', { class: 'row' }, ...(comparison.participants || []).map(p => chip(MODEL_NAME(p.model)))));
+	}
+	async function renderCompareDetail() {
+		const view = compareView;
+		const load = async () => {
+			try { const next = await api('/api/comparisons/' + view.id + '?workspaceId=' + encodeURIComponent(view.workspaceId)); if (compareView === view && JSON.stringify(next) !== JSON.stringify(view.data)) { view.data = next; if (screen === 'compare') { drawCompareDetail(view); } } } catch (error) { if (!view.data) { toast(error.message); compareView = undefined; render(); } }
+		};
+		if (view.data) { drawCompareDetail(view); } else { show(h('div', { class: 'empty', text: 'Lendo…' })); }
+		await load();
+		poll(load);
+	}
+	function drawCompareDetail(view) {
+		const comparison = view.data;
+		const active = (comparison.participants || []).some(p => ACTIVE_PARTICIPANT.includes(p.status));
+		show(h('button', { class: 'secondary', type: 'button', onclick: () => { compareView = undefined; stopPolling(); armed = ''; render(); } }, '← Comparação'),
+			h('h2', { text: 'Comparação' }), h('p', { class: 'muted clamp3', text: comparison.prompt }), h('div', { class: 'muted small', text: comparison.workspaceName + ' · ' + when(comparison.createdAt) }),
+			pendingBanner(item => item.kind === 'control'),
+			...(comparison.participants || []).map((participant, index) => h('article', { class: 'card stack' },
+				h('div', { class: 'row between' }, h('strong', { text: 'Agente ' + (index + 1) + (comparison.selected === participant.id ? ' ★ para revisão' : '') }), statusChip(participant.status)),
+				h('div', { class: 'muted small', text: (SERVICE_NAME[participant.service] || participant.service) + ' · ' + MODEL_NAME(participant.model) }),
+				participant.startedAt ? h('div', { class: 'muted small', text: 'Duração: ' + duration(participant.startedAt, participant.endedAt) }) : null,
+				participant.error ? h('p', { class: 'chip bad', text: participant.error }) : null,
+				h('div', { class: 'row' },
+					['done', 'ready'].includes(participant.status) ? h('button', { class: 'secondary', type: 'button', onclick: () => showDiff({ id: comparison.id, workspaceId: comparison.workspaceId }, participant) }, 'Ver alterações') : null,
+					['done', 'ready'].includes(participant.status) && comparison.selected !== participant.id ? armedButton('select-' + participant.id, 'Selecionar para revisão', false, () => startOp({ kind: 'control', action: 'comparisons.select', scope: comparison.id, path: '/api/comparisons/' + comparison.id + '/select', text: 'Selecionar solução', body: { confirm: true, workspaceId: comparison.workspaceId, participantId: participant.id } })) : null,
+					ACTIVE_PARTICIPANT.includes(participant.status) ? armedButton('cancel-' + participant.id, 'Cancelar este agente', true, () => startOp({ kind: 'control', action: 'comparisons.cancel', scope: comparison.id, path: '/api/comparisons/' + comparison.id + '/cancel', text: 'Cancelar agente', body: { confirm: true, workspaceId: comparison.workspaceId, participantId: participant.id } })) : null))),
+			active ? armedButton('cancel-all', 'Cancelar a comparação', true, () => startOp({ kind: 'control', action: 'comparisons.cancel', scope: comparison.id, path: '/api/comparisons/' + comparison.id + '/cancel', text: 'Cancelar comparação', body: { confirm: true, workspaceId: comparison.workspaceId } })) : null,
+			h('p', { class: 'muted small', text: 'Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' }),
+			h('button', { class: 'secondary', type: 'button', onclick: () => { compareView.data = undefined; renderCompareDetail(); } }, 'Atualizar'));
 	}
 	async function showDiff(comparison, participant) {
+		stopPolling();
 		try {
 			const data = await api('/api/comparisons/' + comparison.id + '/' + participant.id + '/diff?workspaceId=' + encodeURIComponent(comparison.workspaceId));
 			const text = String(data.diff || '') + String(data.additions || '');
 			const lines = text.split('\n').slice(0, 2000).map(line => h('span', { class: line.startsWith('@@') ? 'hunk' : line.startsWith('+') && !line.startsWith('+++') ? 'add' : line.startsWith('-') && !line.startsWith('---') ? 'del' : '' }, line + '\n'));
-			show(h('button', { class: 'secondary', type: 'button', onclick: () => render() }, '← Comparação'), h('h2', { text: 'Alterações de ' + (SERVICE_NAME[participant.service] || participant.service) }), data.files ? h('div', { class: 'code', text: String(data.files) }) : null, h('div', { class: 'diff', tabindex: '0', 'aria-label': 'Diff' }, ...(lines.length ? lines : [h('span', { text: 'Sem alterações.' })])));
+			show(h('button', { class: 'secondary', type: 'button', onclick: () => render() }, '← Voltar'), h('h2', { text: 'Alterações de ' + (SERVICE_NAME[participant.service] || participant.service) }), data.files ? h('div', { class: 'code', text: String(data.files) }) : null, h('div', { class: 'diff', tabindex: '0', 'aria-label': 'Diff' }, ...(lines.length ? lines : [h('span', { text: 'Sem alterações.' })])));
 		} catch (error) { toast(error.message); }
 	}
 
-	// ---------- team ----------
+	// ----- team -----
+	function teamStartForm() {
+		const form = teamForm;
+		const wid = form.workspaceId || (status && status.workspaces[0] && status.workspaces[0].id) || '';
+		const roles = [['implementer', 'Implementador', /muse-spark-1\.3.*contributor/], ['reviewer', 'Revisor', /deepseek-v4\.1-flash$/], ['tester', 'Testador', /muse-spark-1\.3.*contributor/]];
+		roles.forEach(([key, , preferred]) => { ensureCatalog(wid, form.roles[key].service); applyDefault(wid, form.roles[key], preferred); });
+		const choices = roles.map(([key]) => choiceOf(wid, form.roles[key]));
+		form.canStart = () => !!wid && choices.every(Boolean);
+		const ready = !!form.text.trim() && form.canStart();
+		return h('section', { class: 'card stack form' }, h('strong', { text: 'Nova equipe' }), workspaceField(form), textField(form, 'Tarefa da equipe', 7000),
+			...roles.map(([key, title, preferred]) => agentPicker(wid, form.roles[key], title, preferred)),
+			select('', 'Ciclos de correção', [['0', 'Nenhum'], ['1', 'Até 1'], ['2', 'Até 2']], String(form.maxCorrections), value => { form.maxCorrections = Number(value); }),
+			h('p', { class: 'muted small', text: 'O implementador escreve, o revisor aponta problemas e o testador planeja os testes; cada um com o próprio modelo. A validação independente só roda com um perfil de teste cadastrado na IDE Windows.' }),
+			h('p', { class: 'muted small', text: 'Ao confirmar, os agentes começam a trabalhar no computador em cópias isoladas. Nada é aplicado ao projeto principal.' }),
+			h('div', { class: 'actions two' }, h('button', { class: 'secondary', type: 'button', onclick: () => { form.open = false; render(); } }, 'Fechar'),
+				h('button', { id: 'start-op', class: 'primary', type: 'button', disabled: !ready, onclick: () => form.text.trim() && form.canStart() && startOp({ kind: 'team', action: 'team.start', scope: form.workspaceId, path: '/api/teams', text: form.text.trim(), body: { confirm: true, workspaceId: form.workspaceId, text: form.text.trim(), maxCorrections: form.maxCorrections, roles: { implementer: choices[0], reviewer: choices[1], tester: choices[2] } } }) }, 'Confirmar e iniciar')));
+	}
 	const TEAM_STATE = { preparing: 'preparando', running: 'em execução', snapshotting: 'registrando', paused: 'pausada', 'awaiting-validation': 'aguardando validação', completed: 'concluída', failed: 'falhou', cancelled: 'cancelada', exhausted: 'ciclos esgotados', unrecoverable: 'não recuperável' };
 	const ROLE = { implementer: 'Implementador', reviewer: 'Revisor', tester: 'Testador', validation: 'Validação' };
+	const TEAM_ACTIVE = ['preparing', 'running', 'snapshotting', 'paused', 'awaiting-validation'];
+	const teamKind = state => state === 'completed' ? 'ok' : ['failed', 'unrecoverable', 'exhausted'].includes(state) ? 'bad' : 'warn';
 	async function renderTeam() {
 		$('subtitle').textContent = 'Remote · equipe';
-		show(h('h2', { text: 'Equipe' }), h('div', { class: 'empty', text: 'Lendo…' }));
-		try { teams = (await api('/api/teams')).teams; } catch (error) { toast(error.message); teams = []; }
-		if (screen !== 'team') { return; }
-		show(h('h2', { text: 'Equipe' }), ...(teams.length ? teams.map(teamCard) : [h('div', { class: 'empty', text: 'Nenhum fluxo de equipe neste workspace.' })]));
+		if (teamView) { return renderTeamDetail(); }
+		stopPolling();
+		const draw = () => show(h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), teamForm.open ? null : h('button', { class: 'primary', type: 'button', onclick: () => { teamForm.open = true; render(); } }, 'Nova equipe')),
+			pendingBanner(item => item.kind === 'team'),
+			teamForm.open ? teamStartForm() : null,
+			...(teams.length ? teams.map(teamCard) : [h('div', { class: 'empty', text: 'Nenhuma equipe ainda. Toque em “Nova equipe”.' })]));
+		if (!teams.length) { show(h('h2', { text: 'Equipe' }), h('div', { class: 'empty', text: 'Lendo…' })); }
+		const load = async () => { try { const next = (await api('/api/teams')).teams; if (JSON.stringify(next) !== JSON.stringify(teams)) { teams = next; if (screen === 'team' && !teamView && !teamForm.open) { draw(); } } } catch (error) { if (!teams.length) { toast(error.message); } } };
+		await load();
+		if (screen !== 'team' || teamView) { return; }
+		draw();
+		poll(load);
 	}
 	function teamCard(team) {
-		const kind = ['completed'].includes(team.state) ? 'ok' : ['failed', 'unrecoverable', 'exhausted'].includes(team.state) ? 'bad' : 'warn';
-		return h('article', { class: 'card stack' }, h('div', { class: 'row between' }, h('strong', { text: team.workspaceName }), chip(TEAM_STATE[team.state] || team.state, kind)),
-			h('div', { class: 'muted', text: String(team.task || '').slice(0, 160) }),
-			h('div', { class: 'row' }, chip('etapa: ' + (ROLE[team.phase] || team.phase)), chip('ciclo ' + team.cycle + ' de ' + (team.maxCorrections + 1))),
-			h('div', { class: 'row' }, ...(team.roles || []).map(role => chip((ROLE[role.role] || role.role || '') + ' ' + (SERVICE_NAME[role.service] || role.service)))),
-			h('ul', { class: 'timeline' }, ...(team.steps || []).map(step => h('li', { class: step.status === 'done' ? 'done' : step.status === 'failed' ? 'failed' : 'current' }, (ROLE[step.role] || step.role) + ' · versão ' + step.version + ' · ' + step.status))),
-			...(team.versions || []).map(version => h('div', { class: 'card' }, h('strong', { text: 'Versão ' + version.number + (version.stale ? ' (desatualizada)' : '') }),
+		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: () => { teamView = { id: team.id, workspaceId: team.workspaceId }; render(); }, onkeydown: event => { if (event.key === 'Enter') { teamView = { id: team.id, workspaceId: team.workspaceId }; render(); } } },
+			h('div', { class: 'row between' }, h('strong', { text: team.workspaceName }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
+			h('div', { class: 'muted clamp2', text: String(team.task || '') }),
+			h('div', { class: 'row' }, chip('etapa: ' + (ROLE[team.phase] || team.phase)), chip('ciclo ' + team.cycle + ' de ' + (team.maxCorrections + 1))));
+	}
+	async function renderTeamDetail() {
+		const view = teamView;
+		const load = async () => {
+			try {
+				const next = await api('/api/teams/' + view.id + '?workspaceId=' + encodeURIComponent(view.workspaceId));
+				if (teamView === view && JSON.stringify(next) !== JSON.stringify(view.data)) { view.data = next; if (screen === 'team') { drawTeamDetail(view); } }
+				if (!view.profiles) { view.profiles = (await api('/api/validation-profiles?workspaceId=' + encodeURIComponent(view.workspaceId))).profiles; if (teamView === view && screen === 'team') { drawTeamDetail(view); } }
+			} catch (error) { if (!view.data) { toast(error.message); teamView = undefined; render(); } }
+		};
+		if (view.data) { drawTeamDetail(view); } else { show(h('div', { class: 'empty', text: 'Lendo…' })); }
+		await load();
+		poll(load);
+	}
+	function drawTeamDetail(view) {
+		const team = view.data;
+		const control = (key, label, danger, action, extra) => armedButton(key, label, danger, () => startOp({ kind: 'control', action: 'teams.' + action, scope: team.id, path: '/api/teams/' + team.id + '/' + action, text: label, body: { confirm: true, workspaceId: team.workspaceId, ...(extra || {}) } }));
+		const running = TEAM_ACTIVE.includes(team.state);
+		const profiles = view.profiles || [];
+		view.profileId = view.profileId && profiles.some(p => p.id === view.profileId) ? view.profileId : (profiles[0] && profiles[0].id) || '';
+		const lastVersion = (team.versions || []).at(-1);
+		show(h('button', { class: 'secondary', type: 'button', onclick: () => { teamView = undefined; stopPolling(); armed = ''; render(); } }, '← Equipe'),
+			h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
+			h('p', { class: 'muted clamp3', text: team.task }),
+			h('div', { class: 'row' }, chip('etapa: ' + (ROLE[team.phase] || team.phase)), chip('ciclo ' + team.cycle + ' de ' + (team.maxCorrections + 1)), team.createdAt ? chip(duration(team.createdAt, team.finishedAt)) : null),
+			h('div', { class: 'stack' }, ...(team.roles || []).map((role, index) => h('div', { class: 'muted small', text: ['Implementador', 'Revisor', 'Testador'][index] + ': ' + (SERVICE_NAME[role.service] || role.service) + ' · ' + MODEL_NAME(role.model) }))),
+			pendingBanner(item => item.kind === 'control'),
+			team.error ? h('p', { class: 'chip bad', text: team.error }) : null,
+			team.state === 'awaiting-validation' ? h('section', { class: 'card stack' }, h('strong', { text: 'Validação independente' }),
+				profiles.length ? [select('', 'Perfil de teste cadastrado na IDE', profiles.map(p => [p.id, p.label]), view.profileId, value => { view.profileId = value; }),
+					h('p', { class: 'muted small', text: 'Roda o comando cadastrado no Windows para este perfil; o celular não escolhe nem vê o comando.' }),
+					armedButton('validate', 'Rodar a validação', false, () => startOp({ kind: 'control', action: 'teams.validate', scope: team.id, path: '/api/teams/' + team.id + '/validate', text: 'Validação independente', body: { confirm: true, workspaceId: team.workspaceId, profileId: view.profileId } }))]
+					: h('p', { class: 'muted', text: 'A equipe aguarda testes independentes, mas nenhum perfil de teste está cadastrado para este workspace. Cadastre um em “Singularity: Perfis de teste do acesso remoto” na IDE do Windows; o celular não pode informar um comando.' })) : null,
+			h('h3', { text: 'Etapas' }),
+			h('ul', { class: 'timeline' }, ...(team.steps || []).map(step => h('li', { class: step.status === 'done' ? 'done' : step.status === 'failed' ? 'failed' : 'current' },
+				(ROLE[step.role] || step.role) + ' · versão ' + step.version + ' · ' + ({ intent: 'preparando', sent: 'em execução', done: 'concluída', failed: 'falhou', cancelled: 'cancelada' }[step.status] || step.status) + (step.startedAt ? ' · ' + duration(step.startedAt, step.endedAt) : '') + (step.error ? ' — ' + step.error : ''))),
+				...(team.steps && team.steps.length ? [] : [h('li', { class: 'current', text: 'Aguardando a primeira etapa…' })])),
+			...(team.versions || []).map(version => h('div', { class: 'card stack' }, h('strong', { text: 'Versão ' + version.number + (version.stale ? ' (desatualizada)' : '') }),
 				version.review ? h('div', { class: 'muted', text: 'Revisão: ' + (version.review.verdict === 'approve' ? 'aprovada' : 'pede alterações') + ' — ' + version.review.summary }) : null,
-				...((version.review && version.review.issues) || []).slice(0, 8).map(issue => h('div', { class: 'muted small', text: '• ' + issue.severity + ' ' + issue.file + (issue.line ? ':' + issue.line : '') + ' — ' + issue.message })),
+				...((version.review && version.review.issues) || []).slice(0, 10).map(issue => h('div', { class: 'muted small', text: '• ' + issue.severity + ' ' + issue.file + (issue.line ? ':' + issue.line : '') + ' — ' + issue.message })),
 				version.testPlan ? h('div', { class: 'muted', text: 'Testes (parecer do agente): ' + (version.testPlan.verdict === 'approve' ? 'sem pendências' : 'pendências') + ' — ' + version.testPlan.summary }) : null,
+				...((version.testPlan && version.testPlan.scenarios) || []).slice(0, 6).map(item => h('div', { class: 'muted small', text: '◦ ' + item })),
 				version.validation ? h('div', { class: 'muted', text: 'Validação independente: ' + String(version.validation.status || version.validation.result || 'registrada') }) : null)),
-			team.error ? h('p', { class: 'chip bad', text: team.error }) : null);
+			h('div', { class: 'stack' },
+				lastVersion && team.comparisonId ? h('button', { class: 'secondary', type: 'button', onclick: () => showTeamDiff(team) }, 'Ver as alterações da solução') : null,
+				team.state === 'completed' && !team.chosen ? control('choose', 'Selecionar solução para revisão', false, 'choose') : null,
+				team.chosen ? h('p', { class: 'chip ok', text: 'Solução selecionada para revisão na IDE' }) : null,
+				team.state === 'paused' ? control('resume', 'Retomar a equipe', false, 'resume') : null,
+				running && team.state !== 'paused' ? control('cancel', 'Cancelar a equipe', true, 'cancel') : null,
+				h('button', { class: 'secondary', type: 'button', onclick: () => { teamView.data = undefined; renderTeamDetail(); } }, 'Atualizar')),
+			h('p', { class: 'muted small', text: 'Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' }));
+	}
+	async function showTeamDiff(team) {
+		try {
+			const group = await api('/api/comparisons/' + team.comparisonId + '?workspaceId=' + encodeURIComponent(team.workspaceId));
+			const implementer = (group.participants || []).find(p => p.role === 'implementer') || (group.participants || [])[0];
+			if (!implementer) { toast('Ainda não há alterações para mostrar.'); return; }
+			await showDiff({ id: team.comparisonId, workspaceId: team.workspaceId }, implementer);
+		} catch (error) { toast(error.message); }
 	}
 
 	// ---------- devices ----------
