@@ -203,14 +203,14 @@
 
 	async function loadCatalog() {
 		if (!agentsForm.workspaceId || !agentsForm.service) { return; }
-		try { catalog = await api('/api/catalog?workspaceId=' + encodeURIComponent(agentsForm.workspaceId) + '&service=' + encodeURIComponent(agentsForm.service)); } catch (error) { catalog = undefined; toast(error.message); }
-		const provider = catalog && catalog.providers && catalog.providers[0];
+		try { catalog = await api('/api/catalog?workspaceId=' + encodeURIComponent(agentsForm.workspaceId) + '&service=' + encodeURIComponent(baseService())); } catch (error) { catalog = undefined; toast(error.message); }
+		const provider = visibleProviders()[0];
 		const previous = agentsForm.model;
 		agentsForm.model = ''; agentsForm.effort = '';
 		if (provider && provider.models.length) {
 			const preferred = catalog.default && provider.models.find(model => model.id === catalog.default.modelID) || provider.models[0];
 			// a choice the person already made survives a reload of the catalog, as long as that model is still offered
-			const kept = previous && (catalog.providers || []).some(p => p.models.some(item => JSON.stringify([p.id, item.id]) === previous));
+			const kept = previous && visibleProviders().some(p => p.models.some(item => JSON.stringify([p.id, item.id]) === previous));
 			agentsForm.model = kept ? previous : JSON.stringify([provider.id, preferred.id]);
 		}
 		render();
@@ -221,6 +221,21 @@
 		for (const provider of catalog.providers || []) { if (provider.id === providerID) { const model = provider.models.find(item => item.id === modelID); if (model) { return { providerID, ...model }; } } }
 		return undefined;
 	}
+	// OpenCode Go and OpenCode Zen are different plans with different models: they are two entries in the Provedor list.
+	const baseService = () => String(agentsForm.service).split(':')[0];
+	const tierOf = () => String(agentsForm.service).split(':')[1] || '';
+	function visibleProviders() {
+		const all = (catalog && catalog.providers) || [];
+		const tier = tierOf();
+		return tier === 'go' ? all.filter(p => p.id === 'opencode-go') : tier === 'zen' ? all.filter(p => p.id === 'opencode') : all;
+	}
+	function serviceOptions() {
+		return status.providers.flatMap(item => {
+			const note = item.status === 'planned' ? ' (em breve)' : item.status === 'unavailable' ? ' (indisponível)' : '';
+			const blocked = item.status !== 'available';
+			return item.id === 'opencode' ? [['opencode:go', 'OpenCode Go' + note, blocked], ['opencode:zen', 'OpenCode Zen' + note, blocked]] : [[item.id, item.name + note, blocked]];
+		});
+	}
 	const providerLabel = provider => provider.id === 'opencode-go' ? 'Go' : provider.id === 'opencode' ? 'Zen' : provider.name;
 	function select(id, label, options, value, onchange) {
 		return h('div', null, h('label', { for: id, text: label }), h('select', { id, onchange: event => onchange(event.target.value) }, ...options.map(([val, text, disabled]) => h('option', { value: val, selected: val === value, disabled }, text))));
@@ -229,13 +244,13 @@
 		$('subtitle').textContent = 'Remote · agentes';
 		if (!status) { show(h('div', { class: 'empty', text: 'Lendo o computador…' })); return; }
 		const available = status.providers.filter(item => item.status === 'available');
-		if (!agentsForm.service && available[0]) { agentsForm.service = available[0].id; loadCatalog(); }
+		if (!agentsForm.service && available[0]) { agentsForm.service = available[0].id === 'opencode' ? 'opencode:go' : available[0].id; loadCatalog(); }
 		const model = selectedModel();
-		const permissions = PERMISSIONS[agentsForm.service];
+		const permissions = PERMISSIONS[baseService()];
 		const form = h('section', { class: 'card stack' },
 			status.workspaces.length ? select('workspace', 'Workspace autorizado', status.workspaces.map(item => [item.id, item.name]), agentsForm.workspaceId, value => { agentsForm.workspaceId = value; loadCatalog(); }) : h('p', { class: 'muted', text: 'Nenhum workspace autorizado. Use “Workspaces do acesso remoto” na IDE.' }),
-			select('service', 'Provedor', status.providers.map(item => [item.id, item.name + (item.status === 'planned' ? ' (em breve)' : item.status === 'unavailable' ? ' (indisponível)' : ''), item.status !== 'available']), agentsForm.service, value => { agentsForm.service = value; agentsForm.permission = ''; loadCatalog(); }),
-			select('model', 'Modelo', catalog && catalog.providers ? catalog.providers.flatMap(provider => provider.models.map(item => [JSON.stringify([provider.id, item.id]), (catalog.providers.length > 1 ? providerLabel(provider) + ' · ' : '') + item.name])) : [], agentsForm.model, value => { agentsForm.model = value; agentsForm.effort = ''; render(); }),
+			select('service', 'Provedor', serviceOptions(), agentsForm.service, value => { agentsForm.service = value; agentsForm.permission = ''; loadCatalog(); }),
+			select('model', 'Modelo', visibleProviders().flatMap(provider => provider.models.map(item => [JSON.stringify([provider.id, item.id]), (visibleProviders().length > 1 ? providerLabel(provider) + ' · ' : '') + item.name])), agentsForm.model, value => { agentsForm.model = value; agentsForm.effort = ''; render(); }),
 			select('effort', 'Esforço', [['', 'Padrão do modelo'], ...((model && model.efforts) || []).map(level => [level, EFFORT[level] || level])], agentsForm.effort, value => { agentsForm.effort = value; }),
 			permissions ? select('permission', 'Permissões', permissions, agentsForm.permission, value => { agentsForm.permission = value; }) : null,
 			h('div', null, h('label', { for: 'task', text: 'Tarefa' }), h('textarea', { id: 'task', maxlength: '16000', placeholder: 'Descreva o que o agente deve fazer…', oninput: event => { agentsForm.text = event.target.value; } }, agentsForm.text)),
@@ -248,7 +263,7 @@
 		const text = agentsForm.text.trim();
 		sending = true; render();
 		try {
-			const created = await api('/api/sessions', { method: 'POST', body: { confirm: true, workspaceId: agentsForm.workspaceId, service: agentsForm.service, model: { providerID: model.providerID, modelID: model.id, ...(agentsForm.effort ? { variant: agentsForm.effort } : {}) }, ...(agentsForm.permission ? { permissionMode: agentsForm.permission } : {}) } });
+			const created = await api('/api/sessions', { method: 'POST', body: { confirm: true, workspaceId: agentsForm.workspaceId, service: baseService(), model: { providerID: model.providerID, modelID: model.id, ...(agentsForm.effort ? { variant: agentsForm.effort } : {}) }, ...(agentsForm.permission ? { permissionMode: agentsForm.permission } : {}) } });
 			// one request id per task: if the connection drops and the app retries, the agent still receives the prompt once
 			await api('/api/sessions/' + created.session.id + '/prompt', { method: 'POST', headers: { 'X-Request-Id': requestId() }, body: { confirm: true, text } });
 			agentsForm.text = '';
