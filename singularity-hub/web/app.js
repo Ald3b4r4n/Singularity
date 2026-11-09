@@ -61,7 +61,7 @@
 	const chip = (text, kind) => h('span', { class: 'chip ' + (kind || '') }, h('span', { class: 'dot' + (kind ? '' : ' hollow') }), text);
 	const statusChip = value => { const [label, kind] = STATUS[value] || [value, '']; return chip(label, kind); };
 	const when = value => value ? new Date(value).toLocaleString('pt-BR') : '';
-	const modelText = model => model ? model.modelID + (model.variant ? ' · ' + (EFFORT[model.variant] || model.variant) : '') : 'modelo padrão';
+	const modelText = model => model ? (model.providerID === 'opencode-go' ? 'Go · ' : model.providerID === 'opencode' ? 'Zen · ' : '') + model.modelID + (model.variant ? ' · ' + (EFFORT[model.variant] || model.variant) : '') : 'modelo padrão';
 	const requestId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40).padEnd(8, '0');
 
 	// ---------- API ----------
@@ -221,6 +221,7 @@
 		for (const provider of catalog.providers || []) { if (provider.id === providerID) { const model = provider.models.find(item => item.id === modelID); if (model) { return { providerID, ...model }; } } }
 		return undefined;
 	}
+	const providerLabel = provider => /go/i.test(provider.id + ' ' + provider.name) ? 'Go' : /zen/i.test(provider.id + ' ' + provider.name) || provider.id === 'opencode' ? 'Zen' : provider.name;
 	function select(id, label, options, value, onchange) {
 		return h('div', null, h('label', { for: id, text: label }), h('select', { id, onchange: event => onchange(event.target.value) }, ...options.map(([val, text, disabled]) => h('option', { value: val, selected: val === value, disabled }, text))));
 	}
@@ -234,7 +235,7 @@
 		const form = h('section', { class: 'card stack' },
 			status.workspaces.length ? select('workspace', 'Workspace autorizado', status.workspaces.map(item => [item.id, item.name]), agentsForm.workspaceId, value => { agentsForm.workspaceId = value; loadCatalog(); }) : h('p', { class: 'muted', text: 'Nenhum workspace autorizado. Use “Workspaces do acesso remoto” na IDE.' }),
 			select('service', 'Provedor', status.providers.map(item => [item.id, item.name + (item.status === 'planned' ? ' (em breve)' : item.status === 'unavailable' ? ' (indisponível)' : ''), item.status !== 'available']), agentsForm.service, value => { agentsForm.service = value; agentsForm.permission = ''; loadCatalog(); }),
-			select('model', 'Modelo', catalog && catalog.providers ? catalog.providers.flatMap(provider => provider.models.map(item => [JSON.stringify([provider.id, item.id]), item.name])) : [], agentsForm.model, value => { agentsForm.model = value; agentsForm.effort = ''; render(); }),
+			select('model', 'Modelo', catalog && catalog.providers ? catalog.providers.flatMap(provider => provider.models.map(item => [JSON.stringify([provider.id, item.id]), (catalog.providers.length > 1 ? providerLabel(provider) + ' · ' : '') + item.name])) : [], agentsForm.model, value => { agentsForm.model = value; agentsForm.effort = ''; render(); }),
 			select('effort', 'Esforço', [['', 'Padrão do modelo'], ...((model && model.efforts) || []).map(level => [level, EFFORT[level] || level])], agentsForm.effort, value => { agentsForm.effort = value; }),
 			permissions ? select('permission', 'Permissões', permissions, agentsForm.permission, value => { agentsForm.permission = value; }) : null,
 			h('div', null, h('label', { for: 'task', text: 'Tarefa' }), h('textarea', { id: 'task', maxlength: '16000', placeholder: 'Descreva o que o agente deve fazer…', oninput: event => { agentsForm.text = event.target.value; } }, agentsForm.text)),

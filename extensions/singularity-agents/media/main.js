@@ -85,7 +85,7 @@
 		const names = new Map();
 		for (const model of sel.models) { names.set(model.name, (names.get(model.name) || 0) + 1); }
 		fill(el.model, sel.models.map(m => ({
-			value: m.key, label: names.get(m.name) > 1 ? m.name + ' · ' + m.providerName : m.name
+			value: m.key, label: new Set(sel.models.map(x => x.providerID)).size > 1 ? R.providerTag(m) + ' · ' + m.name : m.name
 		})), sel.model?.key, loading ? 'Carregando…' : 'Sem modelos');
 		el.model.title = sel.model ? sel.model.providerName + ' · ' + sel.model.name : '';
 		const effortOptions = [{ value: '', label: 'Padrão do modelo' }, ...sel.efforts.map(e => ({ value: e, label: R.effortLabel(e) }))];

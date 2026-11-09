@@ -99,6 +99,12 @@
 		return { services, service, models, model, efforts, effort, canSend: !!(service && model) };
 	}
 
+	/** OpenCode Go and OpenCode Zen are different providers; say which one a model belongs to. */
+	function providerTag(model) {
+		var text = model.providerID + ' ' + (model.providerName || '');
+		return /go/i.test(text) ? 'Go' : (/zen/i.test(text) || model.providerID === 'opencode') ? 'Zen' : (model.providerName || model.providerID);
+	}
+
 	function serviceName(catalog, id) {
 		var s = catalog && catalog.services ? find(catalog.services, id) : undefined;
 		return s ? s.name : (id === 'opencode' ? 'OpenCode' : id === 'claude-code' ? 'Claude Code' : id === 'codex-cli' ? 'Codex CLI' : String(id));
@@ -209,18 +215,18 @@
 			'<button class="workspace-control" type="button" id="ws" data-action="pickWorkspace"></button></div>' +
 			'<label for="prompt">Tarefa</label><textarea id="prompt" rows="3" maxlength="16000" placeholder="Descreva o que deseja desenvolver…"></textarea>' +
 			'<div class="toolbar"><div class="selectors">' +
-			'<div class="field"><label for="service">Provedor</label><select id="service"></select><button type="button" id="manage-providers" data-action="manageProviders">Gerenciar provedores</button></div>' +
+			'<div class="field"><label for="service">Provedor</label><select id="service"></select></div>' +
 			'<div class="field"><label for="model">Modelo</label><select id="model"></select></div>' +
 			'<div class="field"><label for="effort">Esforço</label><select id="effort"></select></div>' +
 			'<div class="field" id="permission-field" hidden><label for="permission">Permissões</label><select id="permission"></select></div></div>' +
-			'<div class="actions">' +
+			'<div class="actions"><button type="button" id="manage-providers" class="link" data-action="manageProviders">Gerenciar provedores</button>' +
 			'<button type="submit" id="send" class="primary" title="Enviar (Ctrl+Enter)">Enviar <span aria-hidden="true">➤</span></button></div></div>' +
 			'<p id="note" class="note" role="status"></p></form>';
 	}
 
 	var api = {
 		isActive: isActive, renderNavigation: renderNavigation, renderTarget: renderTarget, shell: shell, hubLine: hubLine, resolve: resolve, effortLabel: effortLabel,
-		modelLabel: modelLabel, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE,
+		modelLabel: modelLabel, providerTag: providerTag, serviceName: serviceName, folderName: folderName, esc: esc, SERVICE_NOTE: SERVICE_NOTE,
 		PERMISSIONS: PERMISSIONS, CODEX_PERMISSIONS: CODEX_PERMISSIONS, permissionOptions: permissionOptions, validPermission: validPermission, permissionLabel: permissionLabel, canReopen: canReopen
 	};
 	if (typeof module !== 'undefined' && module.exports) { module.exports = api; } else { root.SingularityAgentsRender = api; }

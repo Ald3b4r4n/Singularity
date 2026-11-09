@@ -98,18 +98,21 @@ body.vscode-dark .message-agent .bubble, body.vscode-dark .composer { box-shadow
 	max-height: 68vh;
 	overflow: auto;
 }
-.target-row, .toolbar, .actions { display: flex; align-items: end; flex-wrap: wrap; gap: 6px; }
+.target-row, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.toolbar { display: grid; gap: 10px; }
 .target-row { align-items: center; }
 .target-label { font-weight: 600; }
-.workspace-control { margin-inline-start: auto; max-width: 100%; }
+.workspace-control { margin-inline-start: auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 999px; padding: 3px 12px; font-size: .9em; }
 .selectors {
-	flex: 1 1 min(100%, 330px);
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 1.15fr);
 	gap: 6px;
 	min-width: 0;
 }
-.actions { margin-inline-start: auto; }
+.actions { justify-content: space-between; }
+.actions .primary { min-width: 96px; padding-block: 7px; }
+button.link { border-color: transparent; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; padding-inline: 4px; }
+.field label { margin-bottom: 3px; }
 .field { min-width: 0; }
 /* Claude Code only: the permission mode is a fourth choice, on its own row so the other three keep their widths. */
 #permission-field { grid-column: 1 / -1; }
