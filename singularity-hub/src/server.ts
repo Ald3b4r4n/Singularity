@@ -1,3 +1,4 @@
+import { usageReport } from './usageReport';
 import { Teams } from './teams';
 import { Solutions } from './solutions';
 import { Comparisons } from './comparisons';
@@ -63,7 +64,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['usage.get', 'teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -437,6 +438,8 @@ export class HubServer {
 				}
 				return inspectProviders(() => this.opencode.diagnose(p.workspace as string | undefined, p.refresh === true), p.refresh === true);
 			}
+			case 'usage.get':
+				return usageReport({ fresh: (request.params as { fresh?: unknown } | undefined)?.fresh === true });
 			case 'catalog.get':
 				return this.catalog(request.params);
 			case 'session.create':

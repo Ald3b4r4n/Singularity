@@ -75,6 +75,11 @@
         "category": "Singularity"
       },
       {
+        "command": "singularity.agents.usage",
+        "title": "Uso e limites dos serviços",
+        "category": "Singularity"
+      },
+      {
         "command": "singularity.agents.manageProviders",
         "title": "Gerenciar provedores",
         "category": "Singularity"

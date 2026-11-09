@@ -308,6 +308,7 @@ export class RemoteGateway {
 			this.handled.set(requestId, { at: this.now(), result });
 			return this.send(res, 200, result);
 		}
+		if (route === 'GET /api/usage') { return this.send(res, 200, await this.bridge.call('usage.get', {})); }
 		if (route === 'GET /api/comparisons' || route === 'GET /api/teams') {
 			const workspaces = this.store.workspaces();
 			const out: unknown[] = [];

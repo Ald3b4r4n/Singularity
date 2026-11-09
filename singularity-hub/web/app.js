@@ -154,7 +154,7 @@
 		jump.hidden = true;
 		renderTabs();
 		if (!token) { return renderPairing(); }
-		const screens = { home: renderHome, agents: renderAgents, sessions: renderSessions, compare: renderCompare, team: renderTeam, devices: renderDevices };
+		const screens = { home: renderHome, agents: renderAgents, sessions: renderSessions, compare: renderCompare, team: renderTeam, devices: renderDevices, usage: renderUsage };
 		(screens[screen] || renderHome)();
 	}
 
@@ -198,6 +198,39 @@
 	}
 	function openSessionView(id) { follow = true; openSession = sessions.find(item => item.id === id); screen = 'sessions'; safeSet(VIEW_KEY, 'sessions'); render(); loadHistory(id); }
 
+	// ---------- usage ----------
+	let usage;
+	const fmt = value => value >= 1e9 ? (value / 1e9).toFixed(2).replace('.', ',') + ' bi' : value >= 1e6 ? (value / 1e6).toFixed(1).replace('.', ',') + ' mi' : value >= 1e3 ? (value / 1e3).toFixed(1).replace('.', ',') + ' mil' : String(value);
+	function tokensLine(label, t) {
+		return h('div', { class: 'usage-row' }, h('span', { class: 'usage-label', text: label }),
+			h('span', { class: 'usage-value', text: t.messages ? fmt(t.input + t.reasoning) + ' entrada · ' + fmt(t.output) + ' saída' + (t.cacheRead + t.cacheWrite ? ' · ' + fmt(t.cacheRead + t.cacheWrite) + ' cache' : '') + (t.cost ? ' · US$ ' + t.cost.toFixed(2).replace('.', ',') : '') : 'sem uso' }));
+	}
+	function planBar(window) {
+		const bar = h('div', { class: 'meter-fill' });
+		bar.style.width = Math.min(100, window.usedPercent) + '%';
+		const level = window.usedPercent >= 85 ? 'bad' : window.usedPercent >= 60 ? 'warn' : 'ok';
+		return h('div', { class: 'meter ' + level }, h('div', { class: 'row between' }, h('span', { text: window.label }), h('strong', { text: window.usedPercent.toString().replace('.', ',') + '% usado' })),
+			h('div', { class: 'meter-track', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(window.usedPercent), 'aria-label': window.label }, bar),
+			window.resetsAt ? h('div', { class: 'muted small', text: 'Renova em ' + new Date(window.resetsAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) }) : null);
+	}
+	function usageCard(service) {
+		return h('article', { class: 'card stack' }, h('strong', { text: service.name }),
+			service.plan ? h('div', { class: 'stack' }, service.plan.name ? h('div', { class: 'muted small', text: 'Plano ' + service.plan.name }) : null, ...service.plan.windows.map(planBar)) : null,
+			tokensLine('Hoje', service.today), tokensLine('7 dias', service.week), tokensLine('30 dias', service.month),
+			service.models.length ? h('div', { class: 'usage-models' }, h('div', { class: 'muted small', text: 'Modelos (30 dias)' }), ...service.models.slice(0, 4).map(item => h('div', { class: 'usage-row' }, h('span', { class: 'usage-label', text: item.model }), h('span', { class: 'usage-value', text: fmt(item.month.input + item.month.reasoning + item.month.output) + ' tokens' })))) : null,
+			service.note ? h('p', { class: 'muted small', text: service.note }) : null);
+	}
+	async function renderUsage() {
+		$('subtitle').textContent = 'Remote · uso';
+		show(h('button', { class: 'secondary', type: 'button', onclick: () => go('home') }, '← Início'), h('h2', { text: 'Uso e limites' }), h('div', { class: 'empty', text: 'Lendo o computador…' }));
+		try { usage = await api('/api/usage'); } catch (error) { toast(error.message); usage = undefined; }
+		if (screen !== 'usage') { return; }
+		show(h('button', { class: 'secondary', type: 'button', onclick: () => go('home') }, '← Início'), h('h2', { text: 'Uso e limites' }),
+			h('p', { class: 'muted small', text: 'Lido neste computador, sem consultar nenhum serviço e sem estimar valores. Tokens de entrada e saída; o cache fica à parte.' }),
+			...(usage ? usage.services.map(usageCard) : [h('div', { class: 'empty', text: 'Não foi possível ler o uso.' })]),
+			h('button', { class: 'secondary', type: 'button', onclick: () => renderUsage() }, 'Atualizar'));
+	}
+
 	function renderHome() {
 		$('subtitle').textContent = 'Remote';
 		const active = sessions.filter(item => item.status === 'running' || item.status === 'waiting');
@@ -206,6 +239,7 @@
 			h('section', { class: 'card stack' }, h('div', { class: 'row between' }, h('strong', { text: 'Computador' }), status ? chip(status.hub.connected ? 'Hub conectado' : 'Hub desligado', status.hub.connected ? 'ok' : 'bad') : chip('lendo…')),
 				status ? h('div', { class: 'muted', text: 'Aparelho: ' + status.device.name + (status.tailnet ? ' · rede privada' : '') }) : null,
 				status ? h('div', { class: 'muted', text: status.workspaces.length ? 'Workspaces: ' + status.workspaces.map(item => item.name).join(', ') : 'Nenhum workspace autorizado: autorize um na IDE.' }) : null),
+			h('button', { class: 'secondary', type: 'button', onclick: () => go('usage') }, 'Uso e limites dos planos'),
 			h('h3', { text: 'Provedores' }),
 			h('section', { class: 'card row' }, ...(status ? status.providers.map(provider => chip(provider.name + (provider.status === 'planned' ? ' · em breve' : provider.status === 'unavailable' ? ' · indisponível' : ''), provider.status === 'available' ? 'ok' : '')) : [])),
 			h('h3', { text: 'Em andamento (' + active.length + ')' }),

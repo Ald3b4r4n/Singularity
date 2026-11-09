@@ -92,3 +92,15 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 
 .jump { position: fixed; right: 16px; bottom: calc(138px + env(safe-area-inset-bottom)); width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--accent); background: var(--surface); color: var(--accent); font-size: 22px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.35); z-index: 20; }
 .jump[hidden] { display: none; }
+
+/* usage */
+.usage-row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+.usage-row:last-child { border-bottom: 0; }
+.usage-label { color: var(--muted); flex: none; }
+.usage-value { text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.usage-models { margin-top: 4px; }
+.meter { display: grid; gap: 4px; font-size: 14px; }
+.meter-track { height: 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+.meter-fill { height: 100%; background: var(--ok); border-radius: 999px; }
+.meter.warn .meter-fill { background: var(--warn); }
+.meter.bad .meter-fill { background: var(--bad); }

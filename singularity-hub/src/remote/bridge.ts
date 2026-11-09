@@ -9,7 +9,7 @@ import { Session } from '../protocol';
  */
 export const ALLOWED_HUB_METHODS = [
 	'sessions.list', 'session.create', 'session.prompt', 'session.interrupt', 'session.history', 'catalog.get',
-	'comparisons.list', 'comparisons.inspect', 'teams.list', 'solutions.list'
+	'comparisons.list', 'comparisons.inspect', 'teams.list', 'solutions.list', 'usage.get'
 ] as const;
 export type AllowedMethod = typeof ALLOWED_HUB_METHODS[number];
 

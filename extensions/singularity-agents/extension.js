@@ -110,8 +110,10 @@ class AgentsViewProvider {
 			} else if (message?.type === 'manageProviders') {
 				await vscode.commands.executeCommand('singularity.agents.manageProviders');
 			} else if (message?.type === 'openSettings') {
-				const choice = await vscode.window.showQuickPick(['Configurações de Agentes', 'Gerenciar provedores'], { title: 'Configurações' });
-				if (choice === 'Gerenciar provedores') {
+				const choice = await vscode.window.showQuickPick(['Configurações de Agentes', 'Gerenciar provedores', 'Uso e limites dos serviços'], { title: 'Configurações' });
+				if (choice === 'Uso e limites dos serviços') {
+					await vscode.commands.executeCommand('singularity.agents.usage');
+				} else if (choice === 'Gerenciar provedores') {
 					await vscode.commands.executeCommand('singularity.agents.manageProviders');
 				} else if (choice) {
 					await vscode.commands.executeCommand('singularity.agents.openSettings');
@@ -450,6 +452,7 @@ function activate(context) {
 		vscode.window.registerWebviewViewProvider(VIEW_ID, provider, { webviewOptions: { retainContextWhenHidden: false } }),
 		vscode.window.registerWebviewPanelSerializer(EDITOR_ID, { deserializeWebviewPanel: async (view, saved) => provider.attachEditor(view, saved) }),
 		{ dispose: hub.onDidChange(() => provider._post()) },
+		vscode.commands.registerCommand('singularity.agents.usage', () => require('./usagePanel').openUsage(hub)),
 		vscode.commands.registerCommand('singularity.agents.manageProviders', async () => {
 			try {
 				await manageProviders(hub, provider._workspace(), async service => {
