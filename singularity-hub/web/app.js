@@ -392,7 +392,10 @@
 		const buttons = pending.status === 'unknown'
 			? [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Verificar de novo'), h('button', { class: 'secondary', type: 'button', onclick: () => resolvePending('retry') }, 'Reenviar mesmo assim'), h('button', { class: 'secondary', type: 'button', onclick: () => resolvePending('discard') }, 'Descartar')]
 			: pending.status === 'conflict' || pending.status === 'blocked' ? [h('button', { class: 'secondary', type: 'button', onclick: discardLocal }, 'Entendi')]
-			: pending.status === 'sending' ? [] : [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Tentar de novo')];
+			: pending.status === 'sending' ? []
+			// a send that the computer refused before starting anything can be dropped by the person: there is nothing on the computer to undo
+			: pending.status === 'failed' ? [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Tentar de novo'), h('button', { class: 'secondary', type: 'button', onclick: discardLocal }, 'Descartar')]
+			: [h('button', { class: 'secondary', type: 'button', onclick: dispatchPending }, 'Tentar de novo')];
 		return h('section', { class: 'card stack pending ' + pending.status, role: 'status', 'aria-live': 'polite' },
 			h('strong', { text: pending.status === 'unknown' ? 'Estado do envio desconhecido' : pending.status === 'sending' ? 'Enviando' : pending.status === 'waiting' ? 'Aguardando confirmação' : 'Envio pendente' }),
 			h('div', { class: 'muted small', text: pending.message }), h('div', { class: 'muted small clamp', text: String(pending.text || '').slice(0, 140) }),

@@ -103,4 +103,9 @@ describe('Singularity Remote web client', () => {
 		assert.match(app, /O computador não respondeu\. Tentando de novo/);
 		for (const text of ['Ver resposta', 'Ver ao vivo', 'Agente · ao vivo', 'Ver resposta da etapa']) { assert.ok(app.includes(text), text); }
 	});
+
+	it('lets the person drop a send that the computer refused before starting anything', () => {
+		const app = read('app.js');
+		assert.match(app, /pending\.status === 'failed' \? \[[^\]]*Tentar de novo[^\]]*Descartar/);
+	});
 });
