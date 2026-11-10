@@ -16,6 +16,7 @@ const hubDir = path.resolve(arg('hub', path.join(__dirname, '../../singularity-h
 const outDir = path.resolve(arg('out', path.join(process.cwd(), 'multiagent-ui-out')));
 fs.mkdirSync(outDir, { recursive: true });
 const { RemoteGateway } = require(path.join(hubDir, 'dist/remote/gateway.js'));
+const { BridgeError } = require(path.join(hubDir, 'dist/remote/bridge.js'));
 
 const results = [];
 const log = (...a) => { const line = new Date().toISOString() + ' ' + a.join(' '); console.log(line); fs.appendFileSync(path.join(outDir, 'progress.log'), line + '\n'); };
@@ -52,6 +53,7 @@ class ScriptedHub extends EventEmitter {
 			return { participant: participant && structuredClone(participant), result: answer, usage: participant && participant.status === 'done' ? { inputTokens: 1234, outputTokens: 321 } : undefined, durationMs: participant ? (participant.endedAt || Date.now()) - participant.startedAt : 0, files: 'M  src/app.js', diff: '--- a/src/app.js\n+++ b/src/app.js\n@@ -1,3 +1,4 @@\n-const a = 1;\n+const a = 2; // uma linha muito comprida que deve rolar só dentro do diff e nunca empurrar a página inteira para o lado em uma tela estreita\n+const b = 3;\n' };
 		}
 		if (method === 'comparisons.create') {
+			if (String(params.text).includes('RECUSAR')) { throw new BridgeError('A árvore de origem contém alterações. Faça commit ou escolha um repositório limpo.'); }
 			const now = Date.now();
 			const record = { id: '11111111-1111-4111-8111-' + String(100000000000 + this.comparisons.length), workspace: this.workspace, prompt: params.text, createdAt: now, participants: params.participants.map((p, i) => ({ id: 'part-' + (i + 1), service: p.service, model: p.model, status: 'running', startedAt: now })) };
 			this.comparisons.push(record);
@@ -95,8 +97,8 @@ async function main() {
 	gateway = makeGateway();
 	await gateway.start();
 	const base = `http://127.0.0.1:${gateway.publicPort}`;
-	const adminToken = fs.readFileSync(path.join(directory, 'admin.token'), 'utf8');
-	const admin = async (route, body) => (await fetch(`http://127.0.0.1:${gateway.adminPort}` + route, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': adminToken }, body: body === undefined ? undefined : JSON.stringify(body) })).json();
+	// every gateway start makes a new admin secret: read it each time
+	const admin = async (route, body) => (await fetch(`http://127.0.0.1:${gateway.adminPort}` + route, { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': fs.readFileSync(path.join(directory, 'admin.token'), 'utf8') }, body: body === undefined ? undefined : JSON.stringify(body) })).json();
 	const added = await admin('/admin/workspaces/add', { path: workspace });
 
 	browser = await chromium.launch({ headless: true });
@@ -153,6 +155,7 @@ async function main() {
 	await page.getByRole('button', { name: 'Toque de novo para confirmar' }).click();
 	await waitFor(() => calls('comparisons.select').length === 1, 'select reached the Hub');
 	check('A.12 selecting for review calls only comparisons.select (nothing is applied)', calls('comparisons.select').length === 1 && !hub.calls.some(call => /solutions\./.test(call.method)));
+	await page.waitForFunction(() => /ficam na IDE do computador/.test(document.body.innerText), null, { timeout: 10000 }).catch(() => undefined);
 	check('A.13 the screen offers no apply and no undo, and says where they are done', !/Aplicar a solução$|Desfazer$/m.test(await page.locator('#view').innerText()) && /ficam na IDE do computador/.test(await page.locator('#view').innerText()));
 
 	// a lost answer: the request reaches the computer, the answer does not; the retry reuses the id and nothing starts twice
@@ -283,6 +286,29 @@ async function main() {
 	check('F.8 reopening the page after the restart goes straight back in (the device stays authorised)', (await page.locator('.tabs button').count()) === 6);
 	await context.setOffline(true); await delay(1500); await context.setOffline(false); await delay(3500);
 	check('F.9 losing the network for a moment and getting it back leaves the screen usable', (await page.locator('.tabs button').count()) === 6 && !(await page.locator('.pending').count()));
+
+	// ============ a refusal from the computer, then another workspace: the old refusal does not stay over the new form ============
+	const second = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'singularity-ma-ws2-')));
+	const added2 = await admin('/admin/workspaces/add', { path: second });
+	await page.reload();
+	await page.waitForSelector('.tabs button');
+	await page.locator('.tabs button', { hasText: 'Comparação' }).click();
+	await page.locator('.tabs button', { hasText: 'Comparação' }).click();
+	await page.getByRole('button', { name: 'Nova comparação' }).click();
+	await page.waitForSelector('fieldset.agent');
+	await page.locator('.form textarea').fill('RECUSAR esta tarefa');
+	await page.getByRole('button', { name: 'Confirmar e iniciar' }).click();
+	await page.waitForSelector('.pending.failed');
+	check('G.1 a start that the computer refuses says so, that nothing was started, and offers to try again or to drop it', /Nada foi iniciado/.test(await page.locator('.pending').innerText()) && (await page.getByRole('button', { name: 'Descartar' }).count()) === 1);
+	await shot('p19-envio-recusado.png');
+	await page.locator('.form select').first().selectOption(added2.workspace.id);
+	await page.waitForFunction(() => !document.querySelector('.pending'), null, { timeout: 5000 });
+	check('G.2 choosing another workspace in the form hides the refusal that belonged to the first one', (await page.locator('.pending').count()) === 0);
+	await page.locator('.form select').first().selectOption({ index: 0 });
+	await page.waitForSelector('.pending.failed');
+	await page.getByRole('button', { name: 'Descartar' }).click();
+	await page.waitForFunction(() => !document.querySelector('.pending'), null, { timeout: 5000 });
+	check('G.3 dropping a refused send clears it, and it does not come back after reloading the page', await (async () => { await page.reload(); await page.waitForSelector('.tabs button'); return !(await page.evaluate(() => localStorage.getItem('singularity.remote.pending'))); })());
 
 	// ============ layout: 360 and 320 px, keyboard open, light theme ============
 	await page.locator('.tabs button', { hasText: 'Equipe' }).click();

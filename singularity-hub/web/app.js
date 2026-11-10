@@ -545,7 +545,7 @@
 		if (compareView) { return renderCompareDetail(); }
 		stopPolling();
 		const draw = () => show(h('div', { class: 'row between' }, h('h2', { text: 'Comparação' }), compareForm.open ? null : h('button', { class: 'primary', type: 'button', onclick: () => { compareForm.open = true; render(); } }, 'Nova comparação')),
-			pendingBanner(item => item.kind === 'comparison'),
+			pendingBanner(item => item.kind === 'comparison' && !staleRefusal(item, compareForm)),
 			compareForm.open ? compareStartForm() : null,
 			...(comparisons.filter(item => !item.team).length ? comparisons.filter(item => !item.team).map(comparisonCard) : [h('div', { class: 'empty', text: 'Nenhuma comparação ainda. Toque em “Nova comparação”.' })]));
 		if (!comparisons.length) { show(h('h2', { text: 'Comparação' }), h('div', { class: 'empty', text: 'Lendo…' })); }
@@ -646,12 +646,14 @@
 	const ROLE = { implementer: 'Implementador', reviewer: 'Revisor', tester: 'Testador', validation: 'Validação' };
 	const TEAM_ACTIVE = ['preparing', 'running', 'snapshotting', 'paused', 'awaiting-validation'];
 	const teamKind = state => state === 'completed' ? 'ok' : ['failed', 'unrecoverable', 'exhausted'].includes(state) ? 'bad' : 'warn';
+	/** A send the computer refused before starting anything, for a workspace other than the one the form is now set to, is no longer relevant: it is not shown over the new form. */
+	const staleRefusal = (item, form) => item.status === 'failed' && form.open && !!form.workspaceId && item.scope !== form.workspaceId;
 	async function renderTeam() {
 		$('subtitle').textContent = 'Remote · equipe';
 		if (teamView) { return renderTeamDetail(); }
 		stopPolling();
 		const draw = () => show(h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), teamForm.open ? null : h('button', { class: 'primary', type: 'button', onclick: () => { teamForm.open = true; render(); } }, 'Nova equipe')),
-			pendingBanner(item => item.kind === 'team'),
+			pendingBanner(item => item.kind === 'team' && !staleRefusal(item, teamForm)),
 			teamForm.open ? teamStartForm() : null,
 			...(teams.length ? teams.map(teamCard) : [h('div', { class: 'empty', text: 'Nenhuma equipe ainda. Toque em “Nova equipe”.' })]));
 		if (!teams.length) { show(h('h2', { text: 'Equipe' }), h('div', { class: 'empty', text: 'Lendo…' })); }

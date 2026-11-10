@@ -108,4 +108,10 @@ describe('Singularity Remote web client', () => {
 		const app = read('app.js');
 		assert.match(app, /pending\.status === 'failed' \? \[[^\]]*Tentar de novo[^\]]*Descartar/);
 	});
+
+	it('does not show a refused send for another workspace over the form that is now set to a different one', () => {
+		const app = read('app.js');
+		assert.match(app, /const staleRefusal = \(item, form\) => item\.status === 'failed' && form\.open/);
+		assert.match(app, /!staleRefusal\(item, compareForm\)/); assert.match(app, /!staleRefusal\(item, teamForm\)/);
+	});
 });
