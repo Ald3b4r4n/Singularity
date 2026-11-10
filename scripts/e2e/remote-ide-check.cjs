@@ -56,7 +56,9 @@ async function main() {
 	const found = [];
 	for (const title of commands) {
 		const entries = await palette('Singularity: ' + title);
-		if (await entries.filter({ hasText: title }).count()) { found.push(title); }
+		// the list is filled asynchronously: wait for the entry instead of guessing a delay
+		const present = await waitFor(async () => (await entries.filter({ hasText: title }).count()) > 0, 'palette entry ' + title, 6000, 200).then(() => true, () => false);
+		if (present) { found.push(title); }
 		await page.keyboard.press('Escape');
 	}
 	check('2. the Singularity commands for remote access are in the Command Palette', found.length === commands.length, found);
