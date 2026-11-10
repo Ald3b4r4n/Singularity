@@ -1,3 +1,4 @@
+import { followLineEndings, lineEndingArgs } from './gitconfig';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID, createHash } from 'node:crypto';
@@ -103,15 +104,14 @@ export class Comparisons {
 		return record;
 	}
 
-	private async git(workspace: string, args: string[], own = false): Promise<string> {
+	private async git(workspace: string, args: string[]): Promise<string> {
 		const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 		for (const key of Object.keys(env)) { if (key.startsWith('GIT_') && key !== 'GIT_TERMINAL_PROMPT') { delete env[key]; } }
-		// Worktrees are created and inspected with the same Git configuration the solutions use (snapshots, review, apply): none of the global or
-		// system settings of the person, so file bytes are exactly the blobs. Created with core.autocrlf=true (the Git for Windows default) they would
-		// look modified to every later check, and a team stopped at the clean-context check. Only 'is the project clean?' is asked the way the Git of
-		// the person answers it (own = true), because those working files may legitimately be CRLF.
-		if (!own) { Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }); }
-		const { stdout } = await execute('git', ['-c', 'core.hooksPath=', '-c', 'core.fsmonitor=false', '-C', workspace, ...args],
+		// No global or system configuration of the person, except how line endings are stored (see gitconfig.ts): a worktree then holds the same
+		// bytes as the project it came from, and every later check (snapshots, review, apply) reads them the same way.
+		Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
+		const lineEndings = await lineEndingArgs(workspace);
+		const { stdout } = await execute('git', ['-c', 'core.hooksPath=', '-c', 'core.fsmonitor=false', ...lineEndings, '-C', workspace, ...args],
 			{ env, windowsHide: true, timeout: 30000, maxBuffer: 2 * 1024 * 1024 });
 		return stdout;
 	}
@@ -132,7 +132,7 @@ export class Comparisons {
 			const workspace = await realpath(input.workspace);
 			const root = await realpath((await this.git(workspace, ['rev-parse', '--show-toplevel'])).trim());
 			if (workspace.toLowerCase() !== root.toLowerCase()) { throw new Error('Abra a raiz do repositório Git.'); }
-			if ((await this.git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'], true)).trim()) { throw new Error('A árvore de origem contém alterações. Faça commit ou escolha um repositório limpo.'); }
+			if ((await this.git(workspace, ['status', '--porcelain=v1', '--untracked-files=all'])).trim()) { throw new Error('A árvore de origem contém alterações. Faça commit ou escolha um repositório limpo.'); }
 			const base = (await this.git(workspace, ['rev-parse', '--verify', 'HEAD^{commit}'])).trim();
 			ensureSecureDir(this.directory);
 			this.directory = realpathSync.native(this.directory);
@@ -153,6 +153,7 @@ export class Comparisons {
 			// All participants are prepared before the first prompt can consume inference.
 			try {
 				for (const p of record.participants) {
+					followLineEndings(p.workspace, workspace);
 					await this.git(workspace, ['worktree', 'add', '--detach', p.workspace, base]);
 					if (!team) { const session = await this.adapter.create(p.workspace, p.service, p.model, p.role, record.workspace); p.sessionId = session.id; }
 					this.save(record);

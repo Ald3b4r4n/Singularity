@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { promises as fs, realpathSync } from 'node:fs';
 import { join, resolve, dirname, basename, sep, isAbsolute } from 'node:path';
+import { eolStyle, followLineEndings, lineEndingArgs } from './gitconfig';
 import { SessionHistory } from './history';
 import { ensureSecureDir, currentWindowsUser } from './secure';
 import type { Comparison, Participant } from './comparisons';
@@ -12,7 +13,11 @@ const maxFiles = 512;
 const maxBytes = 32 * 1024 * 1024;
 const digest = (data: Buffer | string): string => createHash('sha256').update(data).digest('hex');
 interface FileState { hash: string; bytes: number; mode: number }
-export interface SolutionFile { path: string; before?: FileState; after?: FileState; kind: 'added' | 'modified' | 'removed'; binary: boolean }
+export interface SolutionFile {
+	path: string; before?: FileState; after?: FileState; kind: 'added' | 'modified' | 'removed'; binary: boolean;
+	/** The solution rewrote this file with another line-ending style than the project had (shown in the review; nothing is converted for it). */
+	eolChanged?: { from: string; to: string };
+}
 interface Validation { state: 'unavailable' | 'running' | 'passed' | 'failed' | 'interrupted' | 'cancelled'; executable?: string; args?: string[]; exitCode?: number | null; output?: string; at?: number }
 export interface Solution {
 	id: string; comparisonId: string; participantId: string; workspace: string; source: string; base: string;
@@ -20,17 +25,23 @@ export interface Solution {
 	files: SolutionFile[]; tree: string; patchHash: string; integrity: boolean; validation: Validation;
 	state: 'prepared' | 'validating' | 'applying' | 'applied' | 'rolling-back' | 'rolled-back' | 'conflict';
 	progress: number; error?: string; lockToken?: string; lockPid?: number; directories?: string[];
+	/** Files that differ from the project only in how lines end: not part of the solution, the project keeps its bytes. */
+	eolOnly?: string[];
 }
 export type SolutionSource = (comparisonId: string, workspace: string, participantId: string) => Promise<{ comparison: Comparison; participant: Participant }>;
 
-/** Git always runs with optional index writes and user-defined hooks/filters disabled in the isolated repository. */
+/**
+ * Git always runs with optional index writes and user-defined hooks/filters disabled, and without the person's global or system configuration,
+ * except the line-ending settings in effect for the project (gitconfig.ts): the Hub must read a CRLF checkout the way the person's Git does.
+ */
 async function git(workspace: string, args: string[], input?: Buffer, extra: NodeJS.ProcessEnv = {}): Promise<Buffer> {
 	const env: NodeJS.ProcessEnv = { ...process.env };
 	for (const key of Object.keys(env)) { if (key.startsWith('GIT_')) { delete env[key]; } }
 	Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' }, extra);
+	const lineEndings = await lineEndingArgs(workspace);
 	if (input) {
 		return new Promise((resolveResult, reject) => {
-			const child = spawn('git', ['-c', 'core.hooksPath=', '-c', 'core.fsmonitor=false', '-C', workspace, ...args], { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+			const child = spawn('git', ['-c', 'core.hooksPath=', '-c', 'core.fsmonitor=false', ...lineEndings, '-C', workspace, ...args], { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
 			const chunks: Buffer[] = []; let size = 0; let error = '';
 			const timer = setTimeout(() => child.kill(), 30000);
 			child.stdout.on('data', (data: Buffer) => { size += data.length; if (size > maxBytes) { child.kill(); } else { chunks.push(data); } });
@@ -40,7 +51,7 @@ async function git(workspace: string, args: string[], input?: Buffer, extra: Nod
 			child.stdin.on('error', () => {}); child.stdin.end(input);
 		});
 	}
-	const result = await execute('git', ['-c', 'core.hooksPath=', '-c', 'core.fsmonitor=false', '-C', workspace, ...args], { env, windowsHide: true, encoding: 'buffer', timeout: 30000, maxBuffer: maxBytes });
+	const result = await execute('git', ['-c', 'core.hooksPath=', '-c', 'core.fsmonitor=false', ...lineEndings, '-C', workspace, ...args], { env, windowsHide: true, encoding: 'buffer', timeout: 30000, maxBuffer: maxBytes });
 	return result.stdout;
 }
 const textGit = async (workspace: string, args: string[]): Promise<string> => (await git(workspace, args)).toString('utf8').trim();
@@ -87,6 +98,16 @@ async function baseEntries(root: string, base: string): Promise<Map<string, stri
 	return result;
 }
 
+/** The blob of every file at the base commit. */
+async function baseBlobs(root: string, base: string): Promise<Map<string, string>> {
+	const result = new Map<string, string>();
+	for (const entry of (await git(root, ['ls-tree', '-rz', base])).toString('utf8').split('\0').filter(Boolean)) {
+		const match = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(entry);
+		if (match) { result.set(match[2], match[1]); }
+	}
+	return result;
+}
+
 export class Solutions {
 	private readonly records = new Map<string, Solution>();
 	private readonly storage: SessionHistory;
@@ -110,6 +131,7 @@ export class Solutions {
 				for (const file of record.files) { safeSolutionPath(file.path); }
 				if (record.directories?.some(path => !resolve(path).toLowerCase().startsWith((record.workspace + sep).toLowerCase()))) { continue; }
 				this.records.set(record.id, record);
+				followLineEndings(this.location(record.id), record.workspace); followLineEndings(this.stage(record.id), record.workspace); followLineEndings(record.source, record.workspace);
 				if (record.state === 'applying' || record.state === 'rolling-back') { await this.recoverTransaction(record); }
 				else if (record.lockToken) {
 					try { await this.releaseLock(record, true); if (record.state === 'applied') { await this.removeArtifacts(record); } }
@@ -124,6 +146,22 @@ export class Solutions {
 		const record = this.records.get(id);
 		if (!record || record.workspace.toLowerCase() !== realpathSync.native(workspace).toLowerCase()) { throw new Error('Solução indisponível neste workspace.'); }
 		return record;
+	}
+	/**
+	 * Adds the new content of one file to the staging index exactly as the person's own `git add` would in this project (line-ending
+	 * settings, .gitattributes, and Git's rule of never converting a file that already has CRLF in the repository), and returns its blob.
+	 * The bytes that will be applied to the project are not these: they stay the raw ones.
+	 */
+	private async storedBlob(id: string, path: string, data: Buffer): Promise<string> {
+		safeSolutionPath(path);
+		let parent = this.stage(id);
+		for (const part of path.split('/').slice(0, -1)) { parent = join(parent, part); await fs.mkdir(parent, { recursive: true }); if ((await fs.lstat(parent)).isSymbolicLink()) { throw new Error('Diretório de preparação inseguro.'); } }
+		await fs.writeFile(join(this.stage(id), path), data, { flag: 'wx' });
+		await git(this.stage(id), ['add', '-f', '--', path]);
+		const entry = (await git(this.stage(id), ['ls-files', '--stage', '-z', '--', path])).toString('utf8').split('\0')[0];
+		const match = /^\d+ ([0-9a-f]+) 0\t/.exec(entry);
+		if (!match) { throw new Error('O Git não registrou o arquivo da solução: ' + path); }
+		return match[1];
 	}
 	private async indexHash(root: string): Promise<string> {
 		const entries = await git(root, ['ls-files', '--stage', '-z']);
@@ -164,6 +202,8 @@ export class Solutions {
 			const caseNames = new Set<string>();
 			for (const path of paths) { safeSolutionPath(path); if (caseNames.has(path.toLowerCase())) { throw new Error('Colisão de nomes de arquivos.'); } caseNames.add(path.toLowerCase()); }
 			const id = randomUUID(); ensureSecureDir(this.location(id));
+			followLineEndings(this.location(id), root); followLineEndings(this.stage(id), root); followLineEndings(participant.workspace, root);
+			const blobs = await baseBlobs(root, comparison.base); const eolOnly: string[] = [];
 			await fs.mkdir(join(this.location(id), 'before')); await fs.mkdir(join(this.location(id), 'after'));
 			await git(this.location(id), ['clone', '--no-hardlinks', '--no-checkout', '--', root, this.stage(id)]);
 			await git(this.stage(id), ['read-tree', comparison.base]);
@@ -172,18 +212,26 @@ export class Solutions {
 				const before = entries.has(path) ? await readFileState(root, path) : undefined;
 				const after = await readFileState(participant.workspace, path);
 				if (before?.state.hash === after?.state.hash) { continue; }
+				// What Git itself would store for the new content, with the project's own line-ending rules and .gitattributes. When that is the blob
+				// the base already has, the file differs only in how its lines end (or in another clean-filter detail): it is not a change, it is not
+				// part of the solution, and the project keeps its bytes exactly as they are.
+				const stored = after ? await this.storedBlob(id, path, after.data) : undefined;
+				if (before && after && stored === blobs.get(path)) {
+					// the staging copy goes back to the base too, so the tests of the solution run on what Git would check out
+					await fs.unlink(join(this.stage(id), path)); if (eolOnly.length < 200) { eolOnly.push(path); } continue;
+				}
 				if (before) { await inheritedPermissions(join(root, path)); }
 				if (after) { await inheritedPermissions(join(participant.workspace, path)); }
 				if (!entries.has(path) && await readFileState(root, path)) { throw new Error('Um arquivo de destino já existe: ' + path); }
 				bytes += (before?.data.length ?? 0) + (after?.data.length ?? 0);
 				if (files.length >= maxFiles || bytes > maxBytes) { throw new Error('A solução excede 512 arquivos ou 32 MiB.'); }
 				const index = files.length;
-				files.push({ path, before: before?.state, after: after?.state, kind: !before ? 'added' : !after ? 'removed' : 'modified', binary: !!before?.data.includes(0) || !!after?.data.includes(0) });
+				const styles = before && after ? [eolStyle(before.data), eolStyle(after.data)] : undefined;
+				files.push({ path, before: before?.state, after: after?.state, kind: !before ? 'added' : !after ? 'removed' : 'modified', binary: !!before?.data.includes(0) || !!after?.data.includes(0),
+					...(styles && ['lf', 'crlf'].includes(styles[0]) && ['lf', 'crlf', 'mixed'].includes(styles[1]) && styles[0] !== styles[1] ? { eolChanged: { from: styles[0], to: styles[1] } } : {}) });
 				if (before) { await fs.writeFile(join(this.location(id), 'before', String(index)), before.data, { flag: 'wx' }); }
 				if (after) {
 					await fs.writeFile(join(this.location(id), 'after', String(index)), after.data, { flag: 'wx' });
-					const blob = (await git(this.stage(id), ['hash-object', '-w', '--stdin', '--no-filters'], after.data)).toString().trim();
-					await git(this.stage(id), ['update-index', '--add', '--cacheinfo', entries.get(path) ?? '100644', blob, path]);
 				} else { await git(this.stage(id), ['update-index', '--force-remove', '--', path]); }
 			}
 			if (!files.length) { throw new Error('A solução não contém alterações aplicáveis.'); }
@@ -197,7 +245,7 @@ export class Solutions {
 			if ((await git(this.stage(id), ['write-tree'], undefined, { GIT_INDEX_FILE: checkIndex })).toString().trim() !== tree) { throw new Error('A integridade do patch não foi confirmada.'); }
 			await git(this.stage(id), ['checkout-index', '--all']);
 			if (sourceFingerprint !== await this.fingerprint(participant.workspace, comparison.base) || indexHash !== await this.clean(root, comparison.base)) { throw new Error('O projeto ou a solução mudou durante a preparação.'); }
-			const record: Solution = { id, comparisonId, participantId, workspace: root, source: participant.workspace, base: comparison.base, provider: participant.service, model: participant.model, createdAt: Date.now(), sourceFingerprint, indexHash, files, tree, patchHash: digest(patch), integrity: true, validation: { state: 'unavailable' }, state: 'prepared', progress: 0 };
+			const record: Solution = { id, comparisonId, participantId, workspace: root, source: participant.workspace, base: comparison.base, provider: participant.service, model: participant.model, createdAt: Date.now(), sourceFingerprint, indexHash, files, tree, patchHash: digest(patch), integrity: true, validation: { state: 'unavailable' }, state: 'prepared', progress: 0, ...(eolOnly.length ? { eolOnly } : {}) };
 			this.save(record); return structuredClone(record);
 		} finally { this.busy.delete(root); }
 	}
