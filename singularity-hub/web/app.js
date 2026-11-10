@@ -601,7 +601,7 @@
 				h('div', { class: 'row' }, statusChip(p.status), chip(MODEL_NAME(p.model)), data.durationMs ? chip(duration(Date.now() - data.durationMs, Date.now())) : null),
 				data.usage ? h('div', { class: 'muted small', text: [data.usage.inputTokens ? fmt(data.usage.inputTokens) + ' tokens de entrada' : '', data.usage.outputTokens ? fmt(data.usage.outputTokens) + ' de saída' : '', data.usage.costUsd ? 'US$ ' + data.usage.costUsd.toFixed(2).replace('.', ',') : ''].filter(Boolean).join(' · ') }) : null,
 				data.error ? h('p', { class: 'chip bad', text: data.error }) : null,
-				h('div', { class: 'bubble agent' + (working ? ' live' : '') }, h('div', { class: 'who', text: working ? 'Agente · ao vivo' : 'Agente' }), h('div', { class: 'text' }, ...richText(data.result || (working ? 'Trabalhando… a resposta aparece aqui.' : 'O agente não deixou resposta escrita.')))),
+				Array.isArray(data.activity) && data.activity.length ? h('div', { class: 'feed' }, ...activityNodes({ activity: data.activity, text: data.result })) : h('div', { class: 'bubble agent' + (working ? ' live' : '') }, h('div', { class: 'who', text: working ? 'Agente · ao vivo' : 'Agente' }), h('div', { class: 'text' }, ...richText(data.result || (working ? 'Trabalhando… a resposta aparece aqui.' : 'O agente não deixou resposta escrita.')))),
 				data.files ? h('div', { class: 'code', text: String(data.files) }) : null,
 				['done', 'ready'].includes(p.status) ? h('button', { class: 'secondary', type: 'button', onclick: () => showDiff(ref, p) }, 'Ver as alterações') : null);
 			return working;
@@ -689,18 +689,40 @@
 		const step = team && (team.steps || []).filter(item => item.status === 'sent' || item.status === 'intent').at(-1);
 		if (!step || !team.comparisonId || !TEAM_ACTIVE.includes(team.state) || team.state === 'paused') { if (view.live) { view.live = undefined; if (teamView === view && screen === 'team') { drawTeamDetail(view); } } return; }
 		try {
-			const group = await api('/api/comparisons/' + team.comparisonId + '?workspaceId=' + encodeURIComponent(team.workspaceId));
-			const participant = (group.participants || []).find(item => item.role === step.role);
+			if (!view.participants || view.participantsOf !== team.comparisonId) { view.participants = (await api('/api/comparisons/' + team.comparisonId + '?workspaceId=' + encodeURIComponent(team.workspaceId))).participants || []; view.participantsOf = team.comparisonId; }
+			const participant = view.participants.find(item => item.role === step.role);
 			if (!participant) { return; }
 			const data = await api('/api/comparisons/' + team.comparisonId + '/' + participant.id + '/diff?workspaceId=' + encodeURIComponent(team.workspaceId));
 			if (teamView !== view) { return; }
-			const text = String(data.result || '');
 			const fresh = !view.live || view.live.role !== step.role;
-			view.live = { role: step.role, text, files: String(data.files || '').split('\n').filter(Boolean).length };
-			const box = document.getElementById('team-live-text');
-			if (box && !fresh) { const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40; box.textContent = text || 'Trabalhando… a resposta aparece aqui.'; if (atEnd) { box.scrollTop = box.scrollHeight; } const count = document.getElementById('team-live-files'); if (count) { count.textContent = view.live.files ? view.live.files + ' arquivo(s) alterado(s)' : ''; } }
+			view.live = { role: step.role, text: String(data.result || ''), activity: Array.isArray(data.activity) ? data.activity : [], seenAt: Date.now(), idleMs: typeof data.idleMs === 'number' ? data.idleMs : undefined, files: String(data.files || '').split('\n').filter(Boolean).length + String(data.untracked || '').split('\n').filter(Boolean).length };
+			const feed = document.getElementById('team-live'), line = document.getElementById('team-status');
+			if (feed && !fresh) { const follow = nearBottom(); feed.replaceChildren(...activityNodes(view.live)); if (line) { line.textContent = teamStatus(view); } if (follow) { window.scrollTo(0, document.documentElement.scrollHeight); } }
 			else if (screen === 'team') { drawTeamDetail(view); }
 		} catch { /* the next tick tries again */ }
+	}
+	const TOOL = { read: 'Lendo', write: 'Escrevendo', edit: 'Editando', patch: 'Editando', multiedit: 'Editando', glob: 'Procurando arquivos', grep: 'Buscando no código', list: 'Listando', bash: 'Executando', shell: 'Executando', todowrite: 'Planejando', todoread: 'Planejando', webfetch: 'Consultando a web', websearch: 'Pesquisando na web', task: 'Delegando' };
+	/** What an agent did, in order: its reasoning, each tool with the file it touched, and the text it wrote. */
+	function activityNodes(live) {
+		const items = live.activity || [];
+		if (!items.length) { return [live.text ? bubble('agent', live.text, true) : h('div', { class: 'bubble agent typing', 'aria-live': 'polite', text: 'O agente está começando…' })]; }
+		const nodes = items.map(item => item.kind === 'thinking' ? h('div', { class: 'act think' }, h('div', { class: 'who', text: item.status === 'completed' ? 'Raciocínio' : 'Raciocinando…' }), h('div', { class: 'text', text: item.text || '' }))
+			: item.kind === 'tool' ? h('div', { class: 'act tool' }, h('span', { class: 'mark ' + (item.status === 'completed' ? 'ok' : item.status === 'error' ? 'bad' : 'run'), text: item.status === 'completed' ? '✓' : item.status === 'error' ? '✕' : '…' }), h('span', { class: 'what', text: TOOL[String(item.tool).toLowerCase()] || item.tool }), item.detail ? h('span', { class: 'detail', text: item.detail }) : null)
+			: bubble('agent', item.text || '', true));
+		const last = items.at(-1);
+		if (last && last.kind === 'tool' && last.status === 'completed') { nodes.push(h('div', { class: 'bubble agent typing', text: 'Pensando no próximo passo…' })); }
+		return nodes;
+	}
+	/** One sentence that says what is happening right now, so nobody has to guess whether the team is working, waiting or stuck. */
+	function teamStatus(view) {
+		const team = view.data, live = view.live;
+		if (TEAM_ACTIVE.includes(team.state) && team.state !== 'paused') {
+			if (!live) { return team.state === 'awaiting-validation' ? 'Aguardando a validação independente.' : (ROLE[team.phase] || 'Equipe') + ': preparando…'; }
+			const idle = live.idleMs === undefined ? undefined : live.idleMs + (Date.now() - live.seenAt);
+			const quiet = idle !== undefined && idle > 90000;
+			return ROLE[live.role] + ' trabalhando' + (idle === undefined ? '' : quiet ? ' · sem novidade há ' + duration(Date.now() - idle, Date.now()) + ' (o modelo pode estar raciocinando)' : ' · ativo agora') + (live.files ? ' · ' + live.files + ' arquivo(s) alterado(s)' : '');
+		}
+		return ({ paused: 'Pausada: nenhum agente está trabalhando.', completed: 'Concluída.', cancelled: 'Cancelada.', failed: 'Falhou.', exhausted: 'Os ciclos de correção acabaram sem aprovação.', unrecoverable: 'Não pode ser recuperada.' })[team.state] || '';
 	}
 	function drawTeamDetail(view) {
 		const team = view.data;
@@ -711,22 +733,29 @@
 		const lastVersion = (team.versions || []).at(-1), lastStep = (team.steps || []).at(-1), lastStepFailed = !!lastStep && ['failed', 'cancelled', 'intent'].includes(lastStep.status);
 		show(h('button', { class: 'secondary', type: 'button', onclick: () => { teamView = undefined; stopPolling(); armed = ''; render(); } }, '← Equipe'),
 			h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
-			h('p', { class: 'muted clamp3', text: team.task }),
+			h('p', { class: 'statusline', id: 'team-status', role: 'status', text: teamStatus(view) }),
 			h('div', { class: 'row' }, chip('etapa: ' + (ROLE[team.phase] || team.phase)), chip('ciclo ' + team.cycle + ' de ' + (team.maxCorrections + 1)), team.createdAt ? chip(duration(team.createdAt, team.finishedAt)) : null),
 			h('div', { class: 'stack' }, ...(team.roles || []).map((role, index) => h('div', { class: 'muted small', text: ['Implementador', 'Revisor', 'Testador'][index] + ': ' + (SERVICE_NAME[role.service] || role.service) + ' · ' + MODEL_NAME(role.model) }))),
 			pendingBanner(item => item.kind === 'control'),
 			team.error ? h('p', { class: 'chip bad', text: team.error }) : null,
-			view.live ? h('section', { class: 'card stack' }, h('div', { class: 'row between' }, h('strong', { text: 'Ao vivo · ' + (ROLE[view.live.role] || view.live.role) }), h('span', { class: 'muted small', id: 'team-live-files', text: view.live.files ? view.live.files + ' arquivo(s) alterado(s)' : '' })),
-				h('div', { class: 'bubble agent live livebox' }, h('div', { class: 'text', id: 'team-live-text', text: view.live.text || 'Trabalhando… a resposta aparece aqui.' }))) : null,
 			team.state === 'awaiting-validation' ? h('section', { class: 'card stack' }, h('strong', { text: 'Validação independente' }),
 				profiles.length ? [select('', 'Perfil de teste cadastrado na IDE', profiles.map(p => [p.id, p.label]), view.profileId, value => { view.profileId = value; }),
 					h('p', { class: 'muted small', text: 'Roda o comando cadastrado no Windows para este perfil; o celular não escolhe nem vê o comando.' }),
 					armedButton('validate', 'Rodar a validação', false, () => startOp({ kind: 'control', action: 'teams.validate', scope: team.id, path: '/api/teams/' + team.id + '/validate', text: 'Validação independente', body: { confirm: true, workspaceId: team.workspaceId, profileId: view.profileId } }))]
 					: h('p', { class: 'muted', text: 'A equipe aguarda testes independentes, mas nenhum perfil de teste está cadastrado para este workspace. Cadastre um em “Singularity: Perfis de teste do acesso remoto” na IDE do Windows; o celular não pode informar um comando.' })) : null,
-			h('h3', { text: 'Etapas' }),
-			h('ul', { class: 'timeline' }, ...(team.steps || []).map(step => h('li', { class: step.status === 'done' ? 'done' : step.status === 'failed' ? 'failed' : 'current' },
-				(ROLE[step.role] || step.role) + ' · versão ' + step.version + ' · ' + ({ intent: 'preparando', sent: 'em execução', done: 'concluída', failed: 'falhou', cancelled: 'cancelada' }[step.status] || step.status) + (step.startedAt ? ' · ' + duration(step.startedAt, step.endedAt) : '') + (step.error ? ' — ' + step.error : ''), step.result ? h('details', { class: 'step-result' }, h('summary', { text: 'Ver resposta da etapa' }), h('div', { class: 'result', text: step.result })) : null)),
-				...(team.steps && team.steps.length ? [] : [h('li', { class: 'current', text: 'Aguardando a primeira etapa…' })])),
+			h('div', { class: 'chat' },
+				bubble('user', team.task),
+				...(team.steps || []).flatMap((step, index) => {
+					const current = index === team.steps.length - 1 && !!view.live && view.live.role === step.role && ['sent', 'intent'].includes(step.status);
+					return [
+						h('div', { class: 'stephead ' + (step.status === 'done' ? 'done' : step.status === 'failed' ? 'failed' : 'current'), text: (ROLE[step.role] || step.role) + ' · versão ' + step.version + ' · ' + ({ intent: 'preparando', sent: 'em execução', done: 'concluída', failed: 'falhou', cancelled: 'cancelada' }[step.status] || step.status) + (step.startedAt ? ' · ' + duration(step.startedAt, step.endedAt) : '') }),
+						step.error ? h('p', { class: 'chip bad', text: step.error }) : null,
+						current ? h('div', { class: 'feed', id: 'team-live' }, ...activityNodes(view.live)) : null,
+						!current && ['sent', 'intent'].includes(step.status) && running ? h('div', { class: 'bubble agent typing', text: 'O agente está trabalhando…' }) : null,
+						!current && step.result && step.role === 'implementer' ? bubble('agent', step.result) : null
+					];
+				}),
+				...(team.steps && team.steps.length ? [] : [h('div', { class: 'bubble agent typing', text: 'Preparando a primeira etapa…' })])),
 			...(team.versions || []).map(version => h('div', { class: 'card stack' }, h('strong', { text: 'Versão ' + version.number + (version.stale ? ' (desatualizada)' : '') }),
 				version.review ? h('div', { class: 'muted', text: 'Revisão: ' + (version.review.verdict === 'approve' ? 'aprovada' : 'pede alterações') + ' — ' + version.review.summary }) : null,
 				...((version.review && version.review.issues) || []).slice(0, 10).map(issue => h('div', { class: 'muted small', text: '• ' + issue.severity + ' ' + issue.file + (issue.line ? ':' + issue.line : '') + ' — ' + issue.message })),

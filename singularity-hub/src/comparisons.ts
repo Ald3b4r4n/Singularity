@@ -42,7 +42,7 @@ interface Adapter {
 	prompt(id: string, text: string): void;
 	stop(id: string): Promise<void>;
 	/** What the agent has written so far while it still works (optional: only some agents can say). */
-	live?(id: string): Promise<string | undefined>;
+	live?(id: string): Promise<{ text?: string; activity: unknown[]; lastAt?: number } | undefined>;
 	list(): Session[];
 	history?(id: string, workspace: string): Promise<import('./history').Turn[]>;
 }
@@ -307,8 +307,9 @@ export class Comparisons {
 			additions += '\ndiff --git a/' + file + ' b/' + file + '\n--- /dev/null\n+++ b/' + file + '\n' + data.toString('utf8').split(/\r?\n/).map(line => '+' + line).join('\n') + '\n';
 		}
 		const session = this.adapter.list().find(s => s.id === p.sessionId);
+		const live = p.sessionId && this.adapter.live ? await this.adapter.live(p.sessionId).catch(() => undefined) : undefined;
 		const turns = p.sessionId && this.adapter.history ? await this.adapter.history(p.sessionId, p.workspace).catch(() => []) : [];
-		return { participant: structuredClone(p), base: record.base, files, diff: diff + additions, untracked, usage: session?.usage, result: session?.result ?? turns.at(-1)?.result ?? (p.sessionId && this.adapter.live ? await this.adapter.live(p.sessionId).catch(() => undefined) : undefined), error: p.error ?? session?.summary,
+		return { participant: structuredClone(p), base: record.base, files, diff: diff + additions, untracked, usage: session?.usage, result: session?.result ?? turns.at(-1)?.result ?? live?.text, activity: live?.activity, idleMs: live?.lastAt ? Math.max(0, Date.now() - live.lastAt) : undefined, error: p.error ?? session?.summary,
 			tests: 'Consulte a saída do agente. O coordenador não executou testes independentes.', durationMs: p.startedAt ? (p.endedAt ?? Date.now()) - p.startedAt : undefined };
 	}
 

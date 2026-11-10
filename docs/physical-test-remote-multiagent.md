@@ -24,7 +24,7 @@ repositório Git **limpo e de teste** (não o seu projeto real): o Hub exige a �
 
 ## C. Equipe de ponta a ponta
 1. Tarefa pequena (ex.: "Crie ehPar.js e um teste simples"). **Confirmar e iniciar**.
-2. As etapas Implementador → Revisor → Testador aparecem sozinhas, com duração e **Ver resposta da etapa**. Problemas do revisor aparecem em lista.
+2. As etapas Implementador → Revisor → Testador aparecem sozinhas, em forma de conversa: a sua tarefa, e em cada etapa o raciocínio do agente, as ferramentas que ele usa e os arquivos, ao vivo, com uma linha de estado no topo. Problemas do revisor aparecem em lista.
 3. Sem perfil de teste cadastrado, a tela diz que a validação independente depende de cadastro **na IDE Windows** e não oferece campo de comando.
 4. Na IDE: **Singularity: Perfis de teste do acesso remoto** → cadastrar (por exemplo `node.exe` com `-e process.exit(0)`).
 5. De volta ao celular: **Rodar a validação** (dois toques) → a equipe termina como **concluída**.

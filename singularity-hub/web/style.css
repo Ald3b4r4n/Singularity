@@ -128,3 +128,19 @@ fieldset.agent legend { padding: 0 6px; font-weight: 600; font-size: 13px; lette
 .timeline li { overflow-wrap: anywhere; margin: 4px 0; }
 .livebox { max-width: 100%; }
 .livebox .text { max-height: 45vh; overflow: auto; overscroll-behavior: contain; }
+
+.statusline { margin: 0; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; line-height: 1.4; }
+.stephead { align-self: stretch; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 10px 0 2px 10px; border-left: 3px solid var(--accent); }
+.stephead.done { border-left-color: var(--ok, #6fcf97); }
+.stephead.failed { border-left-color: var(--bad, #eb7a7a); }
+.feed { display: flex; flex-direction: column; gap: 6px; align-self: stretch; }
+.act { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.act.think { color: var(--muted); border-left: 2px solid var(--line); padding: 2px 0 2px 10px; }
+.act.think .who { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.act.think .text { white-space: pre-wrap; font-style: italic; max-height: 9em; overflow: auto; }
+.act.tool { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.act.tool .mark { flex: none; width: 1em; text-align: center; color: var(--muted); }
+.act.tool .mark.ok { color: var(--ok, #6fcf97); }
+.act.tool .mark.bad { color: var(--bad, #eb7a7a); }
+.act.tool .what { flex: none; font-weight: 600; }
+.act.tool .detail { color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; min-width: 0; }

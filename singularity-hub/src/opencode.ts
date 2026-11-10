@@ -34,6 +34,12 @@ const helper = join(__dirname, 'singularity-job.exe');
 const deadline = 15000;
 const maxSessions = 8;
 const outputLimit = 12000;
+/** How long one run of an agent may take before it is interrupted. */
+const runLimit = 60 * 60 * 1000;
+
+/** One thing an agent did while working, as shown to the person following it. */
+export interface Activity { kind: 'thinking' | 'tool' | 'text'; text?: string; tool?: string; detail?: string; status?: string; at?: number }
+export interface LiveView { text?: string; activity: Activity[]; lastAt?: number }
 
 export class OpenCodeError extends Error {
 	constructor(message: string, readonly httpStatus?: number, readonly pluginsBlocked = false, readonly operation?: string) { super(message); }
@@ -460,21 +466,44 @@ export class OpenCodeSessions {
 		item.run = this.run(item, text).finally(() => { item.run = undefined; });
 	}
 
-	/** What the agent has written in its current answer so far (text and the tools it is using), read while it works. */
-	async live(id: string): Promise<string | undefined> {
+	/**
+	 * What the agent is doing in its current answer, read while it works: its reasoning, the tools it calls (with the file or pattern, relative
+	 * to its own working copy, never an absolute path) and the text it has written.
+	 */
+	async live(id: string): Promise<LiveView | undefined> {
 		const item = this.sessions.get(id);
 		if (!item || item.closing) { return undefined; }
-		const { data: messages } = await item.server.request<{ data: Array<{ type: string; content?: Array<{ type: string; text?: string; name?: string; tool?: string }> }> }>('messages', item.remoteId, undefined, AbortSignal.timeout(4000));
+		type Part = { type: string; text?: string; name?: string; tool?: string; state?: { status?: string; input?: unknown }; time?: { created?: number; ran?: number; completed?: number } };
+		const { data: messages } = await item.server.request<{ data: Array<{ type: string; content?: Part[] }> }>('messages', item.remoteId, undefined, AbortSignal.timeout(4000));
 		const userIndex = messages.findIndex(message => message.type === 'user');
 		const reply = messages.slice(0, userIndex < 0 ? messages.length : userIndex).filter(message => message.type === 'assistant').reverse();
-		const lines: string[] = [];
+		const base = (item.view.workspace ?? '').replace(/\\/g, '/').toLowerCase();
+		const relative = (value: string): string => {
+			const flat = value.replace(/\\/g, '/');
+			if (base && flat.toLowerCase().startsWith(base)) { return flat.slice(base.length).replace(/^\/+/, '') || '.'; }
+			return /^([a-z]:)?\//i.test(flat) ? flat.split('/').filter(Boolean).at(-1) ?? '' : flat;
+		};
+		const detailOf = (input: unknown): string | undefined => {
+			if (!input || typeof input !== 'object') { return undefined; }
+			const raw = input as Record<string, unknown>;
+			for (const key of ['path', 'filePath', 'file', 'pattern', 'query', 'url', 'description', 'command']) {
+				if (typeof raw[key] === 'string' && raw[key]) { return (key === 'command' || key === 'pattern' || key === 'query' || key === 'url' || key === 'description' ? raw[key] as string : relative(raw[key] as string)).slice(0, 140); }
+			}
+			return undefined;
+		};
+		const activity: Activity[] = [];
+		let lastAt = 0;
 		for (const message of reply) {
 			for (const part of message.content ?? []) {
-				if (part.type === 'text' && part.text) { lines.push(part.text); }
-				else if (part.type !== 'text' && part.type !== 'reasoning' && (part.name || part.tool)) { lines.push('› ' + String(part.name ?? part.tool).slice(0, 80)); }
+				const at = part.time?.completed ?? part.time?.ran ?? part.time?.created;
+				if (at && at > lastAt) { lastAt = at; }
+				if (part.type === 'reasoning') { if (part.text) { activity.push({ kind: 'thinking', text: part.text.length > 500 ? '…' + part.text.slice(-500) : part.text, status: part.time?.completed ? 'completed' : 'running', at }); } }
+				else if (part.type === 'text') { if (part.text) { activity.push({ kind: 'text', text: part.text.slice(-outputLimit), at }); } }
+				else if (part.name || part.tool) { activity.push({ kind: 'tool', tool: String(part.name ?? part.tool).slice(0, 60), detail: detailOf(part.state?.input), status: part.state?.status, at }); }
 			}
 		}
-		return lines.join('\n').slice(-outputLimit) || undefined;
+		const text = activity.filter(entry => entry.kind === 'text').map(entry => entry.text).join('\n').slice(-outputLimit) || undefined;
+		return { text, activity: activity.slice(-80), ...(lastAt ? { lastAt } : {}) };
 	}
 
 	private async run(item: Managed, text?: string): Promise<void> {
@@ -482,8 +511,9 @@ export class OpenCodeSessions {
 		try {
 			if (text !== undefined) { await server.request('prompt', remoteId, { text }); }
 			// Node's fetch gives up on a response whose headers take more than 5 minutes (UND_ERR_HEADERS_TIMEOUT), and `wait` holds the
-			// response until the run ends: a long task must not fail for that. Wait again, for up to 15 minutes in all.
-			const until = Date.now() + 15 * 60 * 1000;
+			// response until the run ends: a long task must not fail for that. Wait again, for up to an hour in all: a model that reasons at its
+			// highest effort can take a quarter of an hour before it writes anything.
+			const until = Date.now() + runLimit;
 			for (;;) {
 				try { await server.request('wait', remoteId, undefined, AbortSignal.timeout(Math.max(1000, until - Date.now()))); break; }
 				catch (error) {
@@ -513,7 +543,9 @@ export class OpenCodeSessions {
 			if (savedPrompt) { this.saveTurn(item, savedPrompt); }
 		} catch (error) {
 			if (!item.closing) {
-				this.update(item, { status: 'failed', summary: error instanceof OpenCodeError ? error.message : 'A execução não pôde ser confirmada pelo OpenCode.' });
+				const timedOut = (error as { name?: string }).name === 'TimeoutError' || (error as { name?: string }).name === 'AbortError';
+				if (timedOut) { await server.request('interrupt', remoteId, undefined, AbortSignal.timeout(3000)).catch(() => undefined); }
+				this.update(item, { status: 'failed', updatedAt: Date.now(), summary: error instanceof OpenCodeError ? error.message : timedOut ? `O agente passou de ${Math.round(runLimit / 60000)} minutos sem terminar e foi interrompido.` : 'A execução não pôde ser confirmada pelo OpenCode.' });
 			}
 		}
 	}

@@ -50,7 +50,8 @@ class ScriptedHub extends EventEmitter {
 		if (method === 'comparisons.inspect') {
 			const group = this.comparisons.find(item => item.id === params.id); const participant = group && group.participants.find(item => item.id === params.participantId);
 			const answer = participant && participant.status === 'done' ? 'Criei soma.js com a função soma(a, b). Resposta final do agente.' : 'Escrevendo soma.js… resposta parcial ' + Math.floor((Date.now() - (participant ? participant.startedAt : Date.now())) / 500);
-			return { participant: participant && structuredClone(participant), result: answer, usage: participant && participant.status === 'done' ? { inputTokens: 1234, outputTokens: 321 } : undefined, durationMs: participant ? (participant.endedAt || Date.now()) - participant.startedAt : 0, files: 'M  src/app.js', diff: '--- a/src/app.js\n+++ b/src/app.js\n@@ -1,3 +1,4 @@\n-const a = 1;\n+const a = 2; // uma linha muito comprida que deve rolar só dentro do diff e nunca empurrar a página inteira para o lado em uma tela estreita\n+const b = 3;\n' };
+			const activity = participant && participant.status !== 'done' ? [{ kind: 'thinking', text: 'Vou ler o projeto antes de escrever.', status: 'completed' }, { kind: 'tool', tool: 'read', detail: 'src/validar.js', status: 'completed' }, { kind: 'tool', tool: 'write', detail: 'src/validar.js', status: 'streaming' }, { kind: 'text', text: answer }] : undefined;
+			return { participant: participant && structuredClone(participant), activity, idleMs: 1200, result: answer, usage: participant && participant.status === 'done' ? { inputTokens: 1234, outputTokens: 321 } : undefined, durationMs: participant ? (participant.endedAt || Date.now()) - participant.startedAt : 0, files: 'M  src/app.js', diff: '--- a/src/app.js\n+++ b/src/app.js\n@@ -1,3 +1,4 @@\n-const a = 1;\n+const a = 2; // uma linha muito comprida que deve rolar só dentro do diff e nunca empurrar a página inteira para o lado em uma tela estreita\n+const b = 3;\n' };
 		}
 		if (method === 'comparisons.create') {
 			if (String(params.text).includes('RECUSAR')) { throw new BridgeError('A árvore de origem contém alterações. Faça commit ou escolha um repositório limpo.'); }
@@ -189,9 +190,12 @@ async function main() {
 	await waitFor(() => calls('teams.start').length === 1, 'team start');
 	const teamSent = calls('teams.start')[0].params;
 	check('B.3 the team starts with implementer, reviewer and tester in that order, and the cycle limit', teamSent.participants.length === 3 && teamSent.maxCorrections === 2 && teamSent.workspace === workspace, teamSent.participants.map(p => p.model.modelID));
-	await page.waitForSelector('.timeline');
+	await page.waitForSelector('.chat');
+	await page.waitForFunction(() => { const feed = document.getElementById('team-live'); return feed && /Escrevendo/.test(feed.textContent) && /src\/validar\.js/.test(feed.textContent); }, null, { timeout: 15000 });
+	check('B.3b the running step shows by itself what the agent is doing: its reasoning, each tool and the file', /Racioc/i.test(await page.locator('#team-live').innerText()) && /Lendo/i.test(await page.locator('#team-live').innerText()) && /Implementador trabalhando/.test(await page.locator('#team-status').innerText()), await page.locator('#team-status').innerText());
+	check('B.3c the task is shown as the message of the person, like a conversation', /Construa o módulo de validação/.test(await page.locator('.chat .bubble.user').first().innerText()));
 	await shot('p07-equipe-implementando.png');
-	await waitFor(async () => /Revisor/.test(await page.locator('.timeline').innerText()), 'the review step appears by itself', 15000);
+	await waitFor(async () => /Revisor/i.test(await page.locator('.chat').innerText()), 'the review step appears by itself', 15000);
 	await waitFor(async () => /A função não trata a entrada vazia/.test(await page.locator('#view').innerText()), 'the issue found by the reviewer is shown', 15000);
 	check('B.4 the stages, the problems found and the correction cycle appear by themselves', /ciclo 2 de 3|ciclo 1 de 3/.test(await page.locator('#view').innerText()));
 	await shot('p08-equipe-problemas.png');
@@ -201,7 +205,7 @@ async function main() {
 	const profile = await admin('/admin/profiles/add', { workspaceId: added.workspace.id, label: 'Testes do projeto', executable: runner, args: ['--rapido'], confirm: true });
 	await page.getByRole('button', { name: '← Equipe' }).click();
 	await page.locator('article.card').first().click();
-	await page.waitForSelector('.timeline');
+	await page.waitForSelector('.chat');
 	await waitFor(async () => (await page.getByRole('button', { name: 'Rodar a validação' }).count()) === 1, 'validation offered with the registered profile', 15000);
 	check('B.6 with a profile registered on Windows the phone can choose it by label, and only by label', /Testes do projeto/.test(await page.locator('#view select').last().innerText()) && !/rapido|run-tests/.test(await page.locator('#view').innerText()));
 	await shot('p10-validacao-com-perfil.png');
@@ -225,7 +229,7 @@ async function main() {
 	await page.waitForSelector('fieldset.agent');
 	await page.locator('.form textarea').fill('Equipe para cancelar.');
 	await page.getByRole('button', { name: 'Confirmar e iniciar' }).click();
-	await page.waitForSelector('.timeline');
+	await page.waitForSelector('.chat');
 	await page.getByRole('button', { name: 'Cancelar a equipe' }).click();
 	check('B.9 cancelling needs a second tap', calls('teams.cancel').length === 0);
 	await page.getByRole('button', { name: 'Toque de novo para confirmar' }).dblclick();
