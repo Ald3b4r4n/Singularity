@@ -1,4 +1,4 @@
-# Runs the whole packaged-build validation of a gate, one script after another, and keeps every log.
+﻿# Runs the whole packaged-build validation of a gate, one script after another, and keeps every log.
 #   powershell -File scripts/e2e/gate-run.ps1 -Package D:\dev\claude\fullbuild\VSCode-win32-x64 -Out D:\dev\claude\e2e-out\gate
 # Real inference, where a script needs it, uses only OpenCode Go (Muse Spark 1.3 Contributor / DeepSeek V4.1 Flash).
 param([Parameter(Mandatory)][string]$Package, [Parameter(Mandatory)][string]$Out)

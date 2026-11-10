@@ -1,4 +1,4 @@
-# Replaces a personal Singularity IDE installation folder with a newly built package, with a backup and a way back.
+﻿# Replaces a personal Singularity IDE installation folder with a newly built package, with a backup and a way back.
 # It never runs on its own: every step that changes something needs -Confirm, and it refuses while agents are working.
 #
 #   Check only (changes nothing):
