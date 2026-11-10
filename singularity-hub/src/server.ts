@@ -6,9 +6,10 @@ import { readGatewayInfo } from './remote/control';
 import { claudePlan } from './claudePlan';
 import * as fsUsage from 'node:fs';
 import { Teams } from './teams';
+import { ExecutionPolicies, claudeLaunch, codexLaunch, openCodeRules, type AgentRole } from './executionPolicy';
 import { Solutions } from './solutions';
 import { Comparisons } from './comparisons';
-import { join, isAbsolute } from 'node:path';
+import { join, isAbsolute, dirname } from 'node:path';
 import { hubHome } from './paths';
 import { claudeExecutable } from './claude';
 import { codexExecutable } from './codex';
@@ -52,6 +53,8 @@ export const DEFAULT_LIMITS: ServerLimits = {
 export interface ServerOptions {
 	recoveryDir?: string;
 	historyDir?: string;
+	/** Where the execution policy of each workspace is kept (tests point it at a temporary file). */
+	policyFile?: string;
 	token: string;
 	instanceId: string;
 	startedAt: string;
@@ -70,7 +73,7 @@ interface ClientState {
 	subscriptions: Map<string, { sessionId?: string }>;
 }
 
-const KNOWN_METHODS = new Set(['processes.inspect', 'processes.terminate', 'processes.shutdown', 'usage.get', 'usage.configure', 'teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
+const KNOWN_METHODS = new Set(['processes.inspect', 'processes.terminate', 'processes.shutdown', 'usage.get', 'usage.configure', 'teams.start', 'teams.list', 'teams.cancel', 'teams.resume', 'teams.validate', 'teams.choose', 'teams.prepare', 'teams.delete', 'teams.instruct', 'policy.get', 'policy.set', 'solutions.apply', 'solutions.undo', 'solutions.prepare', 'solutions.list', 'solutions.review', 'solutions.validate', 'comparisons.create', 'comparisons.list', 'comparisons.cancel', 'comparisons.inspect', 'comparisons.select', 'comparisons.cleanup', 'hub.hello', 'sessions.list', 'session.subscribe', 'session.create', 'session.prompt', 'session.setModel', 'session.interrupt', 'session.stop', 'session.history', 'session.deleteHistory', 'session.reopen', 'catalog.get', 'providers.inspect', 'providers.install', 'providers.cancelInstall', 'hub.shutdown']);
 
 class RpcError extends Error {
 	constructor(readonly code: number, message: string, readonly data?: unknown) {
@@ -97,14 +100,24 @@ export class HubServer {
 	private _port = 0;
 	private closed = false;
 
+	readonly policies: ExecutionPolicies;
 	constructor(private readonly opts: ServerOptions) {
+		this.policies = new ExecutionPolicies(opts.policyFile ?? join(opts.historyDir ? dirname(opts.historyDir) : hubHome(), 'execution-policies.json'));
 		this.opencode = new OpenCodeSessions(event => this.publish(event), opts.recoveryDir, opts.historyDir);
 		this.claude = new ClaudeCodeSessions(event => this.publish(event), opts.historyDir);
 		this.codex = new CodexSessions(event => this.publish(event), opts.historyDir);
 		this.comparisons = new Comparisons(join(opts.historyDir ?? join(hubHome(), 'history'), 'comparisons'), {
 			create: async (workspace, service, model, role, profileWorkspace) => {
 				this.sessionRequests++;
-				try { if (service === 'opencode') { return await this.opencode.create(workspace, model, profileWorkspace); } return await this.operateSession('session.create', { workspace, service, model, permissionMode: service === 'claude-code' ? (role && role !== 'implementer' ? 'plan' : 'acceptEdits') : service === 'codex-cli' ? (role && role !== 'implementer' ? 'read-only' : 'workspace-write') : undefined }) as import('./protocol').Session; }
+				// what this agent may do comes from the policy the owner set for the project on this computer, and from its role: never from the request
+				const policy = this.policies.get(profileWorkspace ?? workspace), agentRole = role as AgentRole | undefined;
+				try {
+					if (service === 'opencode') { return await this.opencode.create(workspace, model, profileWorkspace, openCodeRules(policy, agentRole)); }
+					if (['opencode', 'claude-code', 'codex-cli'].some(provider => providerBusy(provider as 'opencode'))) { throw new RpcError(-32006, 'Aguarde a manutencao do provedor terminar.'); }
+					if (service === 'claude-code') { const launch = claudeLaunch(policy, agentRole); return await this.claude.create(workspace, parseSelection(model), launch.permissionMode === 'bypassPermissions' ? 'acceptEdits' : launch.permissionMode, { bypass: launch.permissionMode === 'bypassPermissions', allowedTools: launch.allowedTools, disallowedTools: launch.disallowedTools }); }
+					if (service === 'codex-cli') { const launch = codexLaunch(policy, agentRole); return await this.codex.create(workspace, parseSelection(model), launch.sandbox === 'danger-full-access' ? 'workspace-write' : launch.sandbox, { fullAccess: launch.sandbox === 'danger-full-access', network: launch.network }); }
+					throw new RpcError(ErrorCode.InvalidParams, 'Invalid provider');
+				}
 				finally { this.sessionRequests--; }
 			},
 			prompt: (id, text) => {
@@ -117,7 +130,7 @@ export class HubServer {
 			list: () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()]
 		}, () => this.publish({ type: 'comparison.changed' }));
 		this.solutions = new Solutions(join(opts.historyDir ?? join(hubHome(), 'history'), 'solutions'), (id, workspace, participantId) => this.comparisons.solutionSource(id, workspace, participantId));
-		this.teams = new Teams(join(opts.historyDir ?? join(hubHome(), 'history'), 'teams'), this.comparisons, this.solutions, () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()], () => this.publish({ type: 'comparison.changed' }));
+		this.teams = new Teams(join(opts.historyDir ?? join(hubHome(), 'history'), 'teams'), this.comparisons, this.solutions, () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()], () => this.publish({ type: 'comparison.changed' }), workspace => this.policies.get(workspace));
 		this.limits = { ...DEFAULT_LIMITS, ...opts.limits };
 		this.http = http.createServer((req, res) => this.onHttp(req, res));
 		this.wss = new WebSocketServer({ noServer: true, maxPayload: this.limits.maxPayloadBytes, perMessageDeflate: false });
@@ -463,6 +476,17 @@ export class HubServer {
 					lister: windowsLister, context: () => this.processContext(),
 					connect: async (other: string) => { const c = await HubConnection.connect({ home: other, clientName: 'singularity-process-manager', timeoutMs: 5000 }); const sessions = (await c.request<unknown[]>('sessions.list')).length; return { sessions, stop: async () => { await c.request('hub.shutdown', {}); } }; }
 				});
+			}
+			case 'policy.get':
+			case 'policy.set': {
+				const p = request.params as { workspace?: unknown; mode?: unknown; external?: unknown; confirm?: unknown } | undefined;
+				if (typeof p?.workspace !== 'string' || !isAbsolute(p.workspace)) { throw new RpcError(ErrorCode.InvalidParams, 'Workspace required'); }
+				if (method === 'policy.get') { return this.policies.get(p.workspace); }
+				// Changing what an agent may run is a decision of the owner on this computer: explicit, and never while a team is working.
+				if (p.confirm !== true) { throw new RpcError(ErrorCode.InvalidParams, 'A mudança do modo de execução precisa de confirmação explícita.'); }
+				if (this.teams.active() || this.comparisons.active()) { throw new RpcError(ErrorCode.InvalidParams, 'Há uma equipe ou comparação em andamento. Mude o modo de execução quando ela terminar.'); }
+				try { const policy = this.policies.set(p.workspace, p.mode, p.external); this.publish({ type: 'comparison.changed' }); return policy; }
+				catch (error) { throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : 'Modo de execução inválido.'); }
 			}
 			case 'usage.get': {
 				const fresh = (request.params as { fresh?: unknown } | undefined)?.fresh === true;

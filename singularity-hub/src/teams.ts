@@ -1,3 +1,4 @@
+import { DEFAULT_POLICY, implementerInstructions, type ExecutionPolicy } from './executionPolicy';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -20,6 +21,8 @@ export interface Team {
 	cancelledRoles?: string[]; pendingFeedback?: string;
 	/** What the person asked for after a version was delivered; each one started a new cycle on top of that version. */
 	followUps?: Array<{ text: string; at: number }>;
+	/** The execution policy of the workspace when the current cycle started: what its implementer was allowed to do. */
+	policy?: ExecutionPolicy;
 	command?: { executable: string; args: string[]; approved: true };
 }
 
@@ -47,7 +50,7 @@ export class Teams {
 	private readonly busy = new Set<string>();
 	private creating = false;
 	constructor(directory: string, private readonly comparisons: Comparisons, private readonly solutions: Solutions,
-		private readonly sessions: () => Session[], private readonly changed: () => void) {
+		private readonly sessions: () => Session[], private readonly changed: () => void, private readonly policyOf: (workspace: string) => ExecutionPolicy = () => ({ ...DEFAULT_POLICY })) {
 		this.storage = new SessionHistory(directory, join(__dirname, 'singularity-job.exe'), 'team');
 	}
 	private save(team: Team, touch = true): void {
@@ -106,13 +109,13 @@ export class Teams {
 	private participant(team: Team, role: TeamRole): Participant { return this.group(team).participants[['implementer', 'reviewer', 'tester'].indexOf(role)]; }
 	private async allocate(team: Team): Promise<void> {
 		const group = await this.comparisons.create({ workspace: team.workspace, text: team.task, participants: team.roles }, true, team.id);
-		team.workspace = group.workspace; team.comparisonId = group.id; team.contextHash = undefined;
+		team.workspace = group.workspace; team.comparisonId = group.id; team.contextHash = undefined; team.policy = this.policyOf(group.workspace);
 		if (group.participants.some(p => p.status !== 'idle')) { throw new Error(group.participants.find(p => p.error)?.error ?? 'Provedor indisponível.'); }
 		if (team.state === 'cancelled') { await this.comparisons.teamStop(group.id, team.workspace); return; }
 		this.save(team);
 	}
 	private implementationPrompt(team: Team, feedback?: string): string {
-		return `Papel: implementador. Versão ${team.cycle + 1}. Trabalhe somente no worktree atual. Produza arquivos reais com ferramentas de edição. A revisão e os testes independentes serão conduzidos nas etapas próprias. Não execute comandos de shell, testes ou outras CLIs nesta etapa. Nunca aplique no projeto principal.\nTarefa original:\n${team.task}\n${feedback ? 'Feedback verificável da versão anterior:\n' + feedback : ''}`;
+		return `Papel: implementador. Versão ${team.cycle + 1}. Trabalhe somente no worktree atual. ${implementerInstructions(team.policy ?? DEFAULT_POLICY)} A revisão e os testes independentes serão conduzidos nas etapas próprias. Nunca aplique no projeto principal.\nTarefa original:\n${team.task}\n${feedback ? 'Feedback verificável da versão anterior:\n' + feedback : ''}`;
 	}
 	private async dispatch(team: Team, role: TeamRole, prompt: string): Promise<void> {
 		if (team.state === 'cancelled') { return; }

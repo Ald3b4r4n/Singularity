@@ -164,16 +164,30 @@ const FAILURE_TEXT: Record<FailureKind, string> = {
 
 // ---------- one run ----------
 
+/** What only the Hub itself may add to a session, from the execution policy of the workspace: never taken from a client request. */
+export interface ClaudeExtras { bypass?: boolean; allowedTools?: string[]; disallowedTools?: string[] }
+
 interface Managed {
 	view: Session;
 	selection: ModelSelection;
 	permissionMode?: PermissionMode;
+	extras?: ClaudeExtras;
 	run?: ClaudeRun;
 	busy: boolean;
 	closing?: boolean;
 }
 
 type Publish = (event: Omit<HubEvent, 'seq'>) => void;
+
+/** The permission flags of one run. All of them are documented flags of the CLI; the tool lists are comma separated, as it expects. */
+export function permissionArgs(mode: PermissionMode | undefined, extras?: ClaudeExtras): string[] {
+	const args: string[] = [];
+	if (extras?.bypass) { args.push('--permission-mode', 'bypassPermissions'); }
+	else if (mode && mode !== 'default') { args.push('--permission-mode', mode); }
+	if (extras?.allowedTools?.length) { args.push('--allowedTools', extras.allowedTools.join(',')); }
+	if (extras?.disallowedTools?.length) { args.push('--disallowedTools', extras.disallowedTools.join(',')); }
+	return args;
+}
 
 class ClaudeRun {
 	get pid(): number | undefined { return this.child.pid; }
@@ -198,7 +212,7 @@ class ClaudeRun {
 		const args = ['--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompts', 'none',
 			'--model', item.selection.modelID];
 		if (item.selection.variant) { args.push('--effort', item.selection.variant); }
-		if (item.permissionMode && item.permissionMode !== 'default') { args.push('--permission-mode', item.permissionMode); }
+		args.push(...permissionArgs(item.permissionMode, item.extras));
 		args.push(resume ? '--resume' : '--session-id', item.view.id);
 		const env: NodeJS.ProcessEnv = {};
 		for (const [key, value] of Object.entries(process.env)) { if (!/^SINGULARITY_/i.test(key)) { env[key] = value; } }
@@ -374,7 +388,7 @@ export class ClaudeCodeSessions {
 		return { facts, chosen: validateSelection(claudeProviders(facts), selection ?? { providerID: 'claude-code', modelID: fallback }) };
 	}
 
-	async create(directory: string, selection?: ModelSelection, permissionMode?: PermissionMode): Promise<Session> {
+	async create(directory: string, selection?: ModelSelection, permissionMode?: PermissionMode, extras?: ClaudeExtras): Promise<Session> {
 		if (this.closed || this.sessions.size >= maxSessions || !isAbsolute(directory)) { throw new ClaudeCodeError('Escolha um workspace local absoluto ou encerre uma sessão existente.'); }
 		const workspace = await realpath(directory).catch(() => undefined);
 		if (!workspace || !(await stat(workspace)).isDirectory()) { throw new ClaudeCodeError('O diretório do workspace não existe.'); }
@@ -382,9 +396,9 @@ export class ClaudeCodeSessions {
 		const id = randomUUID();
 		const at = Date.now();
 		const item: Managed = {
-			selection: chosen, permissionMode, busy: false,
+			selection: chosen, permissionMode, ...(extras ? { extras } : {}), busy: false,
 			view: { id, harness: 'claude-code', title: 'Claude Code', status: 'idle', workspace, version: facts.version, createdAt: at, updatedAt: at,
-				model: { providerID: chosen.providerID, modelID: chosen.modelID, ...(chosen.variant ? { variant: chosen.variant } : {}) }, ...(permissionMode ? { permissionMode } : {}) }
+				model: { providerID: chosen.providerID, modelID: chosen.modelID, ...(chosen.variant ? { variant: chosen.variant } : {}) }, ...(extras?.bypass ? { permissionMode: 'bypassPermissions' } : permissionMode ? { permissionMode } : {}) }
 		};
 		this.sessions.set(id, item);
 		this.history?.save(item.view);
@@ -493,7 +507,7 @@ export class ClaudeCodeSessions {
 			.catch(async () => this.validated(undefined));
 		const { historical, prompt, result, ...rest } = session;
 		const live: Session = { ...rest, status: 'idle', updatedAt: Date.now(), summary: undefined };
-		this.sessions.set(id, { view: live, selection: chosen, permissionMode: session.permissionMode as PermissionMode | undefined, busy: false });
+		this.sessions.set(id, { view: live, selection: chosen, permissionMode: parsePermissionMode(session.permissionMode), busy: false });
 		this.history?.save(live);
 		this.publish({ type: 'session.changed', sessionId: id, data: { ...live } });
 		return { ...live };

@@ -203,6 +203,14 @@ describe('Remote 2.0 orchestration through the gateway', { timeout: 180000 }, ()
 			assert.equal((await api('POST', `/api/teams/${id}/${forbidden}`, { workspaceId, confirm: true }, 'forb-t' + forbidden.padEnd(7, '0'))).status, 404, forbidden);
 		}
 		assert.equal((await api('POST', '/api/solutions/apply', { confirm: true }, 'forb-solutions')).status, 404);
+		// the execution policy: readable for an authorised workspace, with no route that changes it and no route that runs a command
+		const policy = await api('GET', `/api/policy?workspaceId=${workspaceId}`);
+		assert.equal(policy.status, 200); assert.deepEqual(policy.json, { mode: 'restricted', external: false });
+		assert.equal((await api('GET', '/api/policy?workspaceId=nope')).status, 403);
+		for (const [method, route] of [['POST', '/api/policy'], ['PUT', '/api/policy'], ['POST', `/api/policy?workspaceId=${workspaceId}`], ['POST', '/api/shell'], ['POST', '/api/exec'], ['POST', '/api/command'], ['POST', '/api/terminal']] as const) {
+			assert.equal((await api(method, route, { confirm: true, workspaceId, mode: 'autonomous', external: true, command: 'whoami' }, 'forb-' + route.replace(/\W/g, '').padEnd(10, '0').slice(0, 10) + method.slice(0, 2))).status, 404, method + ' ' + route);
+		}
+		assert.ok(!hub.calls.some(c => /^policy\.(?!get$)/.test(c.method)), 'only the read reached the Hub');
 		const used = hub.calls.map(c => c.method);
 		assert.ok(!used.some(m => /solutions\.|cleanup|shutdown|processes\./.test(m)), 'none of the forbidden operations reached the Hub');
 	});

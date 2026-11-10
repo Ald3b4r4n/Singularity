@@ -1,4 +1,5 @@
 import { profileEnvironment, type OpenCodeProfile } from './providerProfiles';
+import { openCodeConfig, redact, type OpenCodeRule } from './executionPolicy';
 import { providerDiagnostic, classifyProviderFailure, connectionFacts, pluginActivationFailure, type ProviderDiagnostic } from './providerDiagnostics';
 import { managedProviderPath } from './providerInstall';
 import { spawn, spawnSync } from 'node:child_process';
@@ -37,9 +38,18 @@ const outputLimit = 12000;
 /** How long one run of an agent may take before it is interrupted. */
 const runLimit = 60 * 60 * 1000;
 
+const isShell = (tool: string): boolean => /^(shell|bash|execute|exec|powershell|terminal|command)$/i.test(tool);
+
 /** One thing an agent did while working, as shown to the person following it. */
-export interface Activity { kind: 'thinking' | 'tool' | 'text'; text?: string; tool?: string; detail?: string; status?: string; at?: number }
+export interface Activity { kind: 'thinking' | 'tool' | 'text'; text?: string; tool?: string; detail?: string; status?: string; at?: number; exitCode?: number; output?: string }
 export interface LiveView { text?: string; activity: Activity[]; lastAt?: number }
+
+/** The environment of one OpenCode server, with the execution policy of its agent added to the official inline configuration. */
+function withRules(env: NodeJS.ProcessEnv, rules: OpenCodeRule[] | undefined): NodeJS.ProcessEnv {
+	if (!rules) { return env; }
+	try { return { ...env, OPENCODE_CONFIG_CONTENT: openCodeConfig(env.OPENCODE_CONFIG_CONTENT, rules) }; }
+	catch (error) { throw new OpenCodeError(error instanceof Error ? error.message : 'A política de execução não pôde ser aplicada.'); }
+}
 
 export class OpenCodeError extends Error {
 	constructor(message: string, readonly httpStatus?: number, readonly pluginsBlocked = false, readonly operation?: string) { super(message); }
@@ -137,7 +147,7 @@ class OpenCodeProcess {
 	private dead = false;
 	private exitCode: number | null = null;
 
-	constructor(exe: string, workspace: string, port: number, record?: RecoveryRecord, profile: OpenCodeProfile = 'normal') {
+	constructor(exe: string, workspace: string, port: number, record?: RecoveryRecord, profile: OpenCodeProfile = 'normal', rules?: OpenCodeRule[]) {
 		if (record) {
 			this.authorization = record.authorization;
 			this.origin = record.origin;
@@ -152,7 +162,7 @@ class OpenCodeProcess {
 		this.pipeId = randomUUID();
 		this.control = randomBytes(32).toString('hex');
 		const child = spawn(helper, [exe, workspace, String(port), this.pipeId, currentWindowsUser().sid], {
-			env: { ...profileEnvironment(profile, process.env), OPENCODE_PASSWORD: password, SINGULARITY_JOB_CONTROL: this.control },
+			env: { ...withRules(profileEnvironment(profile, process.env), rules), OPENCODE_PASSWORD: password, SINGULARITY_JOB_CONTROL: this.control },
 			detached: true, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore']
 		});
 		this.helperPid = child.pid ?? 0;
@@ -374,7 +384,7 @@ export class OpenCodeSessions {
 
 	has(id: string): boolean { return this.sessions.has(id); }
 
-	async create(directory: string, selection?: ModelSelection, profileWorkspace?: string): Promise<Session> {
+	async create(directory: string, selection?: ModelSelection, profileWorkspace?: string, rules?: OpenCodeRule[]): Promise<Session> {
 		const exe = openCodeExecutable();
 		if (!exe) {
 			throw new OpenCodeError('OpenCode v2 ou o helper Windows do Singularity não foi encontrado.');
@@ -391,7 +401,7 @@ export class OpenCodeSessions {
 			}
 			const source = profileWorkspace ? await realpath(profileWorkspace) : workspace;
 			const profile = this.profiles.get(source.toLowerCase()) ?? 'normal';
-			server = new OpenCodeProcess(exe, workspace, await localPort(), undefined, profile);
+			server = new OpenCodeProcess(exe, workspace, await localPort(), undefined, profile, rules);
 			const version = await server.ready();
 			// the OpenCode API accepts any model and variant without checking: the choice is validated against the real catalog first
 				const chosen = selection ? validateSelection((await readCatalog(server)).providers, selection) : undefined;
@@ -473,7 +483,7 @@ export class OpenCodeSessions {
 	async live(id: string): Promise<LiveView | undefined> {
 		const item = this.sessions.get(id);
 		if (!item || item.closing) { return undefined; }
-		type Part = { type: string; text?: string; name?: string; tool?: string; state?: { status?: string; input?: unknown }; time?: { created?: number; ran?: number; completed?: number } };
+		type Part = { type: string; text?: string; name?: string; tool?: string; state?: { status?: string; input?: unknown; content?: Array<{ type?: string; text?: string }>; metadata?: Record<string, unknown>; error?: unknown }; time?: { created?: number; ran?: number; completed?: number } };
 		const { data: messages } = await item.server.request<{ data: Array<{ type: string; content?: Part[] }> }>('messages', item.remoteId, undefined, AbortSignal.timeout(4000));
 		const userIndex = messages.findIndex(message => message.type === 'user');
 		const reply = messages.slice(0, userIndex < 0 ? messages.length : userIndex).filter(message => message.type === 'assistant').reverse();
@@ -483,11 +493,14 @@ export class OpenCodeSessions {
 			if (base && flat.toLowerCase().startsWith(base)) { return flat.slice(base.length).replace(/^\/+/, '') || '.'; }
 			return /^([a-z]:)?\//i.test(flat) ? flat.split('/').filter(Boolean).at(-1) ?? '' : flat;
 		};
+		// the absolute path of the working copy never leaves the Hub: in what a command printed it becomes "."
+		const everywhere = base ? new RegExp(base.split('/').map(segment => segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+'), 'gi') : undefined;
+		const hidePaths = (text: string): string => everywhere ? text.replace(everywhere, '.') : text;
 		const detailOf = (input: unknown): string | undefined => {
 			if (!input || typeof input !== 'object') { return undefined; }
 			const raw = input as Record<string, unknown>;
-			for (const key of ['path', 'filePath', 'file', 'pattern', 'query', 'url', 'description', 'command']) {
-				if (typeof raw[key] === 'string' && raw[key]) { return (key === 'command' || key === 'pattern' || key === 'query' || key === 'url' || key === 'description' ? raw[key] as string : relative(raw[key] as string)).slice(0, 140); }
+			for (const key of ['command', 'path', 'filePath', 'file', 'pattern', 'query', 'url', 'description']) {
+				if (typeof raw[key] === 'string' && raw[key]) { return hidePaths(redact(key === 'command' || key === 'pattern' || key === 'query' || key === 'url' || key === 'description' ? raw[key] as string : relative(raw[key] as string))).slice(0, 200); }
 			}
 			return undefined;
 		};
@@ -499,7 +512,17 @@ export class OpenCodeSessions {
 				if (at && at > lastAt) { lastAt = at; }
 				if (part.type === 'reasoning') { if (part.text) { activity.push({ kind: 'thinking', text: part.text.length > 500 ? '…' + part.text.slice(-500) : part.text, status: part.time?.completed ? 'completed' : 'running', at }); } }
 				else if (part.type === 'text') { if (part.text) { activity.push({ kind: 'text', text: part.text.slice(-outputLimit), at }); } }
-				else if (part.name || part.tool) { activity.push({ kind: 'tool', tool: String(part.name ?? part.tool).slice(0, 60), detail: detailOf(part.state?.input), status: part.state?.status, at }); }
+				else if (part.name || part.tool) {
+					const tool = String(part.name ?? part.tool).slice(0, 60), entry: Activity = { kind: 'tool', tool, detail: detailOf(part.state?.input), status: part.state?.status, at };
+					if (isShell(tool)) {
+						// what the command really printed and how it ended, as the harness recorded it: bounded, and without what looks like a credential
+						const meta = part.state?.metadata ?? {}, code = [meta.exit, meta.exitCode, meta.code].find(value => Number.isInteger(value)) as number | undefined;
+						if (code !== undefined) { entry.exitCode = code; if (code !== 0 && entry.status === 'completed') { entry.status = 'error'; } }
+						const printed = (part.state?.content ?? []).filter(item => item.type === 'text' && item.text).map(item => item.text).join('\n') || (typeof meta.output === 'string' ? meta.output : '');
+						if (printed) { entry.output = hidePaths(redact(printed.length > 1200 ? '…' + printed.slice(-1200) : printed)); }
+					}
+					activity.push(entry);
+				}
 			}
 		}
 		const text = activity.filter(entry => entry.kind === 'text').map(entry => entry.text).join('\n').slice(-outputLimit) || undefined;
@@ -507,6 +530,7 @@ export class OpenCodeSessions {
 	}
 
 	private async run(item: Managed, text?: string): Promise<void> {
+		item.view.updatedAt = Date.now();
 		const { server, remoteId } = item;
 		try {
 			if (text !== undefined) { await server.request('prompt', remoteId, { text }); }

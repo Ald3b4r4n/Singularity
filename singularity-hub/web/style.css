@@ -166,3 +166,11 @@ button.link { background: transparent; border: 0; color: var(--accent); text-dec
 .teaminfo { margin: 10px 0; }
 .row.between.nowrap > strong { flex: 1 1 0; }
 .row.nowrap > .row.nowrap { flex: none; }
+
+.act.tool { flex-wrap: wrap; }
+.act.tool .exit { flex: none; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.act.tool .exit.ok { color: var(--ok); border-color: var(--ok); }
+.act.tool .exit.bad { color: var(--bad); border-color: var(--bad); }
+.act.tool .output { flex: 1 1 100%; min-width: 0; }
+.act.tool .output summary { color: var(--muted); font-size: 13px; cursor: pointer; min-height: 28px; }
+.act.tool .output pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; }

@@ -88,6 +88,18 @@ async function inheritedPermissions(path: string): Promise<void> {
 	if (!rules.length || rules.some(line => !line.slice(line.indexOf(':(') + 1).includes('(I)'))) { throw new Error('ACL específica não suportada. Preserve as permissões de ' + path); }
 }
 
+/** Folders that an install or a build fills and that no project keeps under version control: never part of a solution, with or without a .gitignore. */
+const GENERATED = /(^|\/)(node_modules|\.gradle|\.venv|venv|__pycache__|\.pytest_cache|\.mypy_cache|\.vercel|\.netlify|\.turbo|\.next|\.nuxt|\.parcel-cache|\.cache)\//;
+/**
+ * The files of a working copy that can belong to a solution: the tracked ones, and the new ones that the project itself does not ignore.
+ * An agent that may run commands installs dependencies and builds; what that leaves behind stays out.
+ */
+async function workingPaths(root: string): Promise<string[]> {
+	const tracked = (await git(root, ['ls-files', '--cached', '-z'])).toString('utf8').split('\0').filter(Boolean);
+	const created = (await git(root, ['ls-files', '--others', '--exclude-standard', '-z'])).toString('utf8').split('\0').filter(Boolean).filter(path => !GENERATED.test(path));
+	return [...tracked, ...created];
+}
+
 async function baseEntries(root: string, base: string): Promise<Map<string, string>> {
 	const result = new Map<string, string>();
 	for (const entry of (await git(root, ['ls-tree', '-rz', base])).toString('utf8').split('\0').filter(Boolean)) {
@@ -176,7 +188,7 @@ export class Solutions {
 	}
 	private async fingerprint(root: string, base: string): Promise<string> {
 		const entries = await baseEntries(root, base);
-		const extra = (await git(root, ['ls-files', '--cached', '--others', '-z'])).toString('utf8').split('\0').filter(Boolean);
+		const extra = await workingPaths(root);
 		const paths = [...new Set([...entries.keys(), ...extra])].sort();
 		if (paths.length > 10000) { throw new Error('O worktree excede o limite de verificação deste ciclo.'); }
 		const hashes: string[] = [];
@@ -198,7 +210,7 @@ export class Solutions {
 				const match = /^(\d+) [0-9a-f]+ (\d+)\t(.+)$/.exec(entry);
 				if (!match || match[2] !== '0' || !['100644', '100755'].includes(match[1]) || (entries.has(match[3]) ? entries.get(match[3]) !== match[1] : match[1] !== '100644')) { throw new Error('Alterações de tipo ou modo Git não são suportadas neste ciclo.'); }
 			}
-			const paths = [...new Set([...entries.keys(), ...(await git(participant.workspace, ['ls-files', '--cached', '--others', '-z'])).toString('utf8').split('\0').filter(Boolean)])].sort();
+			const paths = [...new Set([...entries.keys(), ...(await workingPaths(participant.workspace))])].sort();
 			const caseNames = new Set<string>();
 			for (const path of paths) { safeSolutionPath(path); if (caseNames.has(path.toLowerCase())) { throw new Error('Colisão de nomes de arquivos.'); } caseNames.add(path.toLowerCase()); }
 			const id = randomUUID(); ensureSecureDir(this.location(id));

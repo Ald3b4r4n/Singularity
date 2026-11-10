@@ -90,6 +90,11 @@
         "category": "Singularity"
       },
       {
+        "command": "singularity.agents.executionPolicy",
+        "title": "Modo de execução do Implementador (terminal)",
+        "category": "Singularity"
+      },
+      {
         "command": "singularity.agents.usage",
         "title": "Uso e limites dos serviços",
         "category": "Singularity"

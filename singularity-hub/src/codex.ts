@@ -174,10 +174,22 @@ const FAILURE_TEXT: Record<CodexFailure, string> = {
 
 // ---------- one run ----------
 
+/** What only the Hub itself may add to a session, from the execution policy of the workspace: never taken from a client request. */
+export interface CodexExtras { fullAccess?: boolean; network?: boolean }
+
+/** The sandbox flags of one run: the documented `-s` values and the documented network switch of `workspace-write`. */
+export function sandboxArgs(mode: CodexPermissionMode, extras: CodexExtras | undefined, resume: boolean): string[] {
+	const sandbox = extras?.fullAccess ? 'danger-full-access' : mode;
+	const args = resume ? ['-c', `sandbox_mode="${sandbox}"`] : ['-s', sandbox];
+	if (!extras?.fullAccess && extras?.network && mode === 'workspace-write') { args.push('-c', 'sandbox_workspace_write.network_access=true'); }
+	return args;
+}
+
 interface Managed {
 	view: Session;
 	selection: ModelSelection;
 	permissionMode: CodexPermissionMode;
+	extras?: CodexExtras;
 	run?: CodexRun;
 	busy: boolean;
 	closing?: boolean;
@@ -207,9 +219,9 @@ class CodexRun {
 		if (item.selection.variant) { args.push('-c', `model_reasoning_effort="${item.selection.variant}"`); }
 		if (resumeId) {
 			if (!THREAD_ID.test(resumeId)) { throw new CodexError('O identificador da conversa do Codex CLI é inválido.'); }
-			args.push('-c', `sandbox_mode="${item.permissionMode}"`, resumeId);
+			args.push(...sandboxArgs(item.permissionMode, item.extras, true), resumeId);
 		} else {
-			args.push('-s', item.permissionMode, '-C', item.view.workspace!);
+			args.push(...sandboxArgs(item.permissionMode, item.extras, false), '-C', item.view.workspace!);
 		}
 		args.push('-');
 		const env: NodeJS.ProcessEnv = {};
@@ -371,7 +383,7 @@ export class CodexSessions {
 		return { facts, chosen: validateSelection(codexProviders(facts), selection ?? { providerID: 'codex-cli', modelID: facts.models[0].id }) };
 	}
 
-	async create(directory: string, selection?: ModelSelection, permissionMode?: CodexPermissionMode): Promise<Session> {
+	async create(directory: string, selection?: ModelSelection, permissionMode?: CodexPermissionMode, extras?: CodexExtras): Promise<Session> {
 		if (this.closed || this.sessions.size >= maxSessions || !isAbsolute(directory)) { throw new CodexError('Escolha um workspace local absoluto ou encerre uma sessão existente.'); }
 		const workspace = await realpath(directory).catch(() => undefined);
 		if (!workspace || !(await stat(workspace)).isDirectory()) { throw new CodexError('O diretório do workspace não existe.'); }
@@ -380,8 +392,8 @@ export class CodexSessions {
 		const at = Date.now();
 		const mode = permissionMode ?? 'read-only';
 		const item: Managed = {
-			selection: chosen, permissionMode: mode, busy: false,
-			view: { id, harness: 'codex-cli', title: 'Codex CLI', status: 'idle', workspace, version: facts.version, createdAt: at, updatedAt: at, permissionMode: mode,
+			selection: chosen, permissionMode: mode, ...(extras ? { extras } : {}), busy: false,
+			view: { id, harness: 'codex-cli', title: 'Codex CLI', status: 'idle', workspace, version: facts.version, createdAt: at, updatedAt: at, permissionMode: extras?.fullAccess ? 'danger-full-access' : mode,
 				model: { providerID: chosen.providerID, modelID: chosen.modelID, ...(chosen.variant ? { variant: chosen.variant } : {}) } }
 		};
 		this.sessions.set(id, item);

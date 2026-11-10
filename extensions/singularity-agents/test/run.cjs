@@ -21,8 +21,29 @@ test('contributes a secondary side bar container with a webview view, both named
 	assert.strictEqual(nls['view.name'], 'Sessões');
 });
 
+test('the execution policy of the implementer is chosen in the IDE, with an explicit confirmation for the modes that run commands', () => {
+	const P = require('../executionPolicy.js'), code = read('executionPolicy.js');
+	assert.deepStrictEqual(Object.keys(P.MODES), ['restricted', 'development', 'autonomous']);
+	assert.strictEqual(P.describe(undefined).mode, 'restricted', 'no policy reads as restricted');
+	assert.strictEqual(P.describe({ mode: 'whatever', external: true }).mode, 'restricted');
+	assert.ok(/Implementador: Restrito/.test(P.describe({ mode: 'restricted', external: false }).text));
+	assert.ok(/Desenvolvimento \+ publicação/.test(P.describe({ mode: 'development', external: true }).text));
+	assert.ok(!/publicação/.test(P.describe({ mode: 'autonomous', external: false }).text));
+	for (const mode of ['development', 'autonomous']) {
+		assert.ok(/com a sua conta do Windows/.test(P.warning(mode, false)), 'says whose account runs the commands');
+		assert.ok(/continuam não autorizadas/.test(P.warning(mode, false)) && /não uma garantia/.test(P.warning(mode, false)), 'says the external block is not a guarantee');
+		assert.ok(/git push, deploy/.test(P.warning(mode, true)));
+		assert.ok(/Revisor e o Testador continuam sem terminal/.test(P.warning(mode, true)));
+	}
+	assert.ok(/uma pasta não é uma barreira de segurança/.test(P.warning('development', false)), 'a working copy is not presented as a sandbox');
+	assert.ok(/sem pedir aprovação/.test(P.warning('autonomous', false)));
+	assert.ok(code.includes("showWarningMessage(") && code.includes('modal: true') && code.includes("if (answer !== accept) { return; }"), 'a mode that runs commands is never set without the modal answer');
+	assert.ok(code.includes("confirm: true") && (code.match(/policy\.set/g) || []).length === 1, 'one place sets the policy, and it sends the confirmation');
+	assert.ok(pkg.contributes.commands.some(c => c.command === 'singularity.agents.executionPolicy'));
+});
+
 test('every contributed command is registered, and every %key% exists in package.nls.json', () => {
-	const source = read('extension.js') + read('remote.js');
+	const source = read('extension.js') + read('remote.js') + read('executionPolicy.js');
 	for (const c of pkg.contributes.commands) { assert.ok(source.includes(`'${c.command}'`), `${c.command} registered`); }
 	const keys = [...JSON.stringify(pkg).matchAll(/"%([^%"]+)%"/g)].map(m => m[1]);
 	assert.ok(keys.length > 0);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -9,9 +9,10 @@ import { Comparisons } from '../comparisons';
 import { Solutions } from '../solutions';
 import { Teams, parseFindings } from '../teams';
 import { Session } from '../protocol';
+import type { ExecutionPolicy } from '../executionPolicy';
 
 async function until(check: () => boolean, timeout = 30000): Promise<void> { const end = Date.now() + timeout; while (!check()) { if (Date.now() > end) { throw new Error('Team transition timed out.'); } await new Promise(r => setTimeout(r, 20)); } }
-function fixture(correct = false, neverFix = false) {
+function fixture(correct = false, neverFix = false, policy?: ExecutionPolicy, usesTerminal = false) {
 	const root = mkdtempSync(join(tmpdir(), 'sing-team-')), workspace = join(root, 'repo');
 	execFileSync('git', ['init', workspace], { stdio: 'ignore' });
 	writeFileSync(join(workspace, '.gitattributes'), '* -text\n'); writeFileSync(join(workspace, 'sum.cjs'), 'module.exports=(a,b)=>0;\n');
@@ -27,14 +28,22 @@ function fixture(correct = false, neverFix = false) {
 			prompts.push(text); const s = sessions.find(s => s.id === id)!; s.status = 'running';
 			if (text.includes('LONG-RUN')) { return; }
 			setTimeout(() => {
-				if (text.startsWith('Papel: implementador')) { writeFileSync(join(s.workspace!, 'sum.cjs'), correct && (neverFix || !text.includes('Feedback verificável')) ? 'module.exports=(a,b)=>a-b;\n' : 'module.exports=(a,b)=>a+b;\n'); s.result = 'Implemented.'; }
+				if (text.startsWith('Papel: implementador') && usesTerminal) {
+					// what an agent with a terminal leaves behind: installed dependencies, a build folder the project ignores, and a commit of its own
+					mkdirSync(join(s.workspace!, 'node_modules', 'dep'), { recursive: true }); writeFileSync(join(s.workspace!, 'node_modules', 'dep', 'index.js'), 'module.exports = 1;\n');
+					mkdirSync(join(s.workspace!, 'out'), { recursive: true }); writeFileSync(join(s.workspace!, 'out', 'bundle.js'), '// built\n'); writeFileSync(join(s.workspace!, '.gitignore'), 'out/\n');
+					writeFileSync(join(s.workspace!, 'sum.cjs'), 'module.exports=(a,b)=>a+b;\n');
+					execFileSync('git', ['-C', s.workspace!, 'add', 'sum.cjs']); execFileSync('git', ['-C', s.workspace!, '-c', 'user.name=Agent', '-c', 'user.email=agent@example.invalid', 'commit', '-qm', 'work in progress']);
+					writeFileSync(join(s.workspace!, 'notes.md'), 'Ran the tests: 1 passed.\n'); s.result = 'Implemented and tested.';
+				}
+				else if (text.startsWith('Papel: implementador')) { writeFileSync(join(s.workspace!, 'sum.cjs'), correct && (neverFix || !text.includes('Feedback verificável')) ? 'module.exports=(a,b)=>a-b;\n' : 'module.exports=(a,b)=>a+b;\n'); s.result = 'Implemented.'; }
 				else { const bug = readFileSync(join(s.workspace!, 'sum.cjs'), 'utf8').includes('a-b'); s.result = JSON.stringify({ verdict: bug ? 'changes_requested' : 'approve', summary: bug ? 'Subtraction is wrong.' : 'Correct.', issues: bug ? [{ file: 'sum.cjs', line: 1, severity: 'high', message: 'Use addition.' }] : [], scenarios: ['2 + 3 = 5'] }); }
 				s.status = 'done'; comparisons.onSession(s); team.onSession(s);
 			}, 10);
 		}
 	}, () => {});
 	const solutions = new Solutions(join(root, 'solutions'), (id, workspace, participant) => comparisons.solutionSource(id, workspace, participant));
-	team = new Teams(join(root, 'teams'), comparisons, solutions, () => sessions, () => {});
+	team = new Teams(join(root, 'teams'), comparisons, solutions, () => sessions, () => {}, policy ? () => ({ ...policy }) : undefined);
 	const participants = [0, 1, 2].map(() => ({ service: 'opencode', model: { providerID: 'opencode', modelID: 'fixture' } }));
 	return { root, workspace, sessions, prompts, profileSources, comparisons, solutions, team, participants };
 }
@@ -44,6 +53,7 @@ test('team runs sequential roles with separate identical-model sessions, immutab
 	await until(() => f.team.list(run.workspace)[0].state === 'awaiting-validation');
 	const assessed = f.team.list(run.workspace)[0]; assert.equal(assessed.steps.length, 3); assert.deepEqual(f.profileSources, Array(3).fill(realpathSync.native(f.workspace))); assert.equal(assessed.versions.length, 1);
 	assert.equal(assessed.versions[0].review?.verdict, 'approve'); assert.equal(assessed.versions[0].testPlan?.verdict, 'approve');
+	assert.match(f.prompts[0], /Não execute comandos de shell, testes ou outras CLIs nesta etapa\./, 'a workspace without a policy keeps the earlier prohibition'); assert.equal(assessed.policy?.mode, 'restricted');
 	assert.equal(readFileSync(join(f.workspace, 'sum.cjs'), 'utf8'), 'module.exports=(a,b)=>0;\n');
 	const completed = await f.team.validate(run.id, run.workspace, { executable: process.execPath, args: ['--test'], approved: true });
 	assert.equal(completed.state, 'completed'); assert(Number.isFinite(completed.finishedAt)); assert.equal(completed.versions[0].validation?.exitCode, 0);
@@ -85,6 +95,24 @@ test('a new instruction after a delivered version starts one more cycle on top o
 	assert.equal(f.team.list(run.workspace).length, 0); assert.equal(f.team.active(), false);
 	const recovered = new Teams(join(f.root, 'teams'), f.comparisons, f.solutions, () => f.sessions, () => {}); await recovered.recover();
 	assert.equal(recovered.list(run.workspace).length, 0, 'a deleted team does not come back after a restart');
+});
+
+test('with the terminal allowed the implementer is told so and the others are not; what an install, a build or a commit leaves stays out of the solution', async () => {
+	const f = fixture(false, false, { mode: 'development', external: false }, true); const run = await f.team.start({ workspace: f.workspace, text: 'Implement sum.', participants: f.participants });
+	await until(() => f.team.list(run.workspace)[0].state === 'awaiting-validation');
+	const assessed = f.team.list(run.workspace)[0];
+	assert.equal(assessed.policy?.mode, 'development'); assert.equal(assessed.policy?.external, false);
+	assert.match(f.prompts[0], /^Papel: implementador[\s\S]*Você pode usar o terminal neste worktree/); assert.doesNotMatch(f.prompts[0], /Não execute comandos de shell/);
+	assert.match(f.prompts[0], /Não publique nem envie nada para fora/);
+	for (const prompt of f.prompts.slice(1)) { assert.match(prompt, /^Papel: (revisor|testador)[\s\S]*Não altere arquivos e não execute comandos ou testes/, 'the reviewer and the tester keep their own restrictions'); }
+	const solution = f.solutions.list(run.workspace).find(item => item.id === assessed.versions[0].solutionId)!;
+	assert.deepEqual(solution.files.map(file => file.path).sort(), ['.gitignore', 'notes.md', 'sum.cjs'], 'the committed change and the new source files are in; node_modules and the ignored build folder are not');
+	assert.equal(solution.integrity, true);
+	// the independent validation is still the Hub running the authorised command on the snapshot, not the word of the agent
+	const completed = await f.team.validate(run.id, run.workspace, { executable: process.execPath, args: ['--test'], approved: true });
+	assert.equal(completed.state, 'completed'); assert.equal(completed.versions[0].validation?.exitCode, 0);
+	assert.equal(readFileSync(join(f.workspace, 'sum.cjs'), 'utf8'), 'module.exports=(a,b)=>0;\n', 'the project itself is untouched');
+	assert.equal(execFileSync('git', ['-C', f.workspace, 'status', '--porcelain']).toString().trim(), '', 'and its working tree is clean');
 });
 
 test('structured opinions cannot forge independent tests and malformed reports are rejected', () => {

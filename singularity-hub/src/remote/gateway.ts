@@ -324,6 +324,12 @@ export class RemoteGateway {
 			return this.send(res, 200, { state: record.state, resolution: record.resolution ?? null, attempts: record.attempts });
 		}
 		if (await this.orchestrate(req, res, url, route, device)) { return; }
+		if (route === 'GET /api/policy') {
+			// what the implementer of this workspace may run, as the owner set it on the computer. There is no route that changes it.
+			const workspace = this.requireWorkspace(url.searchParams.get('workspaceId'));
+			const policy = await this.bridge.call<{ mode?: string; external?: boolean }>('policy.get', { workspace: workspace.path });
+			return this.send(res, 200, { mode: ['development', 'autonomous'].includes(String(policy?.mode)) ? policy.mode : 'restricted', external: policy?.external === true });
+		}
 		if (route === 'GET /api/usage') { return this.send(res, 200, await this.bridge.call('usage.get', {})); }
 		if (route === 'GET /api/comparisons' || route === 'GET /api/teams') {
 			const workspaces = this.store.workspaces();

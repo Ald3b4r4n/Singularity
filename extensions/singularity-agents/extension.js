@@ -486,6 +486,7 @@ function activate(context) {
 			} catch (error) { void vscode.window.showErrorMessage(String((error && error.message) || error)); }
 		}),
 		vscode.commands.registerCommand('singularity.agents.usage', () => require('./usagePanel').openUsage(hub)),
+		...require('./executionPolicy').register(vscode, hub, () => provider._workspace()),
 		vscode.commands.registerCommand('singularity.agents.manageProviders', async () => {
 			try {
 				await manageProviders(hub, provider._workspace(), async service => {

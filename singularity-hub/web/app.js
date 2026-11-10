@@ -628,9 +628,19 @@
 	}
 
 	// ----- team -----
+	const POLICY = { restricted: 'Restrito: edita arquivos, não usa o terminal', development: 'Desenvolvimento: usa o terminal na cópia de trabalho', autonomous: 'Autônomo: usa o terminal sem pedir aprovação' };
+	const policies = new Map();
+	const policyText = policy => (POLICY[policy.mode] || POLICY.restricted) + (policy.mode && policy.mode !== 'restricted' ? (policy.external ? ' · publicação externa autorizada' : ' · sem publicação externa') : '');
+	/** The execution policy of a workspace is set on the computer; the phone only shows it. */
+	function ensurePolicy(workspaceId) {
+		if (!workspaceId || policies.has(workspaceId)) { return; }
+		policies.set(workspaceId, null);
+		api('/api/policy?workspaceId=' + encodeURIComponent(workspaceId)).then(policy => { policies.set(workspaceId, policy); if (screen === 'team' && teamForm.open && !typing()) { render(); } }).catch(() => { policies.delete(workspaceId); });
+	}
 	function teamStartForm() {
 		const form = teamForm;
 		const wid = form.workspaceId || (status && status.workspaces[0] && status.workspaces[0].id) || '';
+		ensurePolicy(wid);
 		const roles = [['implementer', 'Implementador', /muse-spark-1\.3.*contributor/], ['reviewer', 'Revisor', /deepseek-v4\.1-flash$/], ['tester', 'Testador', /muse-spark-1\.3.*contributor/]];
 		roles.forEach(([key, , preferred]) => { ensureCatalog(wid, form.roles[key].service); applyDefault(wid, form.roles[key], preferred); });
 		const choices = roles.map(([key]) => choiceOf(wid, form.roles[key]));
@@ -639,6 +649,8 @@
 		return h('section', { class: 'card stack form' }, h('strong', { text: 'Nova equipe' }), workspaceField(form), textField(form, 'Tarefa da equipe', 7000),
 			...roles.map(([key, title, preferred]) => agentPicker(wid, form.roles[key], title, preferred)),
 			select('', 'Ciclos de correção', [['0', 'Nenhum'], ['1', 'Até 1'], ['2', 'Até 2']], String(form.maxCorrections), value => { form.maxCorrections = Number(value); }),
+			h('p', { class: 'statusline', id: 'team-policy', text: 'Terminal do Implementador neste projeto — ' + (policies.get(wid) ? policyText(policies.get(wid)) : 'lendo…') }),
+			h('p', { class: 'muted small', text: 'Esse modo é escolhido na IDE do computador (“Singularity: Modo de execução do Implementador”); o celular não pode mudá-lo.' }),
 			h('p', { class: 'muted small', text: 'O implementador escreve, o revisor aponta problemas e o testador planeja os testes; cada um com o próprio modelo. A validação independente só roda com um perfil de teste cadastrado na IDE Windows.' }),
 			h('p', { class: 'muted small', text: 'Ao confirmar, os agentes começam a trabalhar no computador em cópias isoladas. Nada é aplicado ao projeto principal.' }),
 			h('div', { class: 'actions two' }, h('button', { class: 'secondary', type: 'button', onclick: () => { form.open = false; render(); } }, 'Fechar'),
@@ -714,13 +726,15 @@
 			else if (screen === 'team') { drawTeamDetail(view); }
 		} catch { /* the next tick tries again */ }
 	}
-	const TOOL = { read: 'Lendo', write: 'Escrevendo', edit: 'Editando', patch: 'Editando', multiedit: 'Editando', glob: 'Procurando arquivos', grep: 'Buscando no código', list: 'Listando', bash: 'Executando', shell: 'Executando', todowrite: 'Planejando', todoread: 'Planejando', webfetch: 'Consultando a web', websearch: 'Pesquisando na web', task: 'Delegando' };
+	const TOOL = { read: 'Lendo', write: 'Escrevendo', edit: 'Editando', patch: 'Editando', multiedit: 'Editando', glob: 'Procurando arquivos', grep: 'Buscando no código', list: 'Listando', bash: 'Executando', shell: 'Executando', execute: 'Executando', exec: 'Executando', powershell: 'Executando', todowrite: 'Planejando', todoread: 'Planejando', webfetch: 'Consultando a web', websearch: 'Pesquisando na web', task: 'Delegando' };
 	/** What an agent did, in order: its reasoning, each tool with the file it touched, and the text it wrote. */
 	function activityNodes(live) {
 		const items = live.activity || [];
 		if (!items.length) { return [live.text ? bubble('agent', live.text, true) : h('div', { class: 'bubble agent typing', 'aria-live': 'polite', text: 'O agente está começando…' })]; }
 		const nodes = items.map(item => item.kind === 'thinking' ? h('div', { class: 'act think' }, h('div', { class: 'who', text: item.status === 'completed' ? 'Raciocínio' : 'Raciocinando…' }), h('div', { class: 'text', text: item.text || '' }))
-			: item.kind === 'tool' ? h('div', { class: 'act tool' }, h('span', { class: 'mark ' + (item.status === 'completed' ? 'ok' : item.status === 'error' ? 'bad' : 'run'), text: item.status === 'completed' ? '✓' : item.status === 'error' ? '✕' : '…' }), h('span', { class: 'what', text: TOOL[String(item.tool).toLowerCase()] || item.tool }), item.detail ? h('span', { class: 'detail', text: item.detail }) : null)
+			: item.kind === 'tool' ? h('div', { class: 'act tool' }, h('span', { class: 'mark ' + (item.status === 'completed' ? 'ok' : item.status === 'error' ? 'bad' : 'run'), text: item.status === 'completed' ? '✓' : item.status === 'error' ? '✕' : '…' }), h('span', { class: 'what', text: TOOL[String(item.tool).toLowerCase()] || item.tool }), item.detail ? h('span', { class: 'detail', text: item.detail }) : null,
+				typeof item.exitCode === 'number' ? h('span', { class: 'exit ' + (item.exitCode === 0 ? 'ok' : 'bad'), text: 'saída ' + item.exitCode }) : null,
+				item.output ? h('details', { class: 'output' }, h('summary', { text: 'O que o comando mostrou' }), h('pre', { text: item.output })) : null)
 			: bubble('agent', item.text || '', true));
 		const last = items.at(-1);
 		if (last && last.kind === 'tool' && last.status === 'completed') { nodes.push(h('div', { class: 'bubble agent typing', text: 'Pensando no próximo passo…' })); }
@@ -750,6 +764,7 @@
 			h('details', { class: 'teaminfo' }, h('summary', { text: 'Quem está nesta equipe' }),
 				...(team.roles || []).map((role, index) => h('div', { class: 'muted small', text: ['Implementador', 'Revisor', 'Testador'][index] + ': ' + (SERVICE_NAME[role.service] || role.service) + ' · ' + MODEL_NAME(role.model) })),
 				h('div', { class: 'muted small', text: 'Ciclo ' + (team.cycle + 1) + ' de até ' + (team.maxCorrections + 1) + (team.createdAt ? ' · ' + duration(team.createdAt, team.finishedAt) + ' no total' : '') }),
+				h('div', { class: 'muted small', id: 'team-mode', text: 'Terminal do Implementador: ' + policyText(team.policy || {}) }),
 				h('div', { class: 'muted small', text: 'Os agentes trabalham em cópias isoladas. Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' })),
 			pendingBanner(item => item.kind === 'control'),
 			team.error && team.state !== 'exhausted' ? h('p', { class: 'chip bad', text: team.error }) : null,
