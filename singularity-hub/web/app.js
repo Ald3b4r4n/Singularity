@@ -513,7 +513,7 @@
 		return h('div', null, h('label', { text: label }), h('textarea', { maxlength: String(max), placeholder: 'Descreva o que os agentes devem fazer…', oninput: event => { form.text = event.target.value; const button = document.getElementById('start-op'); if (button) { button.disabled = !(form.text.trim() && form.canStart && form.canStart()); } } }, form.text));
 	}
 	const stopPolling = () => { if (liveTimer) { clearInterval(liveTimer); liveTimer = undefined; } };
-	function poll(fn) { stopPolling(); liveTimer = setInterval(() => { if (!document.hidden && !pendingSend && !typing()) { fn(); } }, 3000); }
+	function poll(fn, ms = 3000) { stopPolling(); let busy = false; liveTimer = setInterval(async () => { if (busy || document.hidden || pendingSend || typing()) { return; } busy = true; try { await fn(); } finally { busy = false; } }, ms); }
 	/** Two taps for what cannot be undone: the first arms the button, the second does it. */
 	function armedButton(key, label, danger, action) {
 		return h('button', { class: danger ? 'danger' : 'secondary', type: 'button', onclick: () => { if (armed === key) { armed = ''; action(); } else { armed = key; render(); } } }, armed === key ? 'Toque de novo para confirmar' : label);
@@ -553,7 +553,7 @@
 		await load();
 		if (screen !== 'compare' || compareView) { return; }
 		draw();
-		poll(load);
+		poll(load, 2000);
 	}
 	function comparisonCard(comparison) {
 		const running = (comparison.participants || []).filter(p => ACTIVE_PARTICIPANT.includes(p.status)).length;
@@ -569,7 +569,7 @@
 		};
 		if (view.data) { drawCompareDetail(view); } else { show(h('div', { class: 'empty', text: 'Lendo…' })); }
 		await load();
-		poll(load);
+		poll(load, 1500);
 	}
 	function drawCompareDetail(view) {
 		const comparison = view.data;
@@ -613,7 +613,7 @@
 			first = false;
 		};
 		await load();
-		if (ACTIVE_PARTICIPANT.includes(participant.status)) { poll(load); }
+		if (ACTIVE_PARTICIPANT.includes(participant.status)) { poll(load, 1000); }
 	}
 	async function showDiff(comparison, participant) {
 		stopPolling();
@@ -661,7 +661,7 @@
 		await load();
 		if (screen !== 'team' || teamView) { return; }
 		draw();
-		poll(load);
+		poll(load, 2000);
 	}
 	function teamCard(team) {
 		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: () => { teamView = { id: team.id, workspaceId: team.workspaceId }; render(); }, onkeydown: event => { if (event.key === 'Enter') { teamView = { id: team.id, workspaceId: team.workspaceId }; render(); } } },
@@ -680,7 +680,27 @@
 		};
 		if (view.data) { drawTeamDetail(view); } else { show(h('div', { class: 'empty', text: 'Lendo…' })); }
 		await load();
-		poll(load);
+		void liveLoad(view);
+		poll(async () => { await load(); await liveLoad(view); }, 1500);
+	}
+	/** What the agent of the running step is writing right now, shown without any tap. Updated in place so the screen is not rebuilt under a finger. */
+	async function liveLoad(view) {
+		const team = view.data;
+		const step = team && (team.steps || []).filter(item => item.status === 'sent' || item.status === 'intent').at(-1);
+		if (!step || !team.comparisonId || !TEAM_ACTIVE.includes(team.state) || team.state === 'paused') { if (view.live) { view.live = undefined; if (teamView === view && screen === 'team') { drawTeamDetail(view); } } return; }
+		try {
+			const group = await api('/api/comparisons/' + team.comparisonId + '?workspaceId=' + encodeURIComponent(team.workspaceId));
+			const participant = (group.participants || []).find(item => item.role === step.role);
+			if (!participant) { return; }
+			const data = await api('/api/comparisons/' + team.comparisonId + '/' + participant.id + '/diff?workspaceId=' + encodeURIComponent(team.workspaceId));
+			if (teamView !== view) { return; }
+			const text = String(data.result || '');
+			const fresh = !view.live || view.live.role !== step.role;
+			view.live = { role: step.role, text, files: String(data.files || '').split('\n').filter(Boolean).length };
+			const box = document.getElementById('team-live-text');
+			if (box && !fresh) { const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40; box.textContent = text || 'Trabalhando… a resposta aparece aqui.'; if (atEnd) { box.scrollTop = box.scrollHeight; } const count = document.getElementById('team-live-files'); if (count) { count.textContent = view.live.files ? view.live.files + ' arquivo(s) alterado(s)' : ''; } }
+			else if (screen === 'team') { drawTeamDetail(view); }
+		} catch { /* the next tick tries again */ }
 	}
 	function drawTeamDetail(view) {
 		const team = view.data;
@@ -696,6 +716,8 @@
 			h('div', { class: 'stack' }, ...(team.roles || []).map((role, index) => h('div', { class: 'muted small', text: ['Implementador', 'Revisor', 'Testador'][index] + ': ' + (SERVICE_NAME[role.service] || role.service) + ' · ' + MODEL_NAME(role.model) }))),
 			pendingBanner(item => item.kind === 'control'),
 			team.error ? h('p', { class: 'chip bad', text: team.error }) : null,
+			view.live ? h('section', { class: 'card stack' }, h('div', { class: 'row between' }, h('strong', { text: 'Ao vivo · ' + (ROLE[view.live.role] || view.live.role) }), h('span', { class: 'muted small', id: 'team-live-files', text: view.live.files ? view.live.files + ' arquivo(s) alterado(s)' : '' })),
+				h('div', { class: 'bubble agent live livebox' }, h('div', { class: 'text', id: 'team-live-text', text: view.live.text || 'Trabalhando… a resposta aparece aqui.' }))) : null,
 			team.state === 'awaiting-validation' ? h('section', { class: 'card stack' }, h('strong', { text: 'Validação independente' }),
 				profiles.length ? [select('', 'Perfil de teste cadastrado na IDE', profiles.map(p => [p.id, p.label]), view.profileId, value => { view.profileId = value; }),
 					h('p', { class: 'muted small', text: 'Roda o comando cadastrado no Windows para este perfil; o celular não escolhe nem vê o comando.' }),

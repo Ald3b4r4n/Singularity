@@ -41,6 +41,8 @@ interface Adapter {
 	create(workspace: string, service: string, model: ModelInfo, role?: 'implementer' | 'reviewer' | 'tester', profileWorkspace?: string): Promise<Session>;
 	prompt(id: string, text: string): void;
 	stop(id: string): Promise<void>;
+	/** What the agent has written so far while it still works (optional: only some agents can say). */
+	live?(id: string): Promise<string | undefined>;
 	list(): Session[];
 	history?(id: string, workspace: string): Promise<import('./history').Turn[]>;
 }
@@ -306,7 +308,7 @@ export class Comparisons {
 		}
 		const session = this.adapter.list().find(s => s.id === p.sessionId);
 		const turns = p.sessionId && this.adapter.history ? await this.adapter.history(p.sessionId, p.workspace).catch(() => []) : [];
-		return { participant: structuredClone(p), base: record.base, files, diff: diff + additions, untracked, usage: session?.usage, result: session?.result ?? turns.at(-1)?.result, error: p.error ?? session?.summary,
+		return { participant: structuredClone(p), base: record.base, files, diff: diff + additions, untracked, usage: session?.usage, result: session?.result ?? turns.at(-1)?.result ?? (p.sessionId && this.adapter.live ? await this.adapter.live(p.sessionId).catch(() => undefined) : undefined), error: p.error ?? session?.summary,
 			tests: 'Consulte a saída do agente. O coordenador não executou testes independentes.', durationMs: p.startedAt ? (p.endedAt ?? Date.now()) - p.startedAt : undefined };
 	}
 

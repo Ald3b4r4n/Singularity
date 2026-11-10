@@ -112,6 +112,7 @@ export class HubServer {
 				owner.prompt(id, text);
 			},
 			stop: async id => { await this.operateSession('session.stop', { id }); },
+			live: async id => this.opencode.has(id) ? await this.opencode.live(id) : undefined,
 			history: async (id, workspace) => await this.operateSession('session.history', { id, workspace }) as import('./history').Turn[],
 			list: () => [...this.opencode.list(), ...this.claude.list(), ...this.codex.list()]
 		}, () => this.publish({ type: 'comparison.changed' }));

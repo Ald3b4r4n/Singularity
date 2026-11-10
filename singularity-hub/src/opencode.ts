@@ -460,11 +460,37 @@ export class OpenCodeSessions {
 		item.run = this.run(item, text).finally(() => { item.run = undefined; });
 	}
 
+	/** What the agent has written in its current answer so far (text and the tools it is using), read while it works. */
+	async live(id: string): Promise<string | undefined> {
+		const item = this.sessions.get(id);
+		if (!item || item.closing) { return undefined; }
+		const { data: messages } = await item.server.request<{ data: Array<{ type: string; content?: Array<{ type: string; text?: string; name?: string; tool?: string }> }> }>('messages', item.remoteId, undefined, AbortSignal.timeout(4000));
+		const userIndex = messages.findIndex(message => message.type === 'user');
+		const reply = messages.slice(0, userIndex < 0 ? messages.length : userIndex).filter(message => message.type === 'assistant').reverse();
+		const lines: string[] = [];
+		for (const message of reply) {
+			for (const part of message.content ?? []) {
+				if (part.type === 'text' && part.text) { lines.push(part.text); }
+				else if (part.type !== 'text' && part.type !== 'reasoning' && (part.name || part.tool)) { lines.push('› ' + String(part.name ?? part.tool).slice(0, 80)); }
+			}
+		}
+		return lines.join('\n').slice(-outputLimit) || undefined;
+	}
+
 	private async run(item: Managed, text?: string): Promise<void> {
 		const { server, remoteId } = item;
 		try {
 			if (text !== undefined) { await server.request('prompt', remoteId, { text }); }
-			await server.request('wait', remoteId, undefined, AbortSignal.timeout(15 * 60 * 1000));
+			// Node's fetch gives up on a response whose headers take more than 5 minutes (UND_ERR_HEADERS_TIMEOUT), and `wait` holds the
+			// response until the run ends: a long task must not fail for that. Wait again, for up to 15 minutes in all.
+			const until = Date.now() + 15 * 60 * 1000;
+			for (;;) {
+				try { await server.request('wait', remoteId, undefined, AbortSignal.timeout(Math.max(1000, until - Date.now()))); break; }
+				catch (error) {
+					const code = (error as { cause?: { code?: string } }).cause?.code;
+					if (!(code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT') || item.closing || Date.now() >= until) { throw error; }
+				}
+			}
 			const { data } = await server.request<{ data: { outcome?: string; model?: RawModel } }>('state', remoteId);
 			const { data: messages } = await server.request<{ data: Array<{ type: string; error?: { status?: number }; content?: Array<{ type: string; text?: string }> }> }>('messages', remoteId);
 			const userIndex = messages.findIndex(message => message.type === 'user');

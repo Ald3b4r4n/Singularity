@@ -126,3 +126,5 @@ fieldset.agent legend { padding: 0 6px; font-weight: 600; font-size: 13px; lette
 .chip { max-width: 100%; }
 .timeline { padding-left: 18px; margin: 4px 0; }
 .timeline li { overflow-wrap: anywhere; margin: 4px 0; }
+.livebox { max-width: 100%; }
+.livebox .text { max-height: 45vh; overflow: auto; overscroll-behavior: contain; }
