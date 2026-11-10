@@ -140,7 +140,8 @@ async function main() {
 	check('A.7 both agents finished and the phone followed them without reloading', finished.participants.every(p => ['done', 'ready'].includes(p.status)) && (await page.getByRole('button', { name: 'Ver alterações' }).count()) === 2, finished.participants.map(p => p.status));
 	const inspect = async participant => hub.request('comparisons.inspect', { id: finished.id, workspace: work, participantId: participant.id }, 60000);
 	const diffs = await Promise.all(finished.participants.map(inspect));
-	check('A.8 the two results are real and distinct (each added soma.js, written by a different model)', diffs.every(d => /soma\.js/.test(String(d.files) + String(d.diff) + String(d.additions))) && String(diffs[0].diff) + String(diffs[0].additions) !== String(diffs[1].diff) + String(diffs[1].additions), diffs.map(d => String(d.files).trim().slice(0, 40)));
+	const bodies = diffs.map(d => String(d.diff) + String(d.additions));
+	check('A.8 both results are real: each agent created soma.js with the sum, in its own worktree (the text may coincide on a task this small)', diffs.every(d => /soma\.js/.test(String(d.files) + String(d.diff) + String(d.additions))) && bodies.every(body => /a\s*\+\s*b/.test(body)), { identicalText: bodies[0] === bodies[1] });
 	await shot('r03-comparacao-concluida.png');
 	await page.getByRole('button', { name: 'Ver alterações' }).first().click();
 	await page.waitForSelector('.diff');
