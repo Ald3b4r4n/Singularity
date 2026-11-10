@@ -11,7 +11,7 @@ export const ALLOWED_HUB_METHODS = [
 	'sessions.list', 'session.create', 'session.prompt', 'session.interrupt', 'session.history', 'catalog.get',
 	'comparisons.list', 'comparisons.inspect', 'teams.list', 'solutions.list', 'usage.get',
 	// Remote 2.0: start and steer multi-agent work. Applying or undoing a solution is not here and never will be reachable from the phone.
-	'comparisons.create', 'comparisons.cancel', 'comparisons.select', 'teams.start', 'teams.cancel', 'teams.resume', 'teams.delete', 'teams.validate', 'teams.choose'
+	'comparisons.create', 'comparisons.cancel', 'comparisons.select', 'teams.start', 'teams.cancel', 'teams.resume', 'teams.delete', 'teams.instruct', 'teams.validate', 'teams.choose'
 ] as const;
 export type AllowedMethod = typeof ALLOWED_HUB_METHODS[number];
 

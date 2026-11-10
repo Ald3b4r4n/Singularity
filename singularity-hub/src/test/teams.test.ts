@@ -62,6 +62,27 @@ test('review feedback corrects the actual defect, versions reports and invalidat
 	assert.equal(f.prompts.length, 5);
 });
 
+test('a new instruction after a delivered version starts one more cycle on top of it, and a stopped team can be deleted', async () => {
+	const f = fixture(); const run = await f.team.start({ workspace: f.workspace, text: 'Implement sum.', participants: f.participants, maxCorrections: 0 });
+	await assert.rejects(f.team.instruct(run.id, run.workspace, 'Too early.'), /depois de entregar/);
+	await until(() => f.team.list(run.workspace)[0].state === 'awaiting-validation');
+	await assert.rejects(f.team.instruct(run.id, run.workspace, '   '), /nova instrução/);
+	const before = f.prompts.length;
+	await f.team.instruct(run.id, run.workspace, 'Also publish it.');
+	await until(() => f.team.list(run.workspace)[0].state === 'awaiting-validation' && f.team.list(run.workspace)[0].versions.length === 2);
+	const again = f.team.list(run.workspace)[0];
+	assert.equal(again.cycle, 1); assert.equal(again.versions[0].stale, true); assert.equal(again.followUps?.[0].text, 'Also publish it.');
+	assert.match(again.task, /Implement sum\.[\s\S]*Instrução adicional do usuário:\nAlso publish it\./);
+	assert.match(f.prompts[before], /^Papel: implementador[\s\S]*Nova instrução do usuário[\s\S]*Also publish it\./);
+	assert.ok(f.prompts.slice(before + 1).every(prompt => prompt.includes('Also publish it.')), 'the reviewer and the tester judge against the new instruction too');
+	assert.equal(f.prompts.length, before + 3);
+	assert.equal(readFileSync(join(f.workspace, 'sum.cjs'), 'utf8'), 'module.exports=(a,b)=>0;\n', 'the project itself is untouched');
+	await f.team.delete(run.id, run.workspace);
+	assert.equal(f.team.list(run.workspace).length, 0); assert.equal(f.team.active(), false);
+	const recovered = new Teams(join(f.root, 'teams'), f.comparisons, f.solutions, () => f.sessions, () => {}); await recovered.recover();
+	assert.equal(recovered.list(run.workspace).length, 0, 'a deleted team does not come back after a restart');
+});
+
 test('structured opinions cannot forge independent tests and malformed reports are rejected', () => {
 	assert.throws(() => parseFindings('approved, trust me'), /JSON/);
 	assert.throws(() => parseFindings('{"verdict":"approve","summary":"ok","issues":[{"file":"a","severity":"unknown","message":"x"}]}'), /inválido/);

@@ -81,7 +81,7 @@ describe('Remote 2.0 orchestration through the gateway', { timeout: 180000 }, ()
 	}
 
 	it('keeps the closed API: the new operations are allowed, applying/undoing/cleanup and generic RPC are not', () => {
-		for (const method of ['comparisons.create', 'comparisons.cancel', 'comparisons.select', 'teams.start', 'teams.cancel', 'teams.resume', 'teams.delete', 'teams.validate', 'teams.choose']) { assert.ok((ALLOWED_HUB_METHODS as readonly string[]).includes(method), method); }
+		for (const method of ['comparisons.create', 'comparisons.cancel', 'comparisons.select', 'teams.start', 'teams.cancel', 'teams.resume', 'teams.delete', 'teams.instruct', 'teams.validate', 'teams.choose']) { assert.ok((ALLOWED_HUB_METHODS as readonly string[]).includes(method), method); }
 		for (const method of ['solutions.apply', 'solutions.undo', 'solutions.prepare', 'comparisons.cleanup', 'hub.shutdown', 'processes.terminate', 'session.stop']) { assert.ok(!(ALLOWED_HUB_METHODS as readonly string[]).includes(method), method); }
 	});
 
@@ -189,6 +189,10 @@ describe('Remote 2.0 orchestration through the gateway', { timeout: 180000 }, ()
 		assert.equal((await api('POST', `/api/teams/${id}/cancel`, { workspaceId, confirm: true, role: 'reviewer' }, 'ctl-00000003')).status, 200);
 		assert.equal((await api('POST', `/api/teams/${id}/resume`, { workspaceId, confirm: true }, 'ctl-00000004')).status, 200);
 		assert.equal((await api('POST', `/api/teams/${id}/choose`, { workspaceId, confirm: true }, 'ctl-00000005')).status, 200);
+		assert.equal((await api('POST', `/api/teams/${id}/instruct`, { workspaceId, confirm: true, text: '  ' }, 'ctl-0000000b')).status, 400, 'an empty instruction is refused before the Hub is asked');
+		assert.equal((await api('POST', `/api/teams/${id}/instruct`, { workspaceId, confirm: true, text: 'Publique também.' }, 'ctl-0000000c')).status, 200);
+		assert.deepEqual(hub.calls.filter(c => c.method === 'teams.instruct').map(c => (c.params as { text: string }).text), ['Publique também.']);
+		assert.equal((await api('POST', `/api/comparisons/${id}/instruct`, { workspaceId, confirm: true, text: 'x' }, 'ctl-0000000d')).status, 404);
 		assert.equal((await api('POST', `/api/teams/${id}/delete`, { workspaceId, confirm: true }, 'ctl-00000009')).status, 200, 'a team that is not working can be deleted');
 		assert.equal((await api('POST', `/api/comparisons/${id}/delete`, { workspaceId, confirm: true }, 'ctl-0000000a')).status, 404, 'comparisons are not deleted from the phone');
 		assert.equal((await api('POST', `/api/comparisons/${id}/cancel`, { workspaceId, confirm: true }, 'ctl-00000006')).status, 200);

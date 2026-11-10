@@ -18,6 +18,8 @@ export interface Team {
 	phase: TeamRole | 'validation'; cycle: number; maxCorrections: number; comparisonId?: string;
 	steps: Step[]; versions: Version[]; contextHash?: string; chosen?: boolean; error?: string; resumeRequired?: boolean;
 	cancelledRoles?: string[]; pendingFeedback?: string;
+	/** What the person asked for after a version was delivered; each one started a new cycle on top of that version. */
+	followUps?: Array<{ text: string; at: number }>;
 	command?: { executable: string; args: string[]; approved: true };
 }
 
@@ -215,11 +217,30 @@ export class Teams {
 			else { for (const group of this.comparisons.list(team.workspace).filter(c => c.workflowId === team.id || c.id === team.comparisonId)) { await this.comparisons.cancel(group.id, team.workspace); await this.comparisons.teamStop(group.id, team.workspace); } }
 		}
 	}
+	/**
+	 * A new instruction from the person after the team delivered a version: it becomes part of the task (so the reviewer and the tester judge
+	 * against it too) and starts one more cycle on top of the current version. Only for a team that is not working.
+	 */
+	async instruct(id: string, workspace: string, text: unknown): Promise<Team> {
+		const team = this.get(id, workspace);
+		if (typeof text !== 'string' || !text.trim() || text.length > 3000) { throw new Error('Escreva a nova instrução (até 3000 caracteres).'); }
+		if (!['completed', 'awaiting-validation', 'exhausted'].includes(team.state) || this.busy.has(id) || !team.versions.length) { throw new Error('A equipe só recebe uma nova instrução depois de entregar uma versão e parar de trabalhar.'); }
+		const task = team.task + '\n\nInstrução adicional do usuário:\n' + text.trim();
+		if (task.length > 7000) { throw new Error('A tarefa com as instruções ficou longa demais. Crie uma equipe nova com o pedido completo.'); }
+		this.busy.add(id);
+		try {
+			team.task = task; team.followUps = [...(team.followUps ?? []), { text: text.trim(), at: Date.now() }];
+			team.maxCorrections = Math.max(team.maxCorrections, team.cycle + 1); team.error = undefined; team.finishedAt = undefined; team.command = undefined; this.save(team);
+			await this.correct(team, 'Nova instrução do usuário, a cumprir sobre a versão atual: ' + text.trim());
+		} catch (error) { if ((team.state as Team['state']) !== 'cancelled') { team.state = 'paused'; team.error = error instanceof Error ? error.message : 'A nova instrução não pôde ser iniciada.'; this.save(team); } throw error; }
+		finally { this.busy.delete(id); const current = this.sessions().find(s => s.id === team.steps.at(-1)?.sessionId); if (current) { setImmediate(() => this.onSession(current)); } }
+		return structuredClone(team);
+	}
 	/** Removes a team that is not working: its agents are stopped, their isolated worktrees cleaned and the record forgotten. The project itself is never touched. */
 	async delete(id: string, workspace: string): Promise<void> {
 		const team = this.get(id, workspace);
-		if (['preparing', 'running', 'snapshotting', 'awaiting-validation'].includes(team.state)) { throw new Error('Cancele a equipe antes de excluí-la.'); }
-		if (team.state === 'paused') { await this.cancel(id, workspace); }
+		if (['preparing', 'running', 'snapshotting'].includes(team.state)) { throw new Error('Cancele a equipe antes de excluí-la.'); }
+		if (team.state === 'paused' || team.state === 'awaiting-validation') { await this.cancel(id, workspace); }
 		while (this.busy.has(id)) { await new Promise(resolve => setTimeout(resolve, 50)); }
 		for (const group of this.comparisons.list(team.workspace).filter(c => c.workflowId === id || c.id === team.comparisonId)) { await this.comparisons.cleanup(group.id, team.workspace).catch(() => undefined); }
 		this.storage.delete(id); this.records.delete(id); this.changed();

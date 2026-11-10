@@ -101,7 +101,7 @@ describe('Singularity Remote web client', () => {
 		const app = read('app.js');
 		assert.match(app, /catalogErrors/); assert.match(app, /Date\.now\(\) - failed\.at < 5000/, 'a failed catalog read waits before it is asked again');
 		assert.match(app, /O computador não respondeu\. Tentando de novo/);
-		for (const text of ['Ver resposta', 'Ver ao vivo', 'Agente · ao vivo', 'Raciocinando…', 'Excluir a equipe', 'trabalhando']) { assert.ok(app.includes(text), text); }
+		for (const text of ['Ver resposta', 'Ver ao vivo', 'Agente · ao vivo', 'Raciocinando…', 'Excluir a equipe', 'trabalhando', 'Responda à equipe', '/instruct']) { assert.ok(app.includes(text), text); }
 	});
 
 	it('lets the person drop a send that the computer refused before starting anything', () => {

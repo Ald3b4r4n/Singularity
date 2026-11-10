@@ -77,6 +77,8 @@ class ScriptedHub extends EventEmitter {
 		if (method === 'teams.cancel') { const t = this.teams.find(item => item.id === params.id); t.state = 'cancelled'; t.phase = t.phase; t.finishedAt = Date.now(); return { cancelled: true }; }
 		if (method === 'teams.validate') { const t = this.teams.find(item => item.id === params.id); t.versions[t.versions.length - 1].validation = { status: 'passed' }; t.state = 'completed'; t.finishedAt = Date.now(); return t; }
 		if (method === 'teams.choose') { this.teams.find(item => item.id === params.id).chosen = true; return { chosen: true }; }
+		if (method === 'teams.instruct') { const t = this.teams.find(item => item.id === params.id), now = Date.now(); t.followUps = [...(t.followUps || []), { text: params.text, at: now }]; t.state = 'running'; t.phase = 'implementer'; t.cycle++; t.finishedAt = undefined; t.steps.push({ role: 'implementer', version: t.cycle + 1, status: 'sent', startedAt: now + 1 }); return t; }
+		if (method === 'teams.delete') { this.teams = this.teams.filter(item => item.id !== params.id); return { deleted: true }; }
 		if (method === 'teams.resume') { const t = this.teams.find(item => item.id === params.id); t.state = 'running'; return t; }
 		return {};
 	}
@@ -223,6 +225,16 @@ async function main() {
 	await shot('p11-diff-da-equipe.png');
 	await page.getByRole('button', { name: /Voltar/ }).click();
 
+	// answering the team after it delivered: the instruction goes once, and the team works again on top of its version
+	await page.waitForSelector('.chatbar textarea');
+	await page.locator('.chatbar textarea').fill('Publique também o resultado.');
+	await page.locator('.chatbar button.send').click();
+	await waitFor(() => calls('teams.instruct').length === 1, 'the new instruction reached the Hub');
+	await waitFor(async () => /Publique também o resultado/.test(await page.locator('.chat').innerText()) && /em execução/i.test(await page.locator('#view').innerText()), 'the instruction is shown in the conversation and the team works again', 15000);
+	check('B.8b after the delivery the person can answer the team: the instruction is sent once, shown as their message, and a new cycle starts', calls('teams.instruct')[0].params.text === 'Publique também o resultado.' && (await page.locator('.chat .bubble.user').count()) === 2 && !(await page.locator('.chatbar textarea').count()), calls('teams.instruct').length);
+	await shot('p11b-resposta-a-equipe.png');
+	await hub.call('teams.cancel', { id: hub.teams[0].id });
+
 	// cancelling a running team: two taps, once
 	await page.getByRole('button', { name: '← Equipe' }).click();
 	await page.getByRole('button', { name: 'Nova equipe' }).click();
@@ -231,11 +243,20 @@ async function main() {
 	await page.getByRole('button', { name: 'Confirmar e iniciar' }).click();
 	await page.waitForSelector('.chat');
 	await page.getByRole('button', { name: 'Cancelar a equipe' }).click();
-	check('B.9 cancelling needs a second tap', calls('teams.cancel').length === 0);
+	check('B.9 cancelling needs a second tap', calls('teams.cancel').filter(call => call.params.workspace).length === 0);
 	await page.getByRole('button', { name: 'Toque de novo para confirmar' }).dblclick();
-	await waitFor(() => calls('teams.cancel').length >= 1, 'cancel reached the Hub');
+	await waitFor(() => calls('teams.cancel').filter(call => call.params.workspace).length >= 1, 'cancel reached the Hub');
 	await delay(600);
-	check('B.10 a double tap on the cancel confirmation cancels once', calls('teams.cancel').length === 1, calls('teams.cancel').length);
+	check('B.10 a double tap on the cancel confirmation cancels once', calls('teams.cancel').filter(call => call.params.workspace).length === 1, calls('teams.cancel').length);
+	// a team that stopped can be deleted, with two taps
+	await waitFor(async () => (await page.getByRole('button', { name: 'Excluir a equipe' }).count()) === 1, 'delete is offered for a stopped team', 15000);
+	const teamsBefore = hub.teams.length;
+	await page.getByRole('button', { name: 'Excluir a equipe' }).click();
+	const tappedOnce = calls('teams.delete').length;
+	await page.getByRole('button', { name: 'Toque de novo para confirmar' }).click();
+	await waitFor(() => calls('teams.delete').length === 1, 'delete reached the Hub');
+	await waitFor(async () => (await page.getByRole('button', { name: 'Nova equipe' }).count()) === 1, 'the screen goes back to the list by itself', 15000);
+	check('B.11 a stopped team is deleted with two taps and the screen returns to the list', tappedOnce === 0 && hub.teams.length === teamsBefore - 1);
 	await waitFor(async () => /cancelada/.test(await page.locator('#view').innerText()), 'cancelled state shown');
 	await shot('p12-equipe-cancelada.png');
 

@@ -456,14 +456,17 @@ export class RemoteGateway {
 			return true;
 		}
 
-		const action = /^\/api\/(comparisons|teams)\/([0-9a-f-]{36})\/(cancel|select|resume|choose|validate|delete)$/.exec(url.pathname);
+		const action = /^\/api\/(comparisons|teams)\/([0-9a-f-]{36})\/(cancel|select|resume|choose|validate|delete|instruct)$/.exec(url.pathname);
 		if (!action) { return false; }
 		const body = await this.readBody(req);
 		if (body.confirm !== true) { throw new HttpError(400, 'A ação precisa ser confirmada pelo usuário.'); }
 		const rid = this.requestIdOf(req);
 		const workspace = this.requireWorkspace(body.workspaceId);
 		const [, kind, id, verb] = action;
-		const allowed = kind === 'comparisons' ? ['cancel', 'select'] : ['cancel', 'resume', 'choose', 'validate', 'delete'];
+		const allowed = kind === 'comparisons' ? ['cancel', 'select'] : ['cancel', 'resume', 'choose', 'validate', 'delete', 'instruct'];
+		const instruction = typeof body.text === 'string' ? body.text.trim() : '';
+		if (kind === 'teams' && verb === 'instruct' && (!instruction || instruction.length > 3000)) { throw new HttpError(400, 'Escreva a nova instrução (até 3000 caracteres).'); }
+		const since = Date.now();
 		if (!allowed.includes(verb)) { throw new HttpError(404, 'Ação não disponível.'); }
 		const participantId = typeof body.participantId === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(body.participantId) ? body.participantId : undefined;
 		const role = typeof body.role === 'string' && ['implementer', 'reviewer', 'tester'].includes(body.role) ? body.role : undefined;
@@ -474,7 +477,7 @@ export class RemoteGateway {
 			if (!profile) { throw new HttpError(403, 'Este perfil de teste não está cadastrado para este workspace. Cadastre-o na IDE Windows.'); }
 		}
 		const stateOf = async (): Promise<Record<string, any> | undefined> => (await this.bridge.call<Array<Record<string, any>>>(kind === 'comparisons' ? 'comparisons.list' : 'teams.list', { workspace: workspace.path })).find(item => item.id === id);
-		await this.operate(res, device.id, { action: `${kind}.${verb}`, scope: id, rid, content: { workspace: workspace.id, participantId, role, profileId: profile ? body.profileId : undefined }, status: 200,
+		await this.operate(res, device.id, { action: `${kind}.${verb}`, scope: id, rid, content: { workspace: workspace.id, participantId, role, profileId: profile ? body.profileId : undefined, ...(verb === 'instruct' ? { text: instruction } : {}) }, status: 200,
 			perform: async () => {
 				const params = { id, workspace: workspace.path };
 				if (kind === 'comparisons' && verb === 'cancel') { await this.bridge.call('comparisons.cancel', { ...params, ...(participantId ? { participantId } : {}) }); }
@@ -482,6 +485,7 @@ export class RemoteGateway {
 				else if (verb === 'cancel') { await this.bridge.call('teams.cancel', { ...params, ...(role ? { role } : {}) }); }
 				else if (verb === 'resume') { await this.bridge.call('teams.resume', params); }
 				else if (verb === 'delete') { await this.bridge.call('teams.delete', params); }
+				else if (verb === 'instruct') { await this.bridge.call('teams.instruct', { ...params, text: instruction }, 120000); }
 				else if (verb === 'choose') { await this.bridge.call('teams.choose', params); }
 				else { await this.bridge.call('teams.validate', { ...params, command: { executable: profile!.executable, args: profile!.args, approved: true } }); }
 				return { body: { ok: true } };
@@ -494,6 +498,7 @@ export class RemoteGateway {
 				if (kind === 'comparisons') { return { found: (item.participants ?? []).some((p: { id: string; status: string }) => (!participantId || p.id === participantId) && p.status === 'cancelled') }; }
 				if (verb === 'cancel') { return { found: item.state === 'cancelled' || (role ? (item.cancelledRoles ?? []).includes(role) : false) }; }
 				if (verb === 'choose') { return { found: item.chosen === true }; }
+				if (verb === 'instruct') { return { found: (item.followUps ?? []).some((entry: { text: string; at: number }) => entry.text === instruction && entry.at >= since - 2000) }; }
 				if (verb === 'resume') { return { found: item.state !== 'paused' }; }
 				return { found: (item.versions ?? []).some((v: { validation?: unknown }) => !!v.validation) };
 			} });
