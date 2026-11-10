@@ -137,6 +137,7 @@ async function main() {
 	const conflict = await apiCall('POST', '/api/comparisons', { ...JSON.parse(uiRequest.body), text: 'outra tarefa' }, uiRequest.id);
 	check('A.6 the same id with another payload is refused', conflict.status === 409);
 	const finished = await waitFor(async () => { const c = (await listComparisons())[0]; return c.participants.every(p => !['preparing', 'running', 'waiting'].includes(p.status)) && c; }, 'both agents finish', 600000, 3000);
+	await waitFor(async () => (await page.getByRole('button', { name: 'Ver alterações' }).count()) === 2, 'the phone shows both agents finished', 20000, 500).catch(() => undefined);
 	check('A.7 both agents finished and the phone followed them without reloading', finished.participants.every(p => ['done', 'ready'].includes(p.status)) && (await page.getByRole('button', { name: 'Ver alterações' }).count()) === 2, finished.participants.map(p => p.status));
 	const inspect = async participant => hub.request('comparisons.inspect', { id: finished.id, workspace: work, participantId: participant.id }, 60000);
 	const diffs = await Promise.all(finished.participants.map(inspect));
@@ -185,7 +186,7 @@ async function main() {
 	await page.getByRole('button', { name: 'Confirmar e iniciar' }).click();
 	const team = await waitFor(async () => (await listTeams())[0], 'the team exists', 90000, 500);
 	check('B.2 the team started with three roles and the chosen models, default effort', team.roles.length === 3 && /muse/.test(team.roles[0].model.modelID) && team.roles[1].model.modelID === flash.id && /muse/.test(team.roles[2].model.modelID) && team.roles.every(r => !r.model.variant) && team.maxCorrections === 2, team.roles.map(r => r.model.modelID));
-	await page.waitForSelector('.timeline');
+	await page.waitForSelector('.chat');
 	await shot('r07-equipe-implementando.png');
 
 	// the gateway dies and the phone goes offline while the team works: it all comes back, nothing starts twice
@@ -203,7 +204,7 @@ async function main() {
 	const terminal = ['completed', 'failed', 'cancelled', 'exhausted', 'unrecoverable', 'awaiting-validation', 'paused'];
 	let teamNow = await waitFor(async () => { const t = (await listTeams())[0]; return terminal.includes(t.state) && t; }, 'team reaches a stopping state', 1500000, 5000);
 	log('team state', teamNow.state, 'phase', teamNow.phase, 'cycle', teamNow.cycle, 'steps', JSON.stringify(teamNow.steps.map(s => `${s.role}:${s.status}`)));
-	check('B.5 the screen showed the stages by itself, with the review and its problems, and no card or stage was duplicated', (await page.locator('.timeline li').count()) === teamNow.steps.length, { steps: teamNow.steps.length });
+	check('B.5 the screen showed the stages by itself, with the review and its problems, and no card or stage was duplicated', (await page.locator('.chat .stephead').filter({ hasText: /versão \d+/i }).count()) === teamNow.steps.length, { steps: teamNow.steps.length });
 	await shot('r08-equipe-etapas.png');
 	check('B.6 the review and the tests were done by different agents, each version tied to its snapshot', teamNow.steps.some(s => s.role === 'reviewer' && s.status === 'done') && teamNow.versions.length >= 1, teamNow.steps.map(s => `${s.role}/${s.status}`));
 	if (teamNow.state === 'awaiting-validation') {
@@ -227,8 +228,8 @@ async function main() {
 	}
 	await waitFor(async () => /concluída|falhou|ciclos esgotados|cancelada/.test(await text()), 'final state on screen', 30000).catch(() => undefined);
 	await shot('r11-equipe-resultado.png');
-	if ((await page.getByRole('button', { name: 'Ver as alterações da solução' }).count()) === 1) {
-		await page.getByRole('button', { name: 'Ver as alterações da solução' }).click();
+	if ((await page.getByRole('button', { name: 'Ver os arquivos alterados' }).count()) === 1) {
+		await page.getByRole('button', { name: 'Ver os arquivos alterados' }).click();
 		await page.waitForSelector('.diff');
 		await shot('r12-diff-da-equipe.png');
 		await page.getByRole('button', { name: /Voltar/ }).click();
@@ -269,7 +270,7 @@ async function main() {
 		await page.getByRole('button', { name: 'Toque de novo para confirmar' }).click();
 		await delay(3000);
 		check('C.7 a paused team is resumed only by an explicit two-tap decision', (await listTeams()).find(t => t.id === team2.id).state !== 'paused' || true);
-		await page.getByRole('button', { name: 'Cancelar a equipe' }).click().catch(() => undefined);
+		await page.getByRole('button', { name: 'Interromper a equipe' }).click().catch(() => undefined);
 		await page.getByRole('button', { name: 'Toque de novo para confirmar' }).click().catch(() => undefined);
 		await waitFor(async () => ['cancelled', 'failed', 'completed', 'unrecoverable', 'exhausted'].includes((await listTeams()).find(t => t.id === team2.id).state), 'second team stops', 120000, 3000).catch(() => undefined);
 	}

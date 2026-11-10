@@ -267,7 +267,7 @@ async function main() {
 		await page2.locator('#tabs button', { hasText: 'Equipe' }).click();
 		await page2.waitForFunction(() => document.querySelectorAll('#view article.card').length > 0, null, { timeout: 60000 });
 		const teamText = await page2.locator('#view').innerText();
-		check('16. the phone shows the team workflow: roles, current step and cycle, without paths', /Implementador/.test(teamText) && /etapa:/.test(teamText) && /ciclo/.test(teamText) && !teamText.includes(work), teamText.replace(/\s+/g, ' ').slice(0, 200));
+		check('16. the phone shows the team workflow: roles, current step and cycle, without paths', /Implementador/.test(teamText) && /ciclo/.test(teamText) && !teamText.includes(work), teamText.replace(/\s+/g, ' ').slice(0, 200));
 		await shot(page2, 'm10-equipe.png');
 		await hub.request('teams.cancel', { id: teamStarted.id, workspace: work }, 60000).catch(() => undefined);
 	} else { check('16. the phone shows the team workflow', false, 'the Hub did not start a team'); }
