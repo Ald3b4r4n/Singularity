@@ -148,8 +148,10 @@
 	const jump = h('button', { class: 'jump', type: 'button', hidden: true, 'aria-label': 'Ir para o fim da conversa', onclick: () => { follow = true; scrollToEnd(true); updateJump(); } }, '↓');
 	document.body.appendChild(jump);
 	function scrollToEnd(smooth) { window.scrollTo({ top: document.documentElement.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); }
-	function updateJump() { jump.hidden = !(screen === 'sessions' && openSession && !follow); }
-	window.addEventListener('scroll', () => { if (screen === 'sessions' && openSession) { follow = nearBottom(); updateJump(); } }, { passive: true });
+	/** A conversation is on screen: an open session, or an open team. Both follow the newest line and offer the way back down. */
+	const inChat = () => !!document.querySelector('#view .chat');
+	function updateJump() { jump.hidden = !(inChat() && !follow); }
+	window.addEventListener('scroll', () => { if (inChat()) { follow = nearBottom(); updateJump(); } }, { passive: true });
 	function afterSessionRender() { if (follow) { scrollToEnd(false); } updateJump(); }
 
 	function render() {
@@ -348,7 +350,7 @@
 		if (pending.kind === 'prompt') { followUp = ''; agentsForm.text = ''; follow = true; await refresh(); loadHistory(pending.scope); return; }
 		const ref = result.ref || (result.comparison && result.comparison.id) || (result.team && result.team.id);
 		if (pending.kind === 'comparison') { compareForm.open = false; compareForm.text = ''; if (ref) { compareView = { id: ref, workspaceId: pending.scope }; } comparisons = []; }
-		if (pending.kind === 'team') { teamForm.open = false; teamForm.text = ''; if (ref) { teamView = { id: ref, workspaceId: pending.scope }; } teams = []; }
+		if (pending.kind === 'team') { teamForm.open = false; teamForm.text = ''; if (ref) { follow = true; teamView = { id: ref, workspaceId: pending.scope }; } teams = []; }
 		if (pending.kind === 'control') { if (compareView) { compareView.data = undefined; } if (teamView) { teamView.data = undefined; } }
 		render();
 	}
@@ -664,7 +666,7 @@
 		poll(load, 2000);
 	}
 	function teamCard(team) {
-		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: () => { teamView = { id: team.id, workspaceId: team.workspaceId }; render(); }, onkeydown: event => { if (event.key === 'Enter') { teamView = { id: team.id, workspaceId: team.workspaceId }; render(); } } },
+		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: () => { follow = true; teamView = { id: team.id, workspaceId: team.workspaceId }; render(); }, onkeydown: event => { if (event.key === 'Enter') { follow = true; teamView = { id: team.id, workspaceId: team.workspaceId }; render(); } } },
 			h('div', { class: 'row between' }, h('strong', { text: team.workspaceName }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
 			h('div', { class: 'muted clamp2', text: String(team.task || '') }),
 			h('div', { class: 'row' }, chip('etapa: ' + (ROLE[team.phase] || team.phase)), chip('ciclo ' + team.cycle + ' de ' + (team.maxCorrections + 1))));
@@ -697,7 +699,7 @@
 			const fresh = !view.live || view.live.role !== step.role;
 			view.live = { role: step.role, text: String(data.result || ''), activity: Array.isArray(data.activity) ? data.activity : [], seenAt: Date.now(), idleMs: typeof data.idleMs === 'number' ? data.idleMs : undefined, files: String(data.files || '').split('\n').filter(Boolean).length + String(data.untracked || '').split('\n').filter(Boolean).length };
 			const feed = document.getElementById('team-live'), line = document.getElementById('team-status');
-			if (feed && !fresh) { const follow = nearBottom(); feed.replaceChildren(...activityNodes(view.live)); if (line) { line.textContent = teamStatus(view); } if (follow) { window.scrollTo(0, document.documentElement.scrollHeight); } }
+			if (feed && !fresh) { feed.replaceChildren(...activityNodes(view.live)); if (line) { line.textContent = teamStatus(view); } afterSessionRender(); }
 			else if (screen === 'team') { drawTeamDetail(view); }
 		} catch { /* the next tick tries again */ }
 	}
@@ -731,6 +733,7 @@
 		const profiles = view.profiles || [];
 		view.profileId = view.profileId && profiles.some(p => p.id === view.profileId) ? view.profileId : (profiles[0] && profiles[0].id) || '';
 		const lastVersion = (team.versions || []).at(-1), lastStep = (team.steps || []).at(-1), lastStepFailed = !!lastStep && ['failed', 'cancelled', 'intent'].includes(lastStep.status);
+		const canReply = ['completed', 'awaiting-validation', 'exhausted'].includes(team.state) && !!(team.versions || []).length;
 		show(h('button', { class: 'secondary', type: 'button', onclick: () => { teamView = undefined; stopPolling(); armed = ''; render(); } }, '← Equipe'),
 			h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
 			h('p', { class: 'statusline', id: 'team-status', role: 'status', text: teamStatus(view) }),
@@ -738,46 +741,50 @@
 			h('div', { class: 'stack' }, ...(team.roles || []).map((role, index) => h('div', { class: 'muted small', text: ['Implementador', 'Revisor', 'Testador'][index] + ': ' + (SERVICE_NAME[role.service] || role.service) + ' · ' + MODEL_NAME(role.model) }))),
 			pendingBanner(item => item.kind === 'control'),
 			team.error ? h('p', { class: 'chip bad', text: team.error }) : null,
-			team.state === 'awaiting-validation' ? h('section', { class: 'card stack' }, h('strong', { text: 'Validação independente' }),
-				profiles.length ? [select('', 'Perfil de teste cadastrado na IDE', profiles.map(p => [p.id, p.label]), view.profileId, value => { view.profileId = value; }),
-					h('p', { class: 'muted small', text: 'Roda o comando cadastrado no Windows para este perfil; o celular não escolhe nem vê o comando.' }),
-					armedButton('validate', 'Rodar a validação', false, () => startOp({ kind: 'control', action: 'teams.validate', scope: team.id, path: '/api/teams/' + team.id + '/validate', text: 'Validação independente', body: { confirm: true, workspaceId: team.workspaceId, profileId: view.profileId } }))]
-					: h('p', { class: 'muted', text: 'A equipe aguarda testes independentes, mas nenhum perfil de teste está cadastrado para este workspace. Cadastre um em “Singularity: Perfis de teste do acesso remoto” na IDE do Windows; o celular não pode informar um comando.' })) : null,
+			h('div', { class: 'row' },
+				lastVersion && team.comparisonId ? h('button', { class: 'secondary', type: 'button', onclick: () => showTeamDiff(team) }, 'Ver as alterações da solução') : null,
+				team.state === 'completed' && !team.chosen ? control('choose', 'Selecionar solução para revisão', false, 'choose') : null,
+				team.state === 'paused' && !(lastStepFailed) ? control('resume', 'Retomar a equipe', false, 'resume') : null,
+				!['preparing', 'running', 'snapshotting'].includes(team.state) ? control('delete', 'Excluir a equipe', true, 'delete') : null,
+				running && team.state !== 'paused' ? control('cancel', 'Cancelar a equipe', true, 'cancel') : null),
+			team.chosen ? h('p', { class: 'chip ok', text: 'Solução selecionada para revisão na IDE' }) : null,
+			team.state === 'paused' && lastStepFailed ? h('p', { class: 'muted small', text: 'A etapa falhou e, por segurança, a equipe nunca reenvia um pedido por conta própria; por isso não há como retomá-la. Exclua esta equipe e crie outra.' }) : null,
+			h('p', { class: 'muted small', text: 'Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' }),
 			h('div', { class: 'chat' },
 				bubble('user', String(team.task).split('\n\nInstrução adicional do usuário:\n')[0]),
 				...(team.steps || []).flatMap((step, index) => {
 					const current = index === team.steps.length - 1 && !!view.live && view.live.role === step.role && ['sent', 'intent'].includes(step.status);
 					const asked = (team.followUps || []).filter(item => item.at <= (step.startedAt || 0) && item.at > (index ? team.steps[index - 1].startedAt || 0 : 0));
+					const version = (team.versions || []).find(item => item.number === step.version);
+					const opinion = step.status === 'done' && version ? (step.role === 'reviewer' ? version.review : step.role === 'tester' ? version.testPlan : undefined) : undefined;
 					return [
 						...asked.map(item => bubble('user', item.text)),
 						h('div', { class: 'stephead ' + (step.status === 'done' ? 'done' : step.status === 'failed' ? 'failed' : 'current'), text: (ROLE[step.role] || step.role) + ' · versão ' + step.version + ' · ' + ({ intent: 'preparando', sent: 'em execução', done: 'concluída', failed: 'falhou', cancelled: 'cancelada' }[step.status] || step.status) + (step.startedAt ? ' · ' + duration(step.startedAt, step.endedAt) : '') }),
 						step.error ? h('p', { class: 'chip bad', text: step.error }) : null,
 						current ? h('div', { class: 'feed', id: 'team-live' }, ...activityNodes(view.live)) : null,
 						!current && ['sent', 'intent'].includes(step.status) && running ? h('div', { class: 'bubble agent typing', text: 'O agente está trabalhando…' }) : null,
-						!current && step.result && step.role === 'implementer' ? bubble('agent', step.result) : null
+						!current && step.result && step.role === 'implementer' ? bubble('agent', step.result) : null,
+						opinion ? h('div', { class: 'bubble agent opinion' },
+							h('div', { class: 'who', text: step.role === 'reviewer' ? 'Revisão · ' + (opinion.verdict === 'approve' ? 'aprovada' : 'pede alterações') : 'Testes (parecer do agente) · ' + (opinion.verdict === 'approve' ? 'sem pendências' : 'pendências') }),
+							h('div', { class: 'text', text: opinion.summary }),
+							...(opinion.issues || []).slice(0, 10).map(issue => h('div', { class: 'muted small', text: '• ' + issue.severity + ' ' + issue.file + (issue.line ? ':' + issue.line : '') + ' — ' + issue.message })),
+							...(step.role === 'tester' ? (opinion.scenarios || []).slice(0, 6).map(item => h('div', { class: 'muted small', text: '◦ ' + item })) : [])) : null,
+						step.role === 'tester' && version && version.validation ? h('div', { class: 'stephead done', text: 'Validação independente · ' + String(version.validation.status || version.validation.state || version.validation.result || 'registrada') }) : null
 					];
 				}),
-				...(team.steps && team.steps.length ? [] : [h('div', { class: 'bubble agent typing', text: 'Preparando a primeira etapa…' })])),
-			['completed', 'awaiting-validation', 'exhausted'].includes(team.state) && (team.versions || []).length ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); const text = (view.reply || '').trim(); if (!text || pendingSend) { return; } view.reply = ''; startOp({ kind: 'control', action: 'teams.instruct', scope: team.id, path: '/api/teams/' + team.id + '/instruct', text: 'Nova instrução para a equipe', body: { confirm: true, workspaceId: team.workspaceId, text } }); } },
-				h('textarea', { rows: '1', maxlength: '3000', placeholder: 'Responda à equipe: o que falta ou o que mudar…', 'aria-label': 'Nova instrução para a equipe', oninput: event => { view.reply = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, view.reply || ''),
+				...(team.steps && team.steps.length ? [] : [h('div', { class: 'bubble agent typing', text: 'Preparando a primeira etapa…' })]),
+				team.state === 'exhausted' ? h('div', { class: 'stephead failed', text: 'Os ciclos de correção acabaram. Responda abaixo para a equipe continuar.' }) : null,
+				team.state === 'completed' ? h('div', { class: 'stephead done', text: 'Equipe concluída. Responda abaixo se quiser mudar algo.' }) : null),
+			team.state === 'awaiting-validation' ? h('section', { class: 'card stack' }, h('strong', { text: 'Validação independente' }),
+				profiles.length ? [select('', 'Perfil de teste cadastrado na IDE', profiles.map(p => [p.id, p.label]), view.profileId, value => { view.profileId = value; }),
+					h('p', { class: 'muted small', text: 'Roda o comando cadastrado no Windows para este perfil; o celular não escolhe nem vê o comando.' }),
+					armedButton('validate', 'Rodar a validação', false, () => startOp({ kind: 'control', action: 'teams.validate', scope: team.id, path: '/api/teams/' + team.id + '/validate', text: 'Validação independente', body: { confirm: true, workspaceId: team.workspaceId, profileId: view.profileId } }))]
+					: h('p', { class: 'muted', text: 'A equipe aguarda testes independentes, mas nenhum perfil de teste está cadastrado para este workspace. Cadastre um em “Singularity: Perfis de teste do acesso remoto” na IDE do Windows; o celular não pode informar um comando.' })) : null,
+			canReply ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); const text = (view.reply || '').trim(); if (!text || pendingSend) { return; } view.reply = ''; follow = true; startOp({ kind: 'control', action: 'teams.instruct', scope: team.id, path: '/api/teams/' + team.id + '/instruct', text: 'Nova instrução para a equipe', body: { confirm: true, workspaceId: team.workspaceId, text } }); } },
+				h('textarea', { rows: '1', maxlength: '3000', placeholder: 'Responda à equipe…', 'aria-label': 'Nova instrução para a equipe', oninput: event => { view.reply = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, view.reply || ''),
 				h('button', { class: 'send', type: 'submit', 'aria-label': 'Enviar instrução', disabled: !!pendingSend }, '↑')) : null,
-			['completed', 'awaiting-validation', 'exhausted'].includes(team.state) && (team.versions || []).length ? h('p', { class: 'muted small', text: 'A resposta vai para o Implementador sobre a versão atual; o Revisor e o Testador avaliam de novo.' }) : null,
-			...(team.versions || []).map(version => h('div', { class: 'card stack' }, h('strong', { text: 'Versão ' + version.number + (version.stale ? ' (desatualizada)' : '') }),
-				version.review ? h('div', { class: 'muted', text: 'Revisão: ' + (version.review.verdict === 'approve' ? 'aprovada' : 'pede alterações') + ' — ' + version.review.summary }) : null,
-				...((version.review && version.review.issues) || []).slice(0, 10).map(issue => h('div', { class: 'muted small', text: '• ' + issue.severity + ' ' + issue.file + (issue.line ? ':' + issue.line : '') + ' — ' + issue.message })),
-				version.testPlan ? h('div', { class: 'muted', text: 'Testes (parecer do agente): ' + (version.testPlan.verdict === 'approve' ? 'sem pendências' : 'pendências') + ' — ' + version.testPlan.summary }) : null,
-				...((version.testPlan && version.testPlan.scenarios) || []).slice(0, 6).map(item => h('div', { class: 'muted small', text: '◦ ' + item })),
-				version.validation ? h('div', { class: 'muted', text: 'Validação independente: ' + String(version.validation.status || version.validation.result || 'registrada') }) : null)),
-			h('div', { class: 'stack' },
-				lastVersion && team.comparisonId ? h('button', { class: 'secondary', type: 'button', onclick: () => showTeamDiff(team) }, 'Ver as alterações da solução') : null,
-				team.state === 'completed' && !team.chosen ? control('choose', 'Selecionar solução para revisão', false, 'choose') : null,
-				team.chosen ? h('p', { class: 'chip ok', text: 'Solução selecionada para revisão na IDE' }) : null,
-				team.state === 'paused' && !(lastStepFailed) ? control('resume', 'Retomar a equipe', false, 'resume') : null,
-				team.state === 'paused' && lastStepFailed ? h('p', { class: 'muted small', text: 'A etapa falhou e, por segurança, a equipe nunca reenvia um pedido por conta própria; por isso não há como retomá-la. Exclua esta equipe e crie outra.' }) : null,
-				!['preparing', 'running', 'snapshotting'].includes(team.state) ? control('delete', 'Excluir a equipe', true, 'delete') : null,
-				running && team.state !== 'paused' ? control('cancel', 'Cancelar a equipe', true, 'cancel') : null,
-				h('button', { class: 'secondary', type: 'button', onclick: () => { teamView.data = undefined; renderTeamDetail(); } }, 'Atualizar')),
-			h('p', { class: 'muted small', text: 'Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' }));
+			canReply ? h('p', { class: 'muted small', text: 'A resposta vai para o Implementador sobre a versão atual; o Revisor e o Testador avaliam de novo.' }) : null);
+		afterSessionRender();
 	}
 	async function showTeamDiff(team) {
 		try {

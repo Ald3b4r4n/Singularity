@@ -144,3 +144,6 @@ fieldset.agent legend { padding: 0 6px; font-weight: 600; font-size: 13px; lette
 .act.tool .mark.bad { color: var(--bad, #eb7a7a); }
 .act.tool .what { flex: none; font-weight: 600; }
 .act.tool .detail { color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; min-width: 0; }
+
+.bubble.opinion { max-width: 100%; align-self: stretch; }
+.bubble.opinion .small { margin-top: 6px; }

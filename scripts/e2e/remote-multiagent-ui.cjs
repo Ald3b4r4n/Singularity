@@ -227,11 +227,21 @@ async function main() {
 
 	// answering the team after it delivered: the instruction goes once, and the team works again on top of its version
 	await page.waitForSelector('.chatbar textarea');
+	const order = await page.evaluate(() => { const bar = document.querySelector('.chatbar').getBoundingClientRect(), chat = document.querySelector('.chat').getBoundingClientRect(); const after = [...document.querySelectorAll('#view button, #view article, #view section')].filter(node => !node.closest('.chatbar') && node.getBoundingClientRect().top > bar.bottom); return { below: bar.top >= chat.bottom - 1, after: after.length }; });
+	check('B.8a the answer field is the last thing of the conversation, at the end of the page, with nothing to tap below it', order.below && order.after === 0, order);
+	await page.evaluate(() => window.scrollTo(0, 0));
+	await page.waitForFunction(() => { const jump = document.querySelector('button.jump'); return jump && !jump.hidden; }, null, { timeout: 5000 });
+	await shot('p11a-botao-descer.png');
+	await page.locator('button.jump').click();
+	await page.waitForFunction(() => document.documentElement.scrollHeight - (window.scrollY + window.innerHeight) < 160 && document.querySelector('button.jump').hidden, null, { timeout: 5000 });
+	check('B.8c after scrolling up in the team conversation a button brings it back down to the end', true);
 	await page.locator('.chatbar textarea').fill('Publique também o resultado.');
 	await page.locator('.chatbar button.send').click();
 	await waitFor(() => calls('teams.instruct').length === 1, 'the new instruction reached the Hub');
 	await waitFor(async () => /Publique também o resultado/.test(await page.locator('.chat').innerText()) && /em execução/i.test(await page.locator('#view').innerText()), 'the instruction is shown in the conversation and the team works again', 15000);
 	check('B.8b after the delivery the person can answer the team: the instruction is sent once, shown as their message, and a new cycle starts', calls('teams.instruct')[0].params.text === 'Publique também o resultado.' && (await page.locator('.chat .bubble.user').count()) === 2 && !(await page.locator('.chatbar textarea').count()), calls('teams.instruct').length);
+	await page.waitForFunction(() => document.getElementById('team-live') && document.documentElement.scrollHeight - (window.scrollY + window.innerHeight) < 160, null, { timeout: 15000 });
+	check('B.8d while the agents work the page follows the newest activity down', true);
 	await shot('p11b-resposta-a-equipe.png');
 	await hub.call('teams.cancel', { id: hub.teams[0].id });
 
