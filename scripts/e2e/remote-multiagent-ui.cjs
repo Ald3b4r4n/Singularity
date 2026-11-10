@@ -29,13 +29,15 @@ async function waitFor(fn, name, timeout = 20000, every = 150) {
 // ---------- a scripted Hub: comparisons and teams that progress by themselves ----------
 class ScriptedHub extends EventEmitter {
 	connected = true; instanceId = 'scripted';
-	calls = []; comparisons = []; teams = [];
+	calls = []; comparisons = []; teams = []; catalogFailures = 0; catalogReads = 0;
 	constructor(workspace) { super(); this.workspace = workspace; }
 	start() { } close() { } eventsAfter() { return []; }
 	async sessions() { return []; }
 	async call(method, params = {}) {
 		this.calls.push({ method, params });
 		if (method === 'catalog.get') {
+			this.catalogReads++;
+			if (this.catalogFailures > 0) { this.catalogFailures--; throw new Error('A ativação dos plugins do OpenCode não terminou (HTTP 503).'); }
 			const claude = params.service === 'claude-code';
 			return claude ? { services: [{ id: 'claude-code', name: 'Claude Code', status: 'available' }], service: 'claude-code', providers: [{ id: 'claude-code', name: 'Claude Code', models: [{ id: 'sonnet', name: 'Sonnet', efforts: ['low', 'high'] }] }] }
 				: { services: [{ id: 'opencode', name: 'OpenCode', status: 'available' }], service: 'opencode', providers: [
@@ -44,7 +46,11 @@ class ScriptedHub extends EventEmitter {
 		}
 		if (method === 'comparisons.list') { return this.comparisons.map(item => structuredClone(item)); }
 		if (method === 'teams.list') { return this.teams.map(item => structuredClone(item)); }
-		if (method === 'comparisons.inspect') { return { files: 'M  src/app.js', diff: '--- a/src/app.js\n+++ b/src/app.js\n@@ -1,3 +1,4 @@\n-const a = 1;\n+const a = 2; // uma linha muito comprida que deve rolar só dentro do diff e nunca empurrar a página inteira para o lado em uma tela estreita\n+const b = 3;\n' }; }
+		if (method === 'comparisons.inspect') {
+			const group = this.comparisons.find(item => item.id === params.id); const participant = group && group.participants.find(item => item.id === params.participantId);
+			const answer = participant && participant.status === 'done' ? 'Criei soma.js com a função soma(a, b). Resposta final do agente.' : 'Escrevendo soma.js… resposta parcial ' + Math.floor((Date.now() - (participant ? participant.startedAt : Date.now())) / 500);
+			return { participant: participant && structuredClone(participant), result: answer, usage: participant && participant.status === 'done' ? { inputTokens: 1234, outputTokens: 321 } : undefined, durationMs: participant ? (participant.endedAt || Date.now()) - participant.startedAt : 0, files: 'M  src/app.js', diff: '--- a/src/app.js\n+++ b/src/app.js\n@@ -1,3 +1,4 @@\n-const a = 1;\n+const a = 2; // uma linha muito comprida que deve rolar só dentro do diff e nunca empurrar a página inteira para o lado em uma tela estreita\n+const b = 3;\n' };
+		}
 		if (method === 'comparisons.create') {
 			const now = Date.now();
 			const record = { id: '11111111-1111-4111-8111-' + String(100000000000 + this.comparisons.length), workspace: this.workspace, prompt: params.text, createdAt: now, participants: params.participants.map((p, i) => ({ id: 'part-' + (i + 1), service: p.service, model: p.model, status: 'running', startedAt: now })) };
@@ -60,7 +66,7 @@ class ScriptedHub extends EventEmitter {
 			this.comparisons.push(group);
 			const team = { id: '22222222-2222-4222-8222-' + String(100000000000 + this.teams.length), workspace: this.workspace, task: params.text, roles: params.participants, createdAt: now, updatedAt: now, state: 'running', phase: 'implementer', cycle: 0, maxCorrections: params.maxCorrections, comparisonId: group.id, steps: [{ role: 'implementer', version: 1, sessionId: 's1', status: 'sent', startedAt: now }], versions: [] };
 			this.teams.push(team);
-			setTimeout(() => { team.steps[0].status = 'done'; team.steps[0].endedAt = Date.now(); team.versions.push({ number: 1, comparisonId: group.id, solutionId: 'sol1', tree: 't', patchHash: 'h' }); team.phase = 'reviewer'; team.steps.push({ role: 'reviewer', version: 1, sessionId: 's2', status: 'sent', startedAt: Date.now() }); }, 2500);
+			setTimeout(() => { team.steps[0].status = 'done'; team.steps[0].endedAt = Date.now(); team.steps[0].result = 'Implementei o módulo conforme pedido.'; team.versions.push({ number: 1, comparisonId: group.id, solutionId: 'sol1', tree: 't', patchHash: 'h' }); team.phase = 'reviewer'; team.steps.push({ role: 'reviewer', version: 1, sessionId: 's2', status: 'sent', startedAt: Date.now() }); }, 2500);
 			setTimeout(() => { team.steps[1].status = 'done'; team.steps[1].endedAt = Date.now(); team.versions[0].review = { verdict: 'changes_requested', summary: 'Falta tratar o erro de entrada vazia.', issues: [{ file: 'src/app.js', line: 3, severity: 'medium', message: 'A função não trata a entrada vazia.' }] }; team.cycle = 1; team.phase = 'implementer'; team.steps.push({ role: 'implementer', version: 2, sessionId: 's3', status: 'sent', startedAt: Date.now() }); }, 5000);
 			setTimeout(() => { team.steps[2].status = 'done'; team.steps[2].endedAt = Date.now(); team.versions.push({ number: 2, comparisonId: group.id, solutionId: 'sol2', tree: 't2', patchHash: 'h2', review: { verdict: 'approve', summary: 'Sem pendências.', issues: [] }, testPlan: { verdict: 'approve', summary: 'Cenários descritos.', issues: [], scenarios: ['entrada vazia', 'entrada grande'] } }); team.state = 'awaiting-validation'; team.phase = 'validation'; }, 8000);
 			return team;
@@ -73,6 +79,8 @@ class ScriptedHub extends EventEmitter {
 	}
 }
 
+const net = require('node:net');
+const freePort = () => new Promise(resolve => { const server = net.createServer().listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); }); });
 const phone = (width, height) => ({ ...devices['Pixel 7'], viewport: { width, height }, screen: { width, height }, locale: 'pt-BR', serviceWorkers: 'block' });
 let browser, gateway, pageRef;
 
@@ -82,7 +90,9 @@ async function main() {
 	const runner = path.join(workspace, 'run-tests.cmd');
 	fs.writeFileSync(runner, '@echo ok\r\n');
 	const hub = new ScriptedHub(workspace);
-	gateway = new RemoteGateway({ directory, webDir: path.join(hubDir, 'web'), bridge: hub });
+	const ports = { publicPort: await freePort(), adminPort: await freePort() };
+	const makeGateway = () => new RemoteGateway({ directory, webDir: path.join(hubDir, 'web'), bridge: hub, retryDelayMs: 30, ...ports });
+	gateway = makeGateway();
 	await gateway.start();
 	const base = `http://127.0.0.1:${gateway.publicPort}`;
 	const adminToken = fs.readFileSync(path.join(directory, 'admin.token'), 'utf8');
@@ -95,6 +105,8 @@ async function main() {
 	pageRef = page;
 	page.on('request', request => { if (request.method() === 'POST' && /api\/(comparisons|teams)$/.test(request.url())) { log('POST body', (request.postData() || '').slice(0, 500)); } });
 	page.on('pageerror', error => log('pageerror', error.message));
+	const sentRequests = [];
+	page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/comparisons') { sentRequests.push({ url: '/api/comparisons', id: request.headers()['x-request-id'], body: request.postData() }); } });
 	page.on('console', message => { if (['error', 'warning'].includes(message.type())) { log('console', message.type(), message.text().slice(0, 200)); } });
 	await page.goto(base + '/');
 	const started = await admin('/admin/pairing/start', {});
@@ -220,10 +232,63 @@ async function main() {
 	await waitFor(async () => /cancelada/.test(await page.locator('#view').innerText()), 'cancelled state shown');
 	await shot('p12-equipe-cancelada.png');
 
+	// ============ failures: the catalog hiccups, the gateway restarts, the answer of an agent is followed live ============
+	await page.locator('.tabs button', { hasText: 'Comparação' }).click();
+	await page.locator('.tabs button', { hasText: 'Comparação' }).click();
+	await page.reload();
+	await page.waitForSelector('.tabs button');
+	await page.locator('.tabs button', { hasText: 'Comparação' }).click();
+	await page.locator('.tabs button', { hasText: 'Comparação' }).click();
+	hub.catalogFailures = 3;
+	const readsBefore = hub.catalogReads;
+	await page.getByRole('button', { name: 'Nova comparação' }).click();
+	await page.waitForSelector('fieldset.agent');
+	await page.waitForFunction(() => /Tentando de novo/.test(document.querySelector('fieldset.agent').textContent), null, { timeout: 15000 });
+	await shot('p16-catalogo-tentando-de-novo.png');
+	check('F.1 when the catalog fails the form says it is trying again instead of showing empty selectors', true);
+	await delay(1500);
+	check('F.2 a failing catalog is not asked for in a loop: a few reads, not a storm', hub.catalogReads - readsBefore <= 4, hub.catalogReads - readsBefore);
+	await page.waitForFunction(() => { const select = document.querySelector('fieldset.agent').querySelectorAll('select')[1]; return select && /Muse Spark/.test(select.textContent); }, null, { timeout: 20000 });
+	check('F.3 the models appear by themselves once the computer answers', (await page.locator('fieldset.agent').first().locator('select').nth(1).inputValue()) !== '');
+	await page.locator('.form textarea').fill('Comparação para seguir ao vivo.');
+	await page.getByRole('button', { name: 'Confirmar e iniciar' }).click();
+	await page.waitForSelector('article.card');
+	await page.getByRole('button', { name: 'Ver ao vivo' }).first().click();
+	await page.waitForFunction(() => /Agente · ao vivo/i.test(document.body.innerText) && /resposta parcial/.test(document.body.innerText), null, { timeout: 15000 });
+	const partial = (await page.locator('.bubble.agent .text').innerText()).trim();
+	await shot('p17-resposta-ao-vivo.png');
+	await page.waitForFunction(() => /Resposta final do agente/.test(document.body.innerText), null, { timeout: 20000 });
+	const finalView = (await page.locator('#view').innerText()).replace(/\s+/g, ' ');
+	check('F.4 the answer of an agent is followed live and ends on the final text, without reloading', /resposta parcial/.test(partial) && /Resposta final do agente/.test(finalView) && /tokens de entrada/.test(finalView), { partial: partial.slice(0, 50), usageShown: /tokens de entrada/.test(finalView) });
+	await shot('p18-resposta-final.png');
+	check('F.5 the response screen needs no sideways scroll', await noSideScroll());
+	await page.getByRole('button', { name: /Voltar/ }).click();
+
+	// the gateway restarts while the detail is open and an answer is on its way: the phone recovers, nothing is created again
+	const creates = calls('comparisons.create').length;
+	await gateway.stop();
+	await delay(800);
+	gateway = makeGateway();
+	await gateway.start();
+	await waitFor(async () => (await page.locator('article.card').count()) >= 2 && !/Sem conexão|Não foi possível/.test(await page.locator('#view').innerText()), 'the detail is still shown after the gateway restart', 20000);
+	await page.getByRole('button', { name: 'Atualizar' }).click();
+	await delay(1500);
+	check('F.6 after the gateway restarts the same screen keeps working, with no duplicated cards', (await page.locator('article.card').count()) === 2 && calls('comparisons.create').length === creates);
+	const sameId = sentRequests.find(item => item.url === '/api/comparisons');
+	const replay = await fetch(base + '/api/comparisons', { method: 'POST', headers: { authorization: 'Bearer ' + await page.evaluate(() => localStorage.getItem('singularity.remote.token')), 'content-type': 'application/json', 'x-request-id': sameId.id }, body: sameId.body });
+	const replayJson = await replay.json();
+	check('F.7 repeating an earlier send after the restart is answered as already registered, and nothing starts', replayJson.duplicate === true && calls('comparisons.create').length === creates, replayJson.state);
+	await page.reload();
+	await page.waitForSelector('.tabs button');
+	check('F.8 reopening the page after the restart goes straight back in (the device stays authorised)', (await page.locator('.tabs button').count()) === 6);
+	await context.setOffline(true); await delay(1500); await context.setOffline(false); await delay(3500);
+	check('F.9 losing the network for a moment and getting it back leaves the screen usable', (await page.locator('.tabs button').count()) === 6 && !(await page.locator('.pending').count()));
+
 	// ============ layout: 360 and 320 px, keyboard open, light theme ============
-	await page.getByRole('button', { name: '← Equipe' }).click();
+	await page.locator('.tabs button', { hasText: 'Equipe' }).click();
+	await page.locator('.tabs button', { hasText: 'Equipe' }).click();
 	const widths = {};
-	for (const [width, height] of [[360, 780], [320, 640]]) {
+	for (const [width, height] of [[393, 873], [360, 780], [320, 640]]) {
 		await page.setViewportSize({ width, height });
 		for (const tab of ['Comparação', 'Equipe', 'Sessões', 'Início']) {
 			await page.locator('.tabs button', { hasText: tab }).click();
