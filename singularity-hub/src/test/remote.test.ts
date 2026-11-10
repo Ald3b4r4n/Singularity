@@ -404,13 +404,17 @@ describe('Tailscale Serve (optional, private, never public)', () => {
 
 	it('only ever runs serve to the tailnet: no funnel, no other command', async () => {
 		log.length = 0;
-		await enableServe(5555, env(), runner({}));
-		await disableServe(env(), runner({}));
+		// a Tailscale that already publishes this gateway's port: turning it on confirms it, turning it off is allowed
+		const published = { Web: { 'pc.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:5555' } } } } };
+		await enableServe(5555, env(), runner(published));
+		await disableServe(5555, env(), runner(published));
 		await tailscaleState(env(), runner({ BackendState: 'Running' }));
-		assert.deepEqual(log[0], ['serve', '--bg', '--https=443', 'http://127.0.0.1:5555']);
-		assert.deepEqual(log[1], ['serve', '--https=443', 'off']);
-		assert.deepEqual(log[2], ['status', '--json']);
-		assert.equal(log.flat().some(arg => /funnel/i.test(arg)), false);
+		const commands = log.map(args => args.join(' '));
+		assert.ok(commands.includes('serve --bg --https=443 http://127.0.0.1:5555'));
+		assert.ok(commands.includes('serve --https=443 off'));
+		assert.ok(commands.includes('status --json'));
+		assert.ok(commands.every(command => ['serve --bg --https=443 http://127.0.0.1:5555', 'serve --https=443 off', 'serve status --json', 'status --json'].includes(command)), 'no other command');
+		assert.equal(log.flat().some(arg => /funnel|reset|down|up$/i.test(arg)), false);
 		assert.equal((await enableServe(80, env(), runner({}))).ok, false, 'a privileged port is refused');
 	});
 

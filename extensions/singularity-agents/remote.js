@@ -166,17 +166,60 @@ function register(context) {
 				vscode.window.showInformationMessage(tailscale.reason || 'Tailscale indisponível.', 'Abrir tailscale.com/download').then(choice => { if (choice) { vscode.env.openExternal(vscode.Uri.parse('https://tailscale.com/download')); } });
 				return;
 			}
-			const choice = await modal('Publicar o gateway na sua rede privada Tailscale?',
-				`Será executado "tailscale serve" para ${tailscale.dnsName}: o gateway fica disponível por HTTPS somente para os seus dispositivos Tailscale. Não é usado o Funnel: nada fica acessível pela internet pública. O Tailscale usa a infraestrutura de coordenação dele.`, 'Publicar na rede privada', 'Desligar publicação');
-			if (choice === 'Publicar na rede privada') {
-				const result = await control().adminRequest('POST', '/admin/tailscale/serve', { consent: true });
-				if (result.ok) { vscode.window.showInformationMessage('Disponível na rede privada: ' + result.url, 'Copiar endereço').then(c => { if (c) { vscode.env.clipboard.writeText(result.url); } }); } else { vscode.window.showWarningMessage(result.reason || 'O Tailscale recusou o comando.'); }
-			} else if (choice === 'Desligar publicação') {
-				await control().adminRequest('POST', '/admin/tailscale/off', {});
-				vscode.window.showInformationMessage('Publicação na rede privada desligada.');
-			}
+			await offerPublication(tailscale, true);
 		}))
 	);
+
+	/** What is published right now, in words, and the one action that makes sense for it. Nothing changes without an explicit answer. */
+	async function offerPublication(tailscale, asked) {
+		const serve = tailscale.serve || {};
+		const address = 'https://' + tailscale.dnsName + '/';
+		const facts = `Tailscale conectado como ${tailscale.dnsName}. Gateway em 127.0.0.1:${tailscale.gatewayPort}.`;
+		const safety = 'É usado apenas "tailscale serve" (somente os seus dispositivos Tailscale). O Funnel nunca é usado: nada fica acessível pela internet pública.';
+		if (!serve.known) { if (asked) { vscode.window.showWarningMessage('Não foi possível ler a publicação do Tailscale Serve. Nada foi alterado.'); } return; }
+		if (serve.funnel) { vscode.window.showWarningMessage('O Tailscale Funnel está ligado neste computador (exposição pública). O Singularity não o usa nem o altera: revise com "tailscale funnel status".'); }
+		if (serve.pointsHere) {
+			if (!asked) { return; }
+			const choice = await modal('A rede privada está publicada', `${facts}\n\nEndereço: ${address}\nPublicação: somente na sua rede Tailscale (tailnet only).\n\n${safety}`, 'Copiar endereço', 'Desligar publicação');
+			if (choice === 'Copiar endereço') { vscode.env.clipboard.writeText(address); }
+			if (choice === 'Desligar publicação') { const off = await control().adminRequest('POST', '/admin/tailscale/off', {}); vscode.window.showInformationMessage(off.skipped ? 'A publicação não era deste gateway; nada foi alterado.' : 'Publicação na rede privada desligada.'); }
+			return;
+		}
+		if (serve.conflict) {
+			if (!asked) { return; }
+			const choice = await modal('Já existe outra publicação do Tailscale Serve', `${facts}\n\nO Tailscale Serve deste computador está publicando outro serviço, que não é este gateway. Publicar o Singularity Remote substitui essa publicação.`, 'Substituir pela do Singularity');
+			if (choice !== 'Substituir pela do Singularity') { return; }
+			return publish(address, true);
+		}
+		const why = serve.stale ? 'A publicação existente aponta para uma porta antiga do gateway, então o celular não o alcança.' : serve.previouslyPublished ? 'A publicação privada que existia não está mais configurada no Tailscale, então o celular não alcança o computador fora de casa.' : 'O gateway ainda não está publicado na sua rede privada.';
+		const action = serve.stale || serve.previouslyPublished ? 'Reativar publicação privada' : 'Publicar na rede privada';
+		const choice = asked
+			? await modal(serve.previouslyPublished || serve.stale ? 'Reativar a publicação privada do acesso remoto?' : 'Publicar o gateway na sua rede privada Tailscale?', `${facts}\n\n${why}\n\nSerá executado "tailscale serve --bg --https=443 http://127.0.0.1:${tailscale.gatewayPort}" (a porta atual do gateway). ${safety}`, action)
+			: await vscode.window.showWarningMessage('Singularity Remote: ' + why, action, 'Agora não');
+		if (choice !== action) { return; }
+		if (!asked) {
+			const confirmed = await modal('Reativar a publicação privada do acesso remoto?', `${facts}\n\nSerá executado "tailscale serve --bg --https=443 http://127.0.0.1:${tailscale.gatewayPort}" (a porta atual do gateway). ${safety}`, action);
+			if (confirmed !== action) { return; }
+		}
+		return publish(address, false);
+	}
+	async function publish(address, replace) {
+		const result = await control().adminRequest('POST', '/admin/tailscale/serve', { consent: true, replace });
+		if (!result.ok) { vscode.window.showWarningMessage(result.reason || 'O Tailscale recusou o comando.'); return; }
+		const note = result.tailnetOnly === false ? ' Atenção: o Funnel está ligado neste computador; revise com "tailscale funnel status".' : ' Somente na sua rede Tailscale.';
+		vscode.window.showInformationMessage('Disponível na rede privada: ' + result.url + '.' + note, 'Copiar endereço').then(c => { if (c) { vscode.env.clipboard.writeText(result.url); } });
+	}
+
+	// When remote access is on and its private publication is gone or stale, say so once and offer to restore it. Never done silently.
+	const timer = setTimeout(async () => {
+		try {
+			if (!control().gatewayRunning()) { return; }
+			const tailscale = await control().adminRequest('GET', '/admin/tailscale');
+			if (!tailscale.installed || !tailscale.loggedIn || !tailscale.serve) { return; }
+			if (!tailscale.serve.pointsHere && !tailscale.serve.conflict && (tailscale.serve.stale || tailscale.serve.previouslyPublished)) { await offerPublication(tailscale, false); }
+		} catch { /* the offer is a convenience: a failure to read never blocks the IDE */ }
+	}, 8000);
+	context.subscriptions.push({ dispose: () => clearTimeout(timer) });
 }
 
 module.exports = { register };

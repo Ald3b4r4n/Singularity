@@ -50,16 +50,60 @@ export async function tailscaleState(env: NodeJS.ProcessEnv = process.env, runne
 	}
 }
 
-/** Publishes `127.0.0.1:<port>` as HTTPS to the user's own devices. Requires the caller to have obtained explicit consent. */
-export async function enableServe(port: number, env: NodeJS.ProcessEnv = process.env, runner: Runner = run): Promise<{ ok: boolean; reason?: string }> {
-	const executable = tailscaleExecutable(env);
-	if (!executable || !Number.isInteger(port) || port < 1024 || port > 65535) { return { ok: false, reason: 'Tailscale indisponível.' }; }
-	const result = await runner(executable, ['serve', '--bg', '--https=443', `http://127.0.0.1:${port}`], 30000);
-	return result.code === 0 ? { ok: true } : { ok: false, reason: 'O Tailscale recusou o comando serve. Verifique se o HTTPS está habilitado na sua conta.' };
+export interface ServeConfig {
+	/** False when `tailscale serve status` could not be read: nothing is then concluded and nothing is changed. */
+	known: boolean;
+	configured: boolean;
+	/** Where the published addresses are proxied to, e.g. `http://127.0.0.1:51946`. */
+	targets: string[];
+	/** Funnel exposes a service to the public internet. The Singularity never turns it on; it is only reported. */
+	funnel: boolean;
 }
 
-export async function disableServe(env: NodeJS.ProcessEnv = process.env, runner: Runner = run): Promise<{ ok: boolean }> {
+/** What Tailscale Serve is publishing on this computer right now (read-only). */
+export async function serveConfig(env: NodeJS.ProcessEnv = process.env, runner: Runner = run): Promise<ServeConfig> {
+	const executable = tailscaleExecutable(env);
+	if (!executable) { return { known: false, configured: false, targets: [], funnel: false }; }
+	const result = await runner(executable, ['serve', 'status', '--json']);
+	try {
+		const config = JSON.parse(result.stdout || '{}') as { Web?: Record<string, { Handlers?: Record<string, { Proxy?: unknown }> }>; TCP?: Record<string, unknown>; AllowFunnel?: Record<string, unknown> };
+		const targets: string[] = [];
+		for (const site of Object.values(config.Web ?? {})) { for (const handler of Object.values(site?.Handlers ?? {})) { if (typeof handler?.Proxy === 'string') { targets.push(handler.Proxy.replace(/\/$/, '').toLowerCase()); } } }
+		const configured = targets.length > 0 || Object.keys(config.TCP ?? {}).length > 0 || Object.keys(config.Web ?? {}).length > 0;
+		return { known: result.code === 0, configured, targets: [...new Set(targets)], funnel: Object.values(config.AllowFunnel ?? {}).some(value => value === true) };
+	} catch {
+		return { known: false, configured: false, targets: [], funnel: false };
+	}
+}
+
+export const serveTarget = (port: number): string => `http://127.0.0.1:${port}`;
+
+/**
+ * Publishes `127.0.0.1:<port>` as HTTPS to the user's own devices. Requires the caller to have obtained explicit consent. Another
+ * publication that is not this gateway's own (current or previous port) is never replaced unless that was asked for explicitly.
+ */
+export async function enableServe(port: number, env: NodeJS.ProcessEnv = process.env, runner: Runner = run, options: { previousPort?: number; replace?: boolean } = {}): Promise<{ ok: boolean; reason?: string; conflict?: boolean; tailnetOnly?: boolean }> {
+	const executable = tailscaleExecutable(env);
+	if (!executable || !Number.isInteger(port) || port < 1024 || port > 65535) { return { ok: false, reason: 'Tailscale indisponível.' }; }
+	const before = await serveConfig(env, runner);
+	const mine = [serveTarget(port), ...(options.previousPort ? [serveTarget(options.previousPort)] : [])];
+	const foreign = before.targets.filter(target => !mine.includes(target));
+	if (before.known && foreign.length && options.replace !== true) { return { ok: false, conflict: true, reason: 'Já existe outra publicação do Tailscale Serve neste computador. Ela não foi substituída.' }; }
+	const result = await runner(executable, ['serve', '--bg', '--https=443', serveTarget(port)], 30000);
+	if (result.code !== 0) { return { ok: false, reason: 'O Tailscale recusou o comando serve. Verifique se o HTTPS está habilitado na sua conta.' }; }
+	const after = await serveConfig(env, runner);
+	if (after.known && !after.targets.includes(serveTarget(port))) { return { ok: false, reason: 'O Tailscale aceitou o comando, mas a publicação não aponta para este gateway.' }; }
+	return { ok: true, tailnetOnly: after.known ? !after.funnel : undefined };
+}
+
+/**
+ * Turns the publication off ONLY when it is this gateway's own. Tailscale Serve is one configuration for the whole computer: a gateway
+ * that never published (another state folder, a test) must not take down what a different gateway is serving.
+ */
+export async function disableServe(port: number, env: NodeJS.ProcessEnv = process.env, runner: Runner = run): Promise<{ ok: boolean; skipped?: boolean }> {
 	const executable = tailscaleExecutable(env);
 	if (!executable) { return { ok: false }; }
+	const config = await serveConfig(env, runner);
+	if (!config.known || !config.targets.includes(serveTarget(port))) { return { ok: true, skipped: true }; }
 	return { ok: (await runner(executable, ['serve', '--https=443', 'off'], 30000)).code === 0 };
 }

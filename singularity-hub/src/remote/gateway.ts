@@ -11,7 +11,7 @@ import { canonical, parseComparison, parseTeam, verifyChoices } from './orchestr
 import { Pairing } from './pairing';
 import { bearerOf, hostAllowed, newToken, originAllowed, sameSecret } from './security';
 import { Device, RemoteStore, Workspace } from './store';
-import { disableServe, enableServe, Runner, tailscaleState } from './tailscale';
+import { disableServe, enableServe, Runner, serveConfig, serveTarget, tailscaleState } from './tailscale';
 
 /**
  * The Singularity Remote gateway: a small HTTP server, separate from the Hub, that lets a paired phone follow and steer the agents.
@@ -641,16 +641,33 @@ export class RemoteGateway {
 				this.ledger.reset();
 				return this.send(res, 200, { counts: this.ledger.counts() });
 			}
-			if (route === 'GET /admin/tailscale') { return this.send(res, 200, await tailscaleState(this.opts.env, this.opts.tailscaleRunner)); }
+			if (route === 'GET /admin/tailscale') {
+				const state = await tailscaleState(this.opts.env, this.opts.tailscaleRunner);
+				const serve = state.installed ? await serveConfig(this.opts.env, this.opts.tailscaleRunner) : { known: false, configured: false, targets: [] as string[], funnel: false };
+				const previous = this.store.servedPort();
+				const pointsHere = serve.targets.includes(serveTarget(this.publicPort));
+				const stale = !pointsHere && previous !== undefined && serve.targets.includes(serveTarget(previous));
+				return this.send(res, 200, { ...state, gatewayPort: this.publicPort, serve: {
+					known: serve.known, configured: serve.configured, funnel: serve.funnel, pointsHere, stale,
+					// another publication on this computer that is not this gateway's: it is reported, never replaced silently
+					conflict: serve.targets.some(target => target !== serveTarget(this.publicPort) && (previous === undefined || target !== serveTarget(previous))),
+					previouslyPublished: previous !== undefined || this.store.tailnetNames().length > 0
+				} });
+			}
 			if (route === 'POST /admin/tailscale/serve') {
 				if (body.consent !== true) { throw new HttpError(400, 'É preciso consentimento explícito.'); }
 				const state = await tailscaleState(this.opts.env, this.opts.tailscaleRunner);
 				if (!state.installed || !state.loggedIn || !state.dnsName) { return this.send(res, 200, { ok: false, reason: state.reason }); }
-				const result = await enableServe(this.publicPort, this.opts.env, this.opts.tailscaleRunner);
-				if (result.ok) { this.store.setTailnetNames([state.dnsName]); this.tailnet = true; }
+				// always the port this gateway is listening on right now, never a remembered one
+				const result = await enableServe(this.publicPort, this.opts.env, this.opts.tailscaleRunner, { previousPort: this.store.servedPort(), replace: body.replace === true });
+				if (result.ok) { this.store.setTailnetNames([state.dnsName]); this.store.setServedPort(this.publicPort); this.tailnet = true; }
 				return this.send(res, 200, { ...result, url: result.ok ? `https://${state.dnsName}/` : undefined });
 			}
-			if (route === 'POST /admin/tailscale/off') { this.tailnet = false; return this.send(res, 200, await disableServe(this.opts.env, this.opts.tailscaleRunner)); }
+			if (route === 'POST /admin/tailscale/off') {
+				const result = await disableServe(this.publicPort, this.opts.env, this.opts.tailscaleRunner);
+				if (result.ok && !result.skipped) { this.tailnet = false; this.store.setServedPort(undefined); }
+				return this.send(res, 200, result);
+			}
 			if (route === 'POST /admin/stop') { this.send(res, 200, { ok: true }); setImmediate(() => process.emit('SIGTERM')); return; }
 			this.send(res, 404, { error: 'Rota não encontrada.' });
 		} catch (error) { this.fail(res, error); }

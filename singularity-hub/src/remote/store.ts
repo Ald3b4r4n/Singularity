@@ -21,7 +21,7 @@ export interface Workspace { id: string; path: string; name: string }
  */
 export interface ValidationProfile { id: string; workspaceId: string; label: string; executable: string; args: string[] }
 
-interface Persisted { v: 1; workspaces: Workspace[]; devices: Device[]; tailnetNames: string[]; profiles: ValidationProfile[] }
+interface Persisted { v: 1; workspaces: Workspace[]; devices: Device[]; tailnetNames: string[]; profiles: ValidationProfile[]; servedPort?: number }
 
 export const MAX_PROFILES = 16;
 
@@ -53,7 +53,7 @@ export class RemoteStore {
 		try {
 			const parsed = JSON.parse(readSecureFile(this.file)) as Partial<Persisted>;
 			if (parsed.v === 1 && Array.isArray(parsed.workspaces) && Array.isArray(parsed.devices)) {
-				this.data = { v: 1, workspaces: parsed.workspaces.slice(0, MAX_WORKSPACES), devices: parsed.devices.slice(0, 64), tailnetNames: Array.isArray(parsed.tailnetNames) ? parsed.tailnetNames.slice(0, 4) : [], profiles: Array.isArray(parsed.profiles) ? parsed.profiles.filter(isProfile).slice(0, MAX_PROFILES) : [] };
+				this.data = { v: 1, workspaces: parsed.workspaces.slice(0, MAX_WORKSPACES), devices: parsed.devices.slice(0, 64), tailnetNames: Array.isArray(parsed.tailnetNames) ? parsed.tailnetNames.slice(0, 4) : [], profiles: Array.isArray(parsed.profiles) ? parsed.profiles.filter(isProfile).slice(0, MAX_PROFILES) : [], ...(Number.isInteger(parsed.servedPort) ? { servedPort: parsed.servedPort } : {}) };
 			}
 		} catch { /* an unreadable or unprotected file is treated as empty: nothing stays authorized */ }
 	}
@@ -126,6 +126,10 @@ export class RemoteStore {
 	// ---------- private-network names ----------
 
 	tailnetNames(): string[] { return [...this.data.tailnetNames]; }
+
+	/** The loopback port this gateway last published through Tailscale Serve: the only publication it may replace or turn off. */
+	servedPort(): number | undefined { return this.data.servedPort; }
+	setServedPort(port: number | undefined): void { if (port === undefined) { delete this.data.servedPort; } else { this.data.servedPort = port; } this.save(); }
 
 	setTailnetNames(names: string[]): void {
 		this.data.tailnetNames = names.filter(name => /^[a-z0-9.-]{3,253}$/i.test(name)).map(name => name.toLowerCase()).slice(0, 4);
