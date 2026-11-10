@@ -170,3 +170,23 @@ test('missing session identity cannot authorize preparation of an otherwise comp
 	await assert.rejects(f.coordinator.solutionSource(run.id, f.workspace, run.participants[0].id), /identidade/);
 	assert.equal(f.stop.length, 0);
 });
+
+test('worktrees ignore the global Git configuration of the person: a Windows core.autocrlf=true never makes a fresh worktree look modified (it stopped every real team)', async () => {
+	const fakeHome = mkdtempSync(join(tmpdir(), 'sing-gitconfig-'));
+	writeFileSync(join(fakeHome, '.gitconfig'), ['[core]', '\tautocrlf = true', ''].join(String.fromCharCode(10)));
+	const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+	Object.assign(process.env, { HOME: fakeHome, USERPROFILE: fakeHome, XDG_CONFIG_HOME: join(fakeHome, 'xdg') });
+	try {
+		const f = fixture();
+		const run = await f.coordinator.create(f.input);
+		// every other Hub Git check (snapshots, review, apply) runs without any global or system configuration: from there the worktrees must be clean
+		const sanitized = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
+		for (const participant of run.participants) {
+			const status = execFileSync('git', ['-C', participant.workspace, 'status', '--porcelain=v1', '--untracked-files=all'], { encoding: 'utf8', env: sanitized }).trim();
+			assert.equal(status, '', 'a fresh worktree is clean for the checks the Hub makes later');
+			assert.ok(!readFileSync(join(participant.workspace, 'sample.txt'), 'utf8').includes(String.fromCharCode(13)), 'and it holds the exact bytes of the commit');
+		}
+	} finally {
+		for (const [key, value] of Object.entries(previous)) { if (value === undefined) { delete process.env[key]; } else { process.env[key] = value; } }
+	}
+});

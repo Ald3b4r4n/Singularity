@@ -307,8 +307,8 @@
 			select('model', 'Modelo', visibleProviders().flatMap(provider => provider.models.map(item => [JSON.stringify([provider.id, item.id]), (visibleProviders().length > 1 ? providerLabel(provider) + ' · ' : '') + item.name])), agentsForm.model, value => { agentsForm.model = value; agentsForm.effort = ''; render(); }),
 			select('effort', 'Esforço', [['', 'Padrão do modelo'], ...((model && model.efforts) || []).map(level => [level, EFFORT[level] || level])], agentsForm.effort, value => { agentsForm.effort = value; }),
 			permissions ? select('permission', 'Permissões', permissions, agentsForm.permission, value => { agentsForm.permission = value; }) : null,
-			h('div', null, h('label', { for: 'task', text: 'Tarefa' }), h('textarea', { id: 'task', maxlength: '16000', placeholder: 'Descreva o que o agente deve fazer…', oninput: event => { agentsForm.text = event.target.value; } }, agentsForm.text)),
-			h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'button', disabled: sending || !model || !agentsForm.text.trim() || !agentsForm.workspaceId, onclick: sendTask }, sending ? 'Enviando…' : 'Enviar tarefa')));
+			h('div', null, h('label', { for: 'task', text: 'Tarefa' }), h('textarea', { id: 'task', maxlength: '16000', placeholder: 'Descreva o que o agente deve fazer…', oninput: event => { agentsForm.text = event.target.value; const button = document.getElementById('send-task'); if (button) { button.disabled = sending || !selectedModel() || !agentsForm.text.trim() || !agentsForm.workspaceId; } } }, agentsForm.text)),
+			h('div', { class: 'actions' }, h('button', { id: 'send-task', class: 'primary', type: 'button', disabled: sending || !model || !agentsForm.text.trim() || !agentsForm.workspaceId, onclick: sendTask }, sending ? 'Enviando…' : 'Enviar tarefa')));
 		show(h('h2', { text: 'Agentes' }), form);
 	}
 	async function sendTask() {
