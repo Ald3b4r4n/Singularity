@@ -655,21 +655,32 @@
 		if (teamView) { return renderTeamDetail(); }
 		stopPolling();
 		const draw = () => show(h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), teamForm.open ? null : h('button', { class: 'primary', type: 'button', onclick: () => { teamForm.open = true; render(); } }, 'Nova equipe')),
-			pendingBanner(item => item.kind === 'team' && !staleRefusal(item, teamForm)),
+			pendingBanner(item => (item.kind === 'team' && !staleRefusal(item, teamForm)) || (item.kind === 'control' && /^teams\./.test(item.action || ''))),
 			teamForm.open ? teamStartForm() : null,
 			...(teams.length ? teams.map(teamCard) : [h('div', { class: 'empty', text: 'Nenhuma equipe ainda. Toque em “Nova equipe”.' })]));
 		if (!teams.length) { show(h('h2', { text: 'Equipe' }), h('div', { class: 'empty', text: 'Lendo…' })); }
-		const load = async () => { try { const next = (await api('/api/teams')).teams; if (JSON.stringify(next) !== JSON.stringify(teams)) { teams = next; if (screen === 'team' && !teamView && !teamForm.open) { draw(); } } } catch (error) { if (!teams.length) { toast(error.message); } } };
+		const load = async () => { try { const next = (await api('/api/teams')).teams; if (JSON.stringify(next) !== JSON.stringify(teams)) { teams = next; if (screen === 'team' && !teamView && !teamForm.open && !teamMenu) { draw(); } } } catch (error) { if (!teams.length) { toast(error.message); } } };
 		await load();
 		if (screen !== 'team' || teamView) { return; }
 		draw();
 		poll(load, 2000);
 	}
+	let teamMenu = '';
+	const teamOp = (team, action, label) => startOp({ kind: 'control', action: 'teams.' + action, scope: team.id, path: '/api/teams/' + team.id + '/' + action, text: label, body: { confirm: true, workspaceId: team.workspaceId } });
 	function teamCard(team) {
-		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: () => { follow = true; teamView = { id: team.id, workspaceId: team.workspaceId }; render(); }, onkeydown: event => { if (event.key === 'Enter') { follow = true; teamView = { id: team.id, workspaceId: team.workspaceId }; render(); } } },
-			h('div', { class: 'row between' }, h('strong', { text: team.workspaceName }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
-			h('div', { class: 'muted clamp2', text: String(team.task || '') }),
-			h('div', { class: 'row' }, chip('etapa: ' + (ROLE[team.phase] || team.phase)), chip('ciclo ' + team.cycle + ' de ' + (team.maxCorrections + 1))));
+		const open = () => { follow = true; teamMenu = ''; armed = ''; teamView = { id: team.id, workspaceId: team.workspaceId }; render(); };
+		const working = ['preparing', 'running', 'snapshotting'].includes(team.state);
+		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: open, onkeydown: event => { if (event.key === 'Enter' && event.target === event.currentTarget) { open(); } } },
+			h('div', { class: 'row between nowrap' }, h('strong', { text: team.workspaceName }),
+				h('div', { class: 'row nowrap' }, chip(TEAM_STATE[team.state] || team.state, teamKind(team.state)),
+					h('button', { class: 'more', type: 'button', 'aria-label': 'Ações desta equipe', 'aria-expanded': teamMenu === team.id ? 'true' : 'false', onclick: event => { event.stopPropagation(); teamMenu = teamMenu === team.id ? '' : team.id; armed = ''; render(); } }, '⋮'))),
+			teamMenu === team.id ? h('div', { class: 'menu', role: 'menu', onclick: event => event.stopPropagation() },
+				h('button', { class: 'secondary', type: 'button', onclick: open }, 'Abrir a conversa'),
+				team.comparisonId && (team.versions || []).length ? h('button', { class: 'secondary', type: 'button', onclick: () => { teamMenu = ''; showTeamDiff(team); } }, 'Ver os arquivos que a equipe alterou') : null,
+				working ? armedButton('cancel-' + team.id, 'Cancelar a equipe', true, () => { teamMenu = ''; teamOp(team, 'cancel', 'Cancelar a equipe'); })
+					: armedButton('delete-' + team.id, 'Excluir a equipe', true, () => { teamMenu = ''; teamOp(team, 'delete', 'Excluir a equipe'); })) : null,
+			h('div', { class: 'muted clamp2', text: String(team.task || '').split('\n\nInstrução adicional do usuário:\n')[0] }),
+			h('div', { class: 'muted small', text: (ROLE[team.phase] || team.phase) + ' · ciclo ' + (team.cycle + 1) + (team.createdAt ? ' · ' + duration(team.createdAt, team.finishedAt) : '') }));
 	}
 	async function renderTeamDetail() {
 		const view = teamView;
@@ -734,22 +745,15 @@
 		view.profileId = view.profileId && profiles.some(p => p.id === view.profileId) ? view.profileId : (profiles[0] && profiles[0].id) || '';
 		const lastVersion = (team.versions || []).at(-1), lastStep = (team.steps || []).at(-1), lastStepFailed = !!lastStep && ['failed', 'cancelled', 'intent'].includes(lastStep.status);
 		const canReply = ['completed', 'awaiting-validation', 'exhausted'].includes(team.state) && !!(team.versions || []).length;
-		show(h('button', { class: 'secondary', type: 'button', onclick: () => { teamView = undefined; stopPolling(); armed = ''; render(); } }, '← Equipe'),
-			h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
-			h('p', { class: 'statusline', id: 'team-status', role: 'status', text: teamStatus(view) }),
-			h('div', { class: 'row' }, chip('etapa: ' + (ROLE[team.phase] || team.phase)), chip('ciclo ' + team.cycle + ' de ' + (team.maxCorrections + 1)), team.createdAt ? chip(duration(team.createdAt, team.finishedAt)) : null),
-			h('div', { class: 'stack' }, ...(team.roles || []).map((role, index) => h('div', { class: 'muted small', text: ['Implementador', 'Revisor', 'Testador'][index] + ': ' + (SERVICE_NAME[role.service] || role.service) + ' · ' + MODEL_NAME(role.model) }))),
+		show(h('div', { class: 'row between nowrap' }, h('button', { class: 'secondary back', type: 'button', onclick: () => { teamView = undefined; stopPolling(); armed = ''; render(); } }, '← Equipes'), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
+			running ? h('p', { class: 'statusline', id: 'team-status', role: 'status', text: teamStatus(view) }) : null,
+			h('details', { class: 'teaminfo' }, h('summary', { text: 'Quem está nesta equipe' }),
+				...(team.roles || []).map((role, index) => h('div', { class: 'muted small', text: ['Implementador', 'Revisor', 'Testador'][index] + ': ' + (SERVICE_NAME[role.service] || role.service) + ' · ' + MODEL_NAME(role.model) })),
+				h('div', { class: 'muted small', text: 'Ciclo ' + (team.cycle + 1) + ' de até ' + (team.maxCorrections + 1) + (team.createdAt ? ' · ' + duration(team.createdAt, team.finishedAt) + ' no total' : '') }),
+				h('div', { class: 'muted small', text: 'Os agentes trabalham em cópias isoladas. Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' })),
 			pendingBanner(item => item.kind === 'control'),
-			team.error ? h('p', { class: 'chip bad', text: team.error }) : null,
-			h('div', { class: 'row' },
-				lastVersion && team.comparisonId ? h('button', { class: 'secondary', type: 'button', onclick: () => showTeamDiff(team) }, 'Ver as alterações da solução') : null,
-				team.state === 'completed' && !team.chosen ? control('choose', 'Selecionar solução para revisão', false, 'choose') : null,
-				team.state === 'paused' && !(lastStepFailed) ? control('resume', 'Retomar a equipe', false, 'resume') : null,
-				!['preparing', 'running', 'snapshotting'].includes(team.state) ? control('delete', 'Excluir a equipe', true, 'delete') : null,
-				running && team.state !== 'paused' ? control('cancel', 'Cancelar a equipe', true, 'cancel') : null),
-			team.chosen ? h('p', { class: 'chip ok', text: 'Solução selecionada para revisão na IDE' }) : null,
-			team.state === 'paused' && lastStepFailed ? h('p', { class: 'muted small', text: 'A etapa falhou e, por segurança, a equipe nunca reenvia um pedido por conta própria; por isso não há como retomá-la. Exclua esta equipe e crie outra.' }) : null,
-			h('p', { class: 'muted small', text: 'Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' }),
+			team.error && team.state !== 'exhausted' ? h('p', { class: 'chip bad', text: team.error }) : null,
+			team.state === 'paused' && lastStepFailed ? h('p', { class: 'muted small', text: 'A etapa falhou e, por segurança, a equipe nunca reenvia um pedido por conta própria. Volte à lista e exclua esta equipe pelo “⋮” para criar outra.' }) : null,
 			h('div', { class: 'chat' },
 				bubble('user', String(team.task).split('\n\nInstrução adicional do usuário:\n')[0]),
 				...(team.steps || []).flatMap((step, index) => {
@@ -774,12 +778,18 @@
 				}),
 				...(team.steps && team.steps.length ? [] : [h('div', { class: 'bubble agent typing', text: 'Preparando a primeira etapa…' })]),
 				team.state === 'exhausted' ? h('div', { class: 'stephead failed', text: 'Os ciclos de correção acabaram. Responda abaixo para a equipe continuar.' }) : null,
-				team.state === 'completed' ? h('div', { class: 'stephead done', text: 'Equipe concluída. Responda abaixo se quiser mudar algo.' }) : null),
+				team.state === 'completed' ? h('div', { class: 'stephead done', text: 'Equipe concluída. Responda abaixo se quiser mudar algo.' }) : null,
+				lastVersion && team.comparisonId && !running ? h('div', { class: 'row links' },
+					h('button', { class: 'link', type: 'button', onclick: () => showTeamDiff(team) }, 'Ver os arquivos alterados'),
+					team.state === 'completed' && !team.chosen ? control('choose', 'Marcar para revisão na IDE', false, 'choose') : null,
+					team.chosen ? h('span', { class: 'chip ok', text: 'Marcada para revisão na IDE' }) : null) : null,
+				team.state === 'paused' && !lastStepFailed ? control('resume', 'Retomar a equipe', false, 'resume') : null),
 			team.state === 'awaiting-validation' ? h('section', { class: 'card stack' }, h('strong', { text: 'Validação independente' }),
 				profiles.length ? [select('', 'Perfil de teste cadastrado na IDE', profiles.map(p => [p.id, p.label]), view.profileId, value => { view.profileId = value; }),
 					h('p', { class: 'muted small', text: 'Roda o comando cadastrado no Windows para este perfil; o celular não escolhe nem vê o comando.' }),
 					armedButton('validate', 'Rodar a validação', false, () => startOp({ kind: 'control', action: 'teams.validate', scope: team.id, path: '/api/teams/' + team.id + '/validate', text: 'Validação independente', body: { confirm: true, workspaceId: team.workspaceId, profileId: view.profileId } }))]
 					: h('p', { class: 'muted', text: 'A equipe aguarda testes independentes, mas nenhum perfil de teste está cadastrado para este workspace. Cadastre um em “Singularity: Perfis de teste do acesso remoto” na IDE do Windows; o celular não pode informar um comando.' })) : null,
+			running && team.state !== 'paused' && team.state !== 'awaiting-validation' ? h('div', { class: 'chatbar' }, h('span', { class: 'grow' }), armedButton('cancel', 'Interromper a equipe', true, () => teamOp(team, 'cancel', 'Cancelar a equipe'))) : null,
 			canReply ? h('form', { class: 'chatbar', onsubmit: event => { event.preventDefault(); const text = (view.reply || '').trim(); if (!text || pendingSend) { return; } view.reply = ''; follow = true; startOp({ kind: 'control', action: 'teams.instruct', scope: team.id, path: '/api/teams/' + team.id + '/instruct', text: 'Nova instrução para a equipe', body: { confirm: true, workspaceId: team.workspaceId, text } }); } },
 				h('textarea', { rows: '1', maxlength: '3000', placeholder: 'Responda à equipe…', 'aria-label': 'Nova instrução para a equipe', oninput: event => { view.reply = event.target.value; event.target.style.height = 'auto'; event.target.style.height = Math.min(event.target.scrollHeight, 140) + 'px'; } }, view.reply || ''),
 				h('button', { class: 'send', type: 'submit', 'aria-label': 'Enviar instrução', disabled: !!pendingSend }, '↑')) : null,

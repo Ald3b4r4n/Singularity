@@ -199,7 +199,7 @@ async function main() {
 	await shot('p07-equipe-implementando.png');
 	await waitFor(async () => /Revisor/i.test(await page.locator('.chat').innerText()), 'the review step appears by itself', 15000);
 	await waitFor(async () => /A função não trata a entrada vazia/.test(await page.locator('#view').innerText()), 'the issue found by the reviewer is shown', 15000);
-	check('B.4 the stages, the problems found and the correction cycle appear by themselves', /ciclo 2 de 3|ciclo 1 de 3/.test(await page.locator('#view').innerText()));
+	check('B.4 the stages, the problems found and the correction cycle appear by themselves', /Implementador · versão 2/i.test(await page.locator('.chat').innerText()) && /pede alterações/i.test(await page.locator('.chat').innerText()));
 	await shot('p08-equipe-problemas.png');
 	await waitFor(async () => /nenhum perfil de teste está cadastrado/.test(await page.locator('#view').innerText()), 'awaiting independent validation', 20000);
 	check('B.5 without a registered profile the screen says the tests must be authorised on Windows, and offers no command field', !(await page.getByRole('button', { name: 'Rodar a validação' }).count()) && (await page.locator('#view input[type=text], #view input:not([type])').count()) === 0);
@@ -216,11 +216,11 @@ async function main() {
 	await waitFor(() => calls('teams.validate').length === 1, 'validation reached the Hub');
 	check('B.7 the Hub gets exactly the registered command, approved, never one from the phone', JSON.stringify(calls('teams.validate')[0].params.command) === JSON.stringify({ executable: runner, args: ['--rapido'], approved: true }) && profile.profile.id.length > 4);
 	await waitFor(async () => /concluída/.test(await page.locator('#view').innerText()), 'team completed', 15000);
-	await page.getByRole('button', { name: 'Selecionar solução para revisão' }).click();
+	await page.getByRole('button', { name: 'Marcar para revisão na IDE' }).click();
 	await page.getByRole('button', { name: 'Toque de novo para confirmar' }).click();
 	await waitFor(() => calls('teams.choose').length === 1, 'team choose');
-	check('B.8 the final solution can be inspected and selected for review, never applied', (await page.getByRole('button', { name: 'Ver as alterações da solução' }).count()) === 1 && !hub.calls.some(call => /solutions\.|apply|undo/.test(call.method)));
-	await page.getByRole('button', { name: 'Ver as alterações da solução' }).click();
+	check('B.8 the final solution can be inspected and selected for review, never applied', (await page.getByRole('button', { name: 'Ver os arquivos alterados' }).count()) === 1 && !hub.calls.some(call => /solutions\.|apply|undo/.test(call.method)));
+	await page.getByRole('button', { name: 'Ver os arquivos alterados' }).click();
 	await page.waitForSelector('.diff');
 	await shot('p11-diff-da-equipe.png');
 	await page.getByRole('button', { name: /Voltar/ }).click();
@@ -252,13 +252,21 @@ async function main() {
 	await page.locator('.form textarea').fill('Equipe para cancelar.');
 	await page.getByRole('button', { name: 'Confirmar e iniciar' }).click();
 	await page.waitForSelector('.chat');
-	await page.getByRole('button', { name: 'Cancelar a equipe' }).click();
+	await page.getByRole('button', { name: 'Interromper a equipe' }).click();
 	check('B.9 cancelling needs a second tap', calls('teams.cancel').filter(call => call.params.workspace).length === 0);
 	await page.getByRole('button', { name: 'Toque de novo para confirmar' }).dblclick();
 	await waitFor(() => calls('teams.cancel').filter(call => call.params.workspace).length >= 1, 'cancel reached the Hub');
 	await delay(600);
 	check('B.10 a double tap on the cancel confirmation cancels once', calls('teams.cancel').filter(call => call.params.workspace).length === 1, calls('teams.cancel').length);
 	// a team that stopped can be deleted, with two taps
+	// what can be done to a team is outside its conversation, behind the "⋮" of its card
+	check('B.10b inside the team there is only the conversation: no delete button and no block of buttons above it', (await page.getByRole('button', { name: 'Excluir a equipe' }).count()) === 0 && (await page.locator('#view > .row button.secondary:not(.back), #view > button').count()) === 0);
+	await shot('p12-conversa-da-equipe.png');
+	await page.getByRole('button', { name: '← Equipes' }).click();
+	await page.waitForSelector('article.card button.more');
+	check('B.10c in the list a team offers no destructive button until its menu is opened', (await page.getByRole('button', { name: 'Excluir a equipe' }).count()) === 0);
+	await page.locator('article.card button.more').last().click();
+	await shot('p13-menu-da-equipe.png');
 	await waitFor(async () => (await page.getByRole('button', { name: 'Excluir a equipe' }).count()) === 1, 'delete is offered for a stopped team', 15000);
 	const teamsBefore = hub.teams.length;
 	await page.getByRole('button', { name: 'Excluir a equipe' }).click();

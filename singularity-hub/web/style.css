@@ -147,3 +147,22 @@ fieldset.agent legend { padding: 0 6px; font-weight: 600; font-size: 13px; lette
 
 .bubble.opinion { max-width: 100%; align-self: stretch; }
 .bubble.opinion .small { margin-top: 6px; }
+
+.row.nowrap { flex-wrap: nowrap; }
+button.more { flex: none; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 22px; line-height: 1; }
+.menu { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); }
+.menu button { width: 100%; text-align: left; }
+button.back { min-height: 44px; padding: 8px 14px; }
+.teaminfo { border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; }
+.teaminfo summary { cursor: pointer; color: var(--muted); font-size: 14px; min-height: 28px; }
+.teaminfo > div { margin-top: 6px; }
+.row.links { align-self: stretch; padding-top: 4px; }
+button.link { background: transparent; border: 0; color: var(--accent); text-decoration: underline; padding: 10px 4px; min-height: 44px; font-size: 15px; }
+.chatbar .grow { flex: 1; }
+.chatbar .danger { border-radius: 20px; }
+.row.nowrap .chip { white-space: nowrap; flex: none; }
+.row.nowrap > strong { min-width: 0; overflow-wrap: anywhere; }
+.statusline { margin: 10px 0 0; }
+.teaminfo { margin: 10px 0; }
+.row.between.nowrap > strong { flex: 1 1 0; }
+.row.nowrap > .row.nowrap { flex: none; }
