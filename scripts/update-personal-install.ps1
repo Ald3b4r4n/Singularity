@@ -56,9 +56,20 @@ if (-not $Confirm) {
 # ---- refusals: nothing is closed or stopped for you ----
 if ($ide.Count) { Fail 'feche as janelas da Singularity IDE antes de atualizar (nenhuma janela é fechada por este script).' }
 if ($status -and $status.running) {
-  $active = $null
-  try { $active = (& $hubNode $cli processes 2>$null | Out-String | ConvertFrom-Json).entries | Where-Object { $_.role -eq 'linked-agent' } } catch { }
-  if ($active) { Fail "há $(@($active).Count) agente(s) trabalhando. Espere terminarem ou encerre-os pela IDE; nenhuma sessão é encerrada por este script." }
+  # An agent is "working" when its session is running or waiting. A session that finished keeps an idle helper process; stopping the Hub
+  # ends that helper and the session stays in the history, so it does not block the update (and the person is told about it below).
+  $probe = @'
+const {HubConnection}=require(process.argv[2]);
+HubConnection.connect({clientName:'update-check',timeoutMs:15000}).then(async c=>{const s=await c.request('sessions.list');console.log(JSON.stringify(s.filter(x=>!x.historical).map(x=>({id:x.id.slice(0,8),status:x.status}))));process.exit(0)}).catch(()=>{console.log('null');process.exit(0)});
+'@
+  $probeFile = Join-Path $env:TEMP 'singularity-update-probe.cjs'; Set-Content $probeFile $probe
+  $live = $null
+  try { $live = (& $hubNode $probeFile ((Join-Path $Install 'resources\app\singularity-hub\dist\client.js') -replace '\\', '/') 2>$null | Select-Object -Last 1) | ConvertFrom-Json } catch { }
+  if ($null -eq $live) { Fail 'não foi possível ler as sessões do Hub; nada foi alterado.' }
+  $working = @($live | Where-Object { $_.status -in 'running', 'waiting' })
+  if ($working.Count) { Fail "há $($working.Count) agente(s) trabalhando. Espere terminarem ou encerre-os pela IDE; nenhuma sessão é encerrada por este script." }
+  $idle = @($live | Where-Object { $_.status -notin 'running', 'waiting' })
+  if ($idle.Count) { Say "Sessões vivas e ociosas: $($idle.Count). Elas seguem no histórico depois que o Hub reiniciar (podem ser reabertas pela IDE)." }
 }
 
 # ---- backup ----
