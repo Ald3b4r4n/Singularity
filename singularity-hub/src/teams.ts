@@ -79,7 +79,9 @@ export class Teams {
 	}
 	async start(input: unknown): Promise<Team> {
 		const p = input as { workspace?: string; text?: string; participants?: RoleChoice[]; maxCorrections?: number };
-		if (this.active() || this.comparisons.active() || !p || typeof p.workspace !== 'string' || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 7000 || !Array.isArray(p.participants) || p.participants.length !== 3 || !Number.isInteger(p.maxCorrections ?? 2) || (p.maxCorrections ?? 2) < 0 || (p.maxCorrections ?? 2) > 2) { throw new Error('Escolha três papéis e até dois ciclos, sem outra equipe ou comparação ativa.'); }
+		if (this.active()) { throw new Error('Já existe uma equipe em andamento ou pausada. Cancele ou exclua essa equipe antes de iniciar outra.'); }
+		if (this.comparisons.active()) { throw new Error('Há uma comparação em andamento. Cancele-a ou espere terminar antes de iniciar uma equipe.'); }
+		if (!p || typeof p.workspace !== 'string' || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 7000 || !Array.isArray(p.participants) || p.participants.length !== 3 || !Number.isInteger(p.maxCorrections ?? 2) || (p.maxCorrections ?? 2) < 0 || (p.maxCorrections ?? 2) > 2) { throw new Error('Escolha uma tarefa, três papéis e até dois ciclos de correção.'); }
 		const roles = p.participants.map(choice => { const model = parseSelection(choice?.model); if (!choice || !['opencode', 'claude-code', 'codex-cli'].includes(choice.service) || !model) { throw new Error('Selecione um provedor e modelo para cada papel.'); } return { service: choice.service, model }; });
 		this.creating = true;
 		const team: Team = { id: randomUUID(), workspace: p.workspace, task: p.text, roles, createdAt: Date.now(), updatedAt: Date.now(), state: 'preparing', phase: 'implementer', cycle: 0, maxCorrections: p.maxCorrections ?? 2, steps: [], versions: [] };
