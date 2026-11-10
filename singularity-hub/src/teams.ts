@@ -38,6 +38,9 @@ export function parseFindings(text: string): Findings {
 		...(Array.isArray(raw.scenarios) ? { scenarios: raw.scenarios.filter(s => typeof s === 'string' && s.length <= 1000).slice(0, 20) } : {}) };
 }
 
+/** A team grows by one version each time the person answers it; these bound a stored record (and what a restart accepts back). */
+const maxVersions = 24, maxSteps = maxVersions * 3;
+
 export class Teams {
 	private readonly records = new Map<string, Team>();
 	private readonly storage: SessionHistory;
@@ -64,7 +67,7 @@ export class Teams {
 		for (const record of this.storage.list()) {
 			try {
 				const team = JSON.parse(this.storage.turns(record.id).at(-1)?.result ?? 'null') as Team;
-				if (team?.id !== record.id || !Array.isArray(team.steps) || team.steps.length > 9 || !Array.isArray(team.versions) || team.versions.length > 3 || !Array.isArray(team.roles) || team.roles.length !== 3) { continue; }
+				if (team?.id !== record.id || !Array.isArray(team.steps) || team.steps.length > maxSteps || !Array.isArray(team.versions) || team.versions.length > maxVersions || !Array.isArray(team.roles) || team.roles.length !== 3) { continue; }
 				const wasTerminal = ['completed', 'failed', 'cancelled', 'exhausted', 'unrecoverable'].includes(team.state);
 				const owned = this.comparisons.list(team.workspace).filter(c => c.workflowId === team.id).sort((a, b) => a.createdAt - b.createdAt);
 				if (owned.length) { team.comparisonId = owned.at(-1)!.id; }
@@ -226,6 +229,7 @@ export class Teams {
 		if (typeof text !== 'string' || !text.trim() || text.length > 3000) { throw new Error('Escreva a nova instrução (até 3000 caracteres).'); }
 		if (!['completed', 'awaiting-validation', 'exhausted'].includes(team.state) || this.busy.has(id) || !team.versions.length) { throw new Error('A equipe só recebe uma nova instrução depois de entregar uma versão e parar de trabalhar.'); }
 		const task = team.task + '\n\nInstrução adicional do usuário:\n' + text.trim();
+		if (team.versions.length >= maxVersions || team.steps.length + 3 > maxSteps) { throw new Error('Esta equipe já recebeu muitas instruções. Crie uma equipe nova para continuar.'); }
 		if (task.length > 7000) { throw new Error('A tarefa com as instruções ficou longa demais. Crie uma equipe nova com o pedido completo.'); }
 		this.busy.add(id);
 		try {

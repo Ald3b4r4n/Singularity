@@ -77,6 +77,10 @@ test('a new instruction after a delivered version starts one more cycle on top o
 	assert.ok(f.prompts.slice(before + 1).every(prompt => prompt.includes('Also publish it.')), 'the reviewer and the tester judge against the new instruction too');
 	assert.equal(f.prompts.length, before + 3);
 	assert.equal(readFileSync(join(f.workspace, 'sum.cjs'), 'utf8'), 'module.exports=(a,b)=>0;\n', 'the project itself is untouched');
+	for (const extra of ['Second answer.', 'Third answer.']) { const count = f.team.list(run.workspace)[0].versions.length; await f.team.instruct(run.id, run.workspace, extra); await until(() => f.team.list(run.workspace)[0].state === 'awaiting-validation' && f.team.list(run.workspace)[0].versions.length === count + 1); }
+	const long = f.team.list(run.workspace)[0]; assert.equal(long.versions.length, 4); assert.ok(long.steps.length > 9);
+	const restarted = new Teams(join(f.root, 'teams'), f.comparisons, f.solutions, () => f.sessions, () => {}); await restarted.recover();
+	assert.equal(restarted.list(run.workspace)[0]?.versions.length, 4, 'a team that was answered several times is still there after a restart');
 	await f.team.delete(run.id, run.workspace);
 	assert.equal(f.team.list(run.workspace).length, 0); assert.equal(f.team.active(), false);
 	const recovered = new Teams(join(f.root, 'teams'), f.comparisons, f.solutions, () => f.sessions, () => {}); await recovered.recover();
