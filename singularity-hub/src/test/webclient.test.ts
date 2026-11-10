@@ -96,4 +96,11 @@ describe('Singularity Remote web client', () => {
 		assert.match(app, /Toque de novo para confirmar/);
 		assert.match(app, /function typing\(\)/, 'a periodic refresh never rebuilds the screen under a field in use');
 	});
+
+	it('asks again, calmly, when a catalog read fails (never in a loop), and lets the answer of an agent be followed live', () => {
+		const app = read('app.js');
+		assert.match(app, /catalogErrors/); assert.match(app, /Date\.now\(\) - failed\.at < 5000/, 'a failed catalog read waits before it is asked again');
+		assert.match(app, /O computador não respondeu\. Tentando de novo/);
+		for (const text of ['Ver resposta', 'Ver ao vivo', 'Agente · ao vivo', 'Ver resposta da etapa']) { assert.ok(app.includes(text), text); }
+	});
 });

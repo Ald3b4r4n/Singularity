@@ -45,7 +45,8 @@ export function plain(value: unknown, depth = 4, stringLimit = 4000): unknown {
 	if (typeof value === 'object' && value !== null) {
 		const out: Record<string, unknown> = {};
 		for (const [key, item] of Object.entries(value).slice(0, 60)) {
-			if (/path|token|secret|cwd|worktree|workspace|directory|command|executable|args|password|authorization/i.test(key)) { continue; }
+			// usage counters are numbers the tool reported, not credentials: they keep their names (a token key is dropped, a token count is not)
+			if (/path|token|secret|cwd|worktree|workspace|directory|command|executable|args|password|authorization/i.test(key) && !(typeof item === 'number' && /^(input|output|cachedInput|cacheRead|cacheWrite|reasoning|total)Tokens$/.test(key))) { continue; }
 			const kept = plain(item, depth - 1, key === 'diff' || key === 'patch' ? 200_000 : stringLimit);
 			if (kept !== undefined) { out[key] = kept; }
 		}
@@ -65,6 +66,8 @@ export interface GatewayOptions {
 	bridge?: HubBridge;
 	now?: () => number;
 	env?: NodeJS.ProcessEnv;
+	/** Wait before the second try of a Hub read that failed for a moment (the Hub is starting, or busy with another catalog read). */
+	retryDelayMs?: number;
 	/** Test hook for the `tailscale` command. */
 	tailscaleRunner?: Runner;
 }
@@ -270,7 +273,7 @@ export class RemoteGateway {
 			const workspace = this.requireWorkspace(url.searchParams.get('workspaceId'));
 			const service = url.searchParams.get('service');
 			if (service !== null && !['opencode', 'claude-code', 'codex-cli'].includes(service)) { throw new HttpError(400, 'Provedor inválido.'); }
-			return this.send(res, 200, plain(await this.bridge.call('catalog.get', { workspace: workspace.path, ...(service ? { service } : {}) }, 60000), 6));
+			return this.send(res, 200, plain(await this.withRetry('catalog.get', { workspace: workspace.path, ...(service ? { service } : {}) }), 6));
 		}
 		if (route === 'GET /api/sessions') {
 			const views = (await this.bridge.sessions()).map(session => this.sessionView(session)).filter(Boolean);
@@ -350,6 +353,15 @@ export class RemoteGateway {
 
 	private lastServices?: unknown[];
 
+	/** A read of the Hub that may fail for a moment is tried once more; a Hub that is not connected at all is not (nothing to wait for). */
+	private async withRetry<T = unknown>(method: Parameters<HubBridge['call']>[0], params?: unknown, timeout = 60000): Promise<T> {
+		try { return await this.bridge.call<T>(method, params, timeout); } catch (error) {
+			if (error instanceof BridgeUnavailable) { throw error; }
+			await new Promise(resolve => setTimeout(resolve, this.opts.retryDelayMs ?? 2500));
+			return this.bridge.call<T>(method, params, timeout);
+		}
+	}
+
 	/**
 	 * The services (OpenCode, Claude Code, Codex CLI) and whether each is available. Reading them can fail for a moment (the Hub is starting, or it is
 	 * busy with another catalog read), and that must never leave the phone with empty selectors: one more try, then the last good reading.
@@ -359,7 +371,7 @@ export class RemoteGateway {
 			for (let attempt = 0; attempt < 2; attempt++) {
 				const catalog = await this.bridge.call<{ services?: unknown[] }>('catalog.get', {}, 60000).catch(() => undefined);
 				if (Array.isArray(catalog?.services) && catalog.services.length) { this.lastServices = catalog.services; return { services: catalog.services, state: 'ok' }; }
-				if (attempt === 0) { await new Promise(resolve => setTimeout(resolve, 2500)); }
+				if (attempt === 0) { await new Promise(resolve => setTimeout(resolve, this.opts.retryDelayMs ?? 2500)); }
 			}
 		}
 		return this.lastServices ? { services: this.lastServices, state: 'stale' } : { services: [], state: 'unavailable' };
@@ -409,7 +421,7 @@ export class RemoteGateway {
 			const workspace = this.requireWorkspace(input.workspaceId);
 			await this.operate(res, device.id, { action: 'comparison.create', scope: workspace.id, rid, content: { text: input.text, participants: input.participants }, status: 201,
 				perform: async () => {
-					await verifyChoices(this.bridge, workspace.path, input.participants);
+					await verifyChoices({ call: (method, params, timeout) => this.withRetry(method, params, timeout) }, workspace.path, input.participants);
 					const created = await this.bridge.call<{ id: string }>('comparisons.create', { workspace: workspace.path, text: input.text, participants: input.participants });
 					return { ref: created.id, body: { comparison: { id: created.id, workspaceId: workspace.id } } };
 				},
@@ -430,7 +442,7 @@ export class RemoteGateway {
 			const workspace = this.requireWorkspace(input.workspaceId);
 			await this.operate(res, device.id, { action: 'team.start', scope: workspace.id, rid, content: { text: input.text, roles: input.roles, maxCorrections: input.maxCorrections }, status: 201,
 				perform: async () => {
-					await verifyChoices(this.bridge, workspace.path, input.roles);
+					await verifyChoices({ call: (method, params, timeout) => this.withRetry(method, params, timeout) }, workspace.path, input.roles);
 					const created = await this.bridge.call<{ id: string }>('teams.start', { workspace: workspace.path, text: input.text, participants: input.roles, maxCorrections: input.maxCorrections });
 					return { ref: created.id, body: { team: { id: created.id, workspaceId: workspace.id } } };
 				},

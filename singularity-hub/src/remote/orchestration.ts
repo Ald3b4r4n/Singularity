@@ -52,7 +52,7 @@ export function canonical(value: unknown): unknown {
 }
 
 /** The catalog is the truth: a model the Hub's catalog does not offer (or a service that is not available) is refused before anything starts. */
-export async function verifyChoices(bridge: HubBridge, workspacePath: string, choices: Choice[]): Promise<void> {
+export async function verifyChoices(bridge: Pick<HubBridge, 'call'>, workspacePath: string, choices: Choice[]): Promise<void> {
 	const catalogs = new Map<string, { services?: Array<{ id: string; status: string }>; providers?: Array<{ id: string; models: Array<{ id: string; efforts?: string[] }> }> }>();
 	for (const choice of choices) {
 		let catalog = catalogs.get(choice.service);

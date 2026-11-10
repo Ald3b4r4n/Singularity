@@ -460,12 +460,19 @@
 	const MODEL_NAME = model => model ? (model.providerID === 'opencode-go' ? 'Go · ' : model.providerID === 'opencode' ? 'Zen · ' : '') + model.modelID + (model.variant ? ' · ' + (EFFORT[model.variant] || model.variant) : '') : 'modelo padrão';
 
 	function serviceChoices() { return (status ? status.providers : []).filter(item => item.status === 'available').flatMap(item => item.id === 'opencode' ? [['opencode:go', 'OpenCode Go'], ['opencode:zen', 'OpenCode Zen']] : [[item.id, item.name]]); }
+	const catalogErrors = new Map(); let catalogTimer;
+	const catalogKey = (workspaceId, key) => workspaceId + '|' + String(key).split(':')[0];
+	/** A failed catalog read is asked again after a few seconds, with the state on screen: never at once (that would be a loop of requests). */
+	function scheduleCatalogRetry() { if (catalogTimer) { return; } catalogTimer = setTimeout(() => { catalogTimer = undefined; if (screen === 'compare' || screen === 'team') { render(); } }, 5200); }
 	async function ensureCatalog(workspaceId, key) {
-		const base = String(key).split(':')[0], cacheKey = workspaceId + '|' + base;
-		if (!workspaceId || catalogs.has(cacheKey)) { return; }
-		catalogs.set(cacheKey, 'loading');
-		try { catalogs.set(cacheKey, await api('/api/catalog?workspaceId=' + encodeURIComponent(workspaceId) + '&service=' + encodeURIComponent(base))); } catch (error) { catalogs.delete(cacheKey); toast(error.message); }
-		render();
+	const cacheKey = catalogKey(workspaceId, key), base = String(key).split(':')[0];
+	if (!workspaceId || catalogs.has(cacheKey)) { return; }
+	const failed = catalogErrors.get(cacheKey);
+	if (failed && Date.now() - failed.at < 5000) { scheduleCatalogRetry(); return; }
+	catalogs.set(cacheKey, 'loading');
+	try { catalogs.set(cacheKey, await api('/api/catalog?workspaceId=' + encodeURIComponent(workspaceId) + '&service=' + encodeURIComponent(base))); catalogErrors.delete(cacheKey); }
+	catch (error) { catalogs.delete(cacheKey); catalogErrors.set(cacheKey, { at: Date.now(), message: error.message }); scheduleCatalogRetry(); }
+	render();
 	}
 	function modelsFor(workspaceId, key) {
 		const catalog = catalogs.get(workspaceId + '|' + String(key).split(':')[0]);
@@ -491,13 +498,13 @@
 		const model = models && models.find(item => item.key === agent.model);
 		return h('fieldset', { class: 'agent' }, h('legend', { text: title }),
 			select('', 'Provedor', serviceChoices().map(([value, label]) => [value, label]), agent.service, value => { agent.service = value; agent.model = ''; agent.effort = ''; ensureCatalog(workspaceId, value); render(); }),
-			select('', 'Modelo', models ? models.map(item => [item.key, item.name || item.id]) : [['', 'Carregando…']], agent.model, value => { agent.model = value; agent.effort = ''; render(); }),
+			select('', 'Modelo', models ? models.map(item => [item.key, item.name || item.id]) : [['', catalogErrors.has(catalogKey(workspaceId, agent.service)) ? 'O computador não respondeu. Tentando de novo…' : 'Carregando…']], agent.model, value => { agent.model = value; agent.effort = ''; render(); }),
 			select('', 'Esforço', [['', 'Padrão do modelo'], ...((model && model.efforts) || []).map(level => [level, EFFORT[level] || level])], agent.effort, value => { agent.effort = value; }));
 	}
 	function workspaceField(form) {
 		if (!status || !status.workspaces.length) { return h('p', { class: 'muted', text: 'Nenhum workspace autorizado. Use “Workspaces do acesso remoto” na IDE.' }); }
 		if (!form.workspaceId || !status.workspaces.some(item => item.id === form.workspaceId)) { form.workspaceId = status.workspaces[0].id; }
-		return select('', 'Workspace autorizado', status.workspaces.map(item => [item.id, item.name]), form.workspaceId, value => { form.workspaceId = value; catalogs.clear(); render(); });
+		return select('', 'Workspace autorizado', status.workspaces.map(item => [item.id, item.name]), form.workspaceId, value => { form.workspaceId = value; catalogs.clear(); catalogErrors.clear(); render(); });
 	}
 	function textField(form, label, max) {
 		return h('div', null, h('label', { text: label }), h('textarea', { maxlength: String(max), placeholder: 'Descreva o que os agentes devem fazer…', oninput: event => { form.text = event.target.value; const button = document.getElementById('start-op'); if (button) { button.disabled = !(form.text.trim() && form.canStart && form.canStart()); } } }, form.text));
@@ -573,12 +580,37 @@
 				participant.startedAt ? h('div', { class: 'muted small', text: 'Duração: ' + duration(participant.startedAt, participant.endedAt) }) : null,
 				participant.error ? h('p', { class: 'chip bad', text: participant.error }) : null,
 				h('div', { class: 'row' },
+					h('button', { class: 'secondary', type: 'button', onclick: () => showResponse({ id: comparison.id, workspaceId: comparison.workspaceId }, participant) }, ACTIVE_PARTICIPANT.includes(participant.status) ? 'Ver ao vivo' : 'Ver resposta'),
 					['done', 'ready'].includes(participant.status) ? h('button', { class: 'secondary', type: 'button', onclick: () => showDiff({ id: comparison.id, workspaceId: comparison.workspaceId }, participant) }, 'Ver alterações') : null,
 					['done', 'ready'].includes(participant.status) && comparison.selected !== participant.id ? armedButton('select-' + participant.id, 'Selecionar para revisão', false, () => startOp({ kind: 'control', action: 'comparisons.select', scope: comparison.id, path: '/api/comparisons/' + comparison.id + '/select', text: 'Selecionar solução', body: { confirm: true, workspaceId: comparison.workspaceId, participantId: participant.id } })) : null,
 					ACTIVE_PARTICIPANT.includes(participant.status) ? armedButton('cancel-' + participant.id, 'Cancelar este agente', true, () => startOp({ kind: 'control', action: 'comparisons.cancel', scope: comparison.id, path: '/api/comparisons/' + comparison.id + '/cancel', text: 'Cancelar agente', body: { confirm: true, workspaceId: comparison.workspaceId, participantId: participant.id } })) : null))),
 			active ? armedButton('cancel-all', 'Cancelar a comparação', true, () => startOp({ kind: 'control', action: 'comparisons.cancel', scope: comparison.id, path: '/api/comparisons/' + comparison.id + '/cancel', text: 'Cancelar comparação', body: { confirm: true, workspaceId: comparison.workspaceId } })) : null,
 			h('p', { class: 'muted small', text: 'Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' }),
 			h('button', { class: 'secondary', type: 'button', onclick: () => { compareView.data = undefined; renderCompareDetail(); } }, 'Atualizar'));
+	}
+	/** What an agent answered (and, while it works, what it has written so far), its usage and its changes. Refreshes by itself while it is working. */
+	async function showResponse(ref, participant) {
+		stopPolling();
+		const draw = data => {
+			const p = data.participant || participant, working = ACTIVE_PARTICIPANT.includes(p.status);
+			show(h('button', { class: 'secondary', type: 'button', onclick: () => render() }, '← Voltar'),
+				h('h2', { text: 'Resposta de ' + (SERVICE_NAME[p.service] || p.service) }),
+				h('div', { class: 'row' }, statusChip(p.status), chip(MODEL_NAME(p.model)), data.durationMs ? chip(duration(Date.now() - data.durationMs, Date.now())) : null),
+				data.usage ? h('div', { class: 'muted small', text: [data.usage.inputTokens ? fmt(data.usage.inputTokens) + ' tokens de entrada' : '', data.usage.outputTokens ? fmt(data.usage.outputTokens) + ' de saída' : '', data.usage.costUsd ? 'US$ ' + data.usage.costUsd.toFixed(2).replace('.', ',') : ''].filter(Boolean).join(' · ') }) : null,
+				data.error ? h('p', { class: 'chip bad', text: data.error }) : null,
+				h('div', { class: 'bubble agent' + (working ? ' live' : '') }, h('div', { class: 'who', text: working ? 'Agente · ao vivo' : 'Agente' }), h('div', { class: 'text' }, ...richText(data.result || (working ? 'Trabalhando… a resposta aparece aqui.' : 'O agente não deixou resposta escrita.')))),
+				data.files ? h('div', { class: 'code', text: String(data.files) }) : null,
+				['done', 'ready'].includes(p.status) ? h('button', { class: 'secondary', type: 'button', onclick: () => showDiff(ref, p) }, 'Ver as alterações') : null);
+			return working;
+		};
+		let first = true;
+		const load = async () => {
+			try { const working = draw(await api('/api/comparisons/' + ref.id + '/' + participant.id + '/diff?workspaceId=' + encodeURIComponent(ref.workspaceId))); if (!working) { stopPolling(); } }
+			catch (error) { if (first) { toast(error.message); render(); } }
+			first = false;
+		};
+		await load();
+		if (ACTIVE_PARTICIPANT.includes(participant.status)) { poll(load); }
 	}
 	async function showDiff(comparison, participant) {
 		stopPolling();
@@ -666,7 +698,7 @@
 					: h('p', { class: 'muted', text: 'A equipe aguarda testes independentes, mas nenhum perfil de teste está cadastrado para este workspace. Cadastre um em “Singularity: Perfis de teste do acesso remoto” na IDE do Windows; o celular não pode informar um comando.' })) : null,
 			h('h3', { text: 'Etapas' }),
 			h('ul', { class: 'timeline' }, ...(team.steps || []).map(step => h('li', { class: step.status === 'done' ? 'done' : step.status === 'failed' ? 'failed' : 'current' },
-				(ROLE[step.role] || step.role) + ' · versão ' + step.version + ' · ' + ({ intent: 'preparando', sent: 'em execução', done: 'concluída', failed: 'falhou', cancelled: 'cancelada' }[step.status] || step.status) + (step.startedAt ? ' · ' + duration(step.startedAt, step.endedAt) : '') + (step.error ? ' — ' + step.error : ''))),
+				(ROLE[step.role] || step.role) + ' · versão ' + step.version + ' · ' + ({ intent: 'preparando', sent: 'em execução', done: 'concluída', failed: 'falhou', cancelled: 'cancelada' }[step.status] || step.status) + (step.startedAt ? ' · ' + duration(step.startedAt, step.endedAt) : '') + (step.error ? ' — ' + step.error : ''), step.result ? h('details', { class: 'step-result' }, h('summary', { text: 'Ver resposta da etapa' }), h('div', { class: 'result', text: step.result })) : null)),
 				...(team.steps && team.steps.length ? [] : [h('li', { class: 'current', text: 'Aguardando a primeira etapa…' })])),
 			...(team.versions || []).map(version => h('div', { class: 'card stack' }, h('strong', { text: 'Versão ' + version.number + (version.stale ? ' (desatualizada)' : '') }),
 				version.review ? h('div', { class: 'muted', text: 'Revisão: ' + (version.review.verdict === 'approve' ? 'aprovada' : 'pede alterações') + ' — ' + version.review.summary }) : null,
