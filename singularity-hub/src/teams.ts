@@ -213,6 +213,15 @@ export class Teams {
 			else { for (const group of this.comparisons.list(team.workspace).filter(c => c.workflowId === team.id || c.id === team.comparisonId)) { await this.comparisons.cancel(group.id, team.workspace); await this.comparisons.teamStop(group.id, team.workspace); } }
 		}
 	}
+	/** Removes a team that is not working: its agents are stopped, their isolated worktrees cleaned and the record forgotten. The project itself is never touched. */
+	async delete(id: string, workspace: string): Promise<void> {
+		const team = this.get(id, workspace);
+		if (['preparing', 'running', 'snapshotting', 'awaiting-validation'].includes(team.state)) { throw new Error('Cancele a equipe antes de excluí-la.'); }
+		if (team.state === 'paused') { await this.cancel(id, workspace); }
+		while (this.busy.has(id)) { await new Promise(resolve => setTimeout(resolve, 50)); }
+		for (const group of this.comparisons.list(team.workspace).filter(c => c.workflowId === id || c.id === team.comparisonId)) { await this.comparisons.cleanup(group.id, team.workspace).catch(() => undefined); }
+		this.storage.delete(id); this.records.delete(id); this.changed();
+	}
 	async resume(id: string, workspace: string): Promise<Team> {
 		const team = this.get(id, workspace), step = team.steps.at(-1);
 		if (team.state !== 'paused' || team.cancelledRoles?.length || this.busy.has(id) || !step || step.status === 'intent' || step.status === 'cancelled' || step.status === 'failed') { throw new Error('Retomada insegura. Nenhum prompt será reenviado.'); }

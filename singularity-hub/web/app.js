@@ -676,7 +676,7 @@
 				const next = await api('/api/teams/' + view.id + '?workspaceId=' + encodeURIComponent(view.workspaceId));
 				if (teamView === view && JSON.stringify(next) !== JSON.stringify(view.data)) { view.data = next; if (screen === 'team') { drawTeamDetail(view); } }
 				if (!view.profiles) { view.profiles = (await api('/api/validation-profiles?workspaceId=' + encodeURIComponent(view.workspaceId))).profiles; if (teamView === view && screen === 'team') { drawTeamDetail(view); } }
-			} catch (error) { if (!view.data) { toast(error.message); teamView = undefined; render(); } }
+			} catch (error) { if (/indispon/i.test(error.message) && teamView === view) { teamView = undefined; stopPolling(); render(); return; } if (!view.data) { toast(error.message); teamView = undefined; render(); } }
 		};
 		if (view.data) { drawTeamDetail(view); } else { show(h('div', { class: 'empty', text: 'Lendo…' })); }
 		await load();
@@ -708,7 +708,7 @@
 		const running = TEAM_ACTIVE.includes(team.state);
 		const profiles = view.profiles || [];
 		view.profileId = view.profileId && profiles.some(p => p.id === view.profileId) ? view.profileId : (profiles[0] && profiles[0].id) || '';
-		const lastVersion = (team.versions || []).at(-1);
+		const lastVersion = (team.versions || []).at(-1), lastStep = (team.steps || []).at(-1), lastStepFailed = !!lastStep && ['failed', 'cancelled', 'intent'].includes(lastStep.status);
 		show(h('button', { class: 'secondary', type: 'button', onclick: () => { teamView = undefined; stopPolling(); armed = ''; render(); } }, '← Equipe'),
 			h('div', { class: 'row between' }, h('h2', { text: 'Equipe' }), chip(TEAM_STATE[team.state] || team.state, teamKind(team.state))),
 			h('p', { class: 'muted clamp3', text: team.task }),
@@ -737,7 +737,9 @@
 				lastVersion && team.comparisonId ? h('button', { class: 'secondary', type: 'button', onclick: () => showTeamDiff(team) }, 'Ver as alterações da solução') : null,
 				team.state === 'completed' && !team.chosen ? control('choose', 'Selecionar solução para revisão', false, 'choose') : null,
 				team.chosen ? h('p', { class: 'chip ok', text: 'Solução selecionada para revisão na IDE' }) : null,
-				team.state === 'paused' ? control('resume', 'Retomar a equipe', false, 'resume') : null,
+				team.state === 'paused' && !(lastStepFailed) ? control('resume', 'Retomar a equipe', false, 'resume') : null,
+				team.state === 'paused' && lastStepFailed ? h('p', { class: 'muted small', text: 'A etapa falhou e, por segurança, a equipe nunca reenvia um pedido por conta própria; por isso não há como retomá-la. Exclua esta equipe e crie outra.' }) : null,
+				!['preparing', 'running', 'snapshotting', 'awaiting-validation'].includes(team.state) ? control('delete', 'Excluir a equipe', true, 'delete') : null,
 				running && team.state !== 'paused' ? control('cancel', 'Cancelar a equipe', true, 'cancel') : null,
 				h('button', { class: 'secondary', type: 'button', onclick: () => { teamView.data = undefined; renderTeamDetail(); } }, 'Atualizar')),
 			h('p', { class: 'muted small', text: 'Aplicar a solução ao projeto e desfazer ficam na IDE do computador.' }));

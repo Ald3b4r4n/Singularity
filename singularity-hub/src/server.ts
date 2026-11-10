@@ -350,6 +350,7 @@ export class HubServer {
 			case 'teams.list':
 			case 'teams.cancel':
 			case 'teams.resume':
+			case 'teams.delete':
 			case 'teams.validate':
 			case 'teams.choose':
 			case 'teams.prepare': {
@@ -359,6 +360,7 @@ export class HubServer {
 				if (typeof p.id !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Team required'); }
 				if (method === 'teams.cancel') { if (p.role !== undefined && typeof p.role !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Role required'); } await this.teams.cancel(p.id, p.workspace, p.role as string | undefined); return { cancelled: true }; }
 				if (method === 'teams.resume') { return this.teams.resume(p.id, p.workspace); }
+					if (method === 'teams.delete') { await this.teams.delete(p.id, p.workspace); return { deleted: true }; }
 				if (method === 'teams.validate') { return this.teams.validate(p.id, p.workspace, p.command as { executable?: unknown; args?: unknown; approved?: unknown }); }
 				if (method === 'teams.choose') { this.teams.choose(p.id, p.workspace); return { chosen: true }; }
 				return this.teams.prepare(p.id, p.workspace);

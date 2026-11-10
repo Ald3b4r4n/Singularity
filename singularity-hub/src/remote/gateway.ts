@@ -456,14 +456,14 @@ export class RemoteGateway {
 			return true;
 		}
 
-		const action = /^\/api\/(comparisons|teams)\/([0-9a-f-]{36})\/(cancel|select|resume|choose|validate)$/.exec(url.pathname);
+		const action = /^\/api\/(comparisons|teams)\/([0-9a-f-]{36})\/(cancel|select|resume|choose|validate|delete)$/.exec(url.pathname);
 		if (!action) { return false; }
 		const body = await this.readBody(req);
 		if (body.confirm !== true) { throw new HttpError(400, 'A ação precisa ser confirmada pelo usuário.'); }
 		const rid = this.requestIdOf(req);
 		const workspace = this.requireWorkspace(body.workspaceId);
 		const [, kind, id, verb] = action;
-		const allowed = kind === 'comparisons' ? ['cancel', 'select'] : ['cancel', 'resume', 'choose', 'validate'];
+		const allowed = kind === 'comparisons' ? ['cancel', 'select'] : ['cancel', 'resume', 'choose', 'validate', 'delete'];
 		if (!allowed.includes(verb)) { throw new HttpError(404, 'Ação não disponível.'); }
 		const participantId = typeof body.participantId === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(body.participantId) ? body.participantId : undefined;
 		const role = typeof body.role === 'string' && ['implementer', 'reviewer', 'tester'].includes(body.role) ? body.role : undefined;
@@ -481,12 +481,14 @@ export class RemoteGateway {
 				else if (kind === 'comparisons') { await this.bridge.call('comparisons.select', { ...params, participantId }); }
 				else if (verb === 'cancel') { await this.bridge.call('teams.cancel', { ...params, ...(role ? { role } : {}) }); }
 				else if (verb === 'resume') { await this.bridge.call('teams.resume', params); }
+				else if (verb === 'delete') { await this.bridge.call('teams.delete', params); }
 				else if (verb === 'choose') { await this.bridge.call('teams.choose', params); }
 				else { await this.bridge.call('teams.validate', { ...params, command: { executable: profile!.executable, args: profile!.args, approved: true } }); }
 				return { body: { ok: true } };
 			},
 			reconcile: async () => {
 				const item = await stateOf().catch(() => undefined);
+				if (verb === 'delete') { return { found: !item }; }
 				if (!item) { return { found: false }; }
 				if (kind === 'comparisons' && verb === 'select') { return { found: item.selected === participantId }; }
 				if (kind === 'comparisons') { return { found: (item.participants ?? []).some((p: { id: string; status: string }) => (!participantId || p.id === participantId) && p.status === 'cancelled') }; }
