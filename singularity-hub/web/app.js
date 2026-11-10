@@ -294,9 +294,13 @@
 		const control = h('select', { ...(id ? { id } : {}), onchange: event => onchange(event.target.value) }, ...options.map(([val, text, disabled]) => h('option', { value: val, selected: val === value, disabled }, text)));
 		return id ? h('div', null, h('label', { for: id, text: label }), control) : h('label', { class: 'field' }, h('span', { text: label }), control);
 	}
+	let providersTimer;
+	function providersRetry() { if (providersTimer) { return; } providersTimer = setTimeout(() => { providersTimer = undefined; if (screen === 'agents') { refresh(); } }, 4000); }
 	function renderAgents() {
 		$('subtitle').textContent = 'Remote · agentes';
 		if (!status) { show(h('div', { class: 'empty', text: 'Lendo o computador…' })); return; }
+		// The computer did not tell which providers exist yet (it may have just started): say so and ask again, instead of empty selectors.
+		if (!status.providers.length) { providersRetry(); show(h('h2', { text: 'Agentes' }), h('div', { class: 'empty', role: 'status', text: status.hub.connected ? 'O computador ainda não informou os provedores. Tentando de novo…' : 'O Singularity Hub do computador está desligado.' }), h('button', { class: 'secondary', type: 'button', onclick: () => refresh() }, 'Tentar agora')); return; }
 		const available = status.providers.filter(item => item.status === 'available');
 		if (!agentsForm.service && available[0]) { agentsForm.service = available[0].id === 'opencode' ? 'opencode:go' : available[0].id; loadCatalog(); }
 		const model = selectedModel();

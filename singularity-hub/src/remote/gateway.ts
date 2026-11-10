@@ -255,10 +255,12 @@ export class RemoteGateway {
 		// ----- everything below needs a paired device -----
 		const device = this.authenticate(req);
 		if (route === 'GET /api/status') {
-			const catalog = this.bridge.connected ? await this.bridge.call<{ services?: unknown[] }>('catalog.get', {}, 60000).catch(() => undefined) : undefined;
+			const { services, state: providersState } = await this.services();
 			return this.send(res, 200, {
 				hub: { connected: this.bridge.connected, instanceId: this.bridge.instanceId },
-				providers: plain(catalog?.services ?? []),
+				providers: plain(services),
+				// 'ok' when read just now, 'stale' when the last good reading is shown because the Hub did not answer, 'unavailable' when there is none yet
+				providersState,
 				workspaces: this.store.workspaces().map(({ id, name }) => ({ id, name })),
 				device: { id: device.id, name: device.name, createdAt: device.createdAt },
 				tailnet: this.tailnet
@@ -345,6 +347,23 @@ export class RemoteGateway {
 	}
 
 	// ---------- Remote 2.0: start and steer comparisons and teams ----------
+
+	private lastServices?: unknown[];
+
+	/**
+	 * The services (OpenCode, Claude Code, Codex CLI) and whether each is available. Reading them can fail for a moment (the Hub is starting, or it is
+	 * busy with another catalog read), and that must never leave the phone with empty selectors: one more try, then the last good reading.
+	 */
+	private async services(): Promise<{ services: unknown[]; state: 'ok' | 'stale' | 'unavailable' }> {
+		if (this.bridge.connected) {
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const catalog = await this.bridge.call<{ services?: unknown[] }>('catalog.get', {}, 60000).catch(() => undefined);
+				if (Array.isArray(catalog?.services) && catalog.services.length) { this.lastServices = catalog.services; return { services: catalog.services, state: 'ok' }; }
+				if (attempt === 0) { await new Promise(resolve => setTimeout(resolve, 2500)); }
+			}
+		}
+		return this.lastServices ? { services: this.lastServices, state: 'stale' } : { services: [], state: 'unavailable' };
+	}
 
 	private requestIdOf(req: http.IncomingMessage): string {
 		const value = req.headers['x-request-id'];
