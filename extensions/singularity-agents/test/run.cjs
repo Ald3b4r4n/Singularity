@@ -27,7 +27,7 @@ test('the Team panel answers a delivered team with its own send button, and dele
 	assert.ok(/answerable = run => .*'completed', 'awaiting-validation', 'exhausted'/.test(team), 'only a team that stopped with a version can be answered');
 	assert.ok(team.includes('data-team="new"') && team.includes('data-team="delete"'), 'a new team and the deletion are their own buttons');
 	assert.ok(ext.includes("teamInstruct: 'teams.instruct'") && ext.includes("teamDelete: 'teams.delete'"));
-	assert.ok(/message.type === 'teamDelete'[sS]{0,260}modal: true/.test(ext), 'deleting a team is confirmed in a modal');
+	assert.ok(/message\.type === 'teamDelete'[\s\S]{0,600}modal: true/.test(ext), 'deleting a team is confirmed in a modal');
 });
 
 test('the execution policy of the implementer is chosen in the IDE, with an explicit confirmation for the modes that run commands', () => {
