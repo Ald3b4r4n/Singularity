@@ -24,8 +24,27 @@ const { chromium } = require('playwright');
 
 		// a team that is working: the box says so, and the one button cancels
 		await post({ type: 'teams', runs: [team({ state: 'running', phase: 'implementer', versions: [], steps: [{ role: 'implementer', version: 1, status: 'sent', startedAt: 1 }] })], state });
-		await page.waitForFunction(() => document.getElementById('send').textContent.includes('Cancelar equipe'));
+		await page.waitForFunction(() => document.getElementById('send').textContent.trim() === 'Parar');
 		assert.equal(await page.isDisabled('#prompt'), true, 'nothing can be typed to a team that is working');
+		assert.match(await page.getAttribute('#send', 'title'), /Parar a equipe/);
+		assert.equal(await page.locator('button[data-team="cancel"]').innerText(), 'Parar equipe', 'the stop is also among the actions of the team');
+		// stopping: one tap, the button says it is stopping and cannot be tapped again; the Hub gets exactly one cancel for the whole team
+		await page.click('#send');
+		await page.waitForFunction(() => document.getElementById('send').textContent.trim() === 'Parando…');
+		assert.equal(await page.isDisabled('#send'), true);
+		await page.click('#send', { force: true }).catch(() => undefined);
+		let cancels = await sent('teamCancel'); assert.equal(cancels.length, 1); assert.equal(cancels[0].id, 'team-1'); assert.equal(cancels[0].role, undefined, 'the whole team, not one role');
+		await post({ type: 'teams', runs: [team({ state: 'cancelled', phase: 'implementer', versions: [] })], state });
+		await page.waitForFunction(() => document.getElementById('send').textContent.trim() === 'Nova equipe');
+		// the secondary stop button of the actions reaches the Hub too
+		await post({ type: 'teams', runs: [team({ state: 'running', phase: 'implementer', versions: [], steps: [{ role: 'implementer', version: 1, status: 'sent', startedAt: 1 }] })], state });
+		await page.waitForFunction(() => document.getElementById('send').textContent.trim() === 'Parar');
+		await page.click('button[data-team="cancel"]');
+		await page.waitForFunction(() => document.getElementById('send').textContent.trim() === 'Parando…');
+		assert.equal((await sent('teamCancel')).length, 2);
+		await post({ type: 'teamReply', operation: 'teamCancel', result: {} });
+		await post({ type: 'teams', runs: [team({ state: 'running', phase: 'implementer', versions: [], steps: [{ role: 'implementer', version: 1, status: 'sent', startedAt: 1 }] })], state });
+		await page.waitForFunction(() => document.getElementById('send').textContent.trim() === 'Parar');
 		assert.match(await page.getAttribute('#prompt', 'placeholder'), /trabalhando/);
 
 		// delivered: the chat box is open and the button is "Enviar", disabled until there is something to send
@@ -41,13 +60,13 @@ const { chromium } = require('playwright');
 		await page.click('#send');
 		let instructions = await sent('teamInstruct');
 		assert.equal(instructions.length, 1); assert.equal(instructions[0].id, 'team-1'); assert.equal(instructions[0].text, 'Publique também o resultado.');
-		assert.equal((await sent('teamCancel')).length, 0, 'the send button never cancels a team that delivered');
+		assert.equal((await sent('teamCancel')).length, 2, 'the send button never stops a team that delivered (the two stops above are the only ones)');
 		assert.equal(await label(), 'Aguarde…'); await page.click('#send', { force: true }).catch(() => undefined);
 		assert.equal((await sent('teamInstruct')).length, 1, 'a second tap while waiting sends nothing');
 		// the Hub answered: the box is cleared and the team works again
 		await post({ type: 'teamReply', operation: 'teamInstruct', result: team({ state: 'running', phase: 'implementer', cycle: 1 }) });
 		await post({ type: 'teams', runs: [team({ state: 'running', phase: 'implementer', cycle: 1 })], state });
-		await page.waitForFunction(() => document.getElementById('send').textContent.includes('Cancelar equipe'));
+		await page.waitForFunction(() => document.getElementById('send').textContent.trim() === 'Parar');
 		assert.equal(await page.inputValue('#prompt'), '', 'the instruction left the box');
 
 		// exhausted (cycles used up) can be answered too; awaiting validation as well
