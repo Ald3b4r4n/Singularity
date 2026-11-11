@@ -50,7 +50,7 @@ class ScriptedHub extends EventEmitter {
 		if (method === 'comparisons.inspect') {
 			const group = this.comparisons.find(item => item.id === params.id); const participant = group && group.participants.find(item => item.id === params.participantId);
 			const answer = participant && participant.status === 'done' ? 'Criei soma.js com a função soma(a, b). Resposta final do agente.' : 'Escrevendo soma.js… resposta parcial ' + Math.floor((Date.now() - (participant ? participant.startedAt : Date.now())) / 500);
-			const activity = participant && participant.status !== 'done' ? [{ kind: 'thinking', text: 'Vou ler o projeto antes de escrever.', status: 'completed' }, { kind: 'tool', tool: 'read', detail: 'src/validar.js', status: 'completed' }, { kind: 'tool', tool: 'write', detail: 'src/validar.js', status: 'streaming' }, { kind: 'text', text: answer }] : undefined;
+			const activity = participant && participant.status !== 'done' ? [{ kind: 'thinking', text: 'Vou ler o projeto antes de escrever.', status: 'completed' }, { kind: 'tool', tool: 'read', detail: 'src/validar.js', status: 'completed' }, { kind: 'tool', tool: 'execute', detail: 'npm test', status: 'error', exitCode: 1, output: 'not ok 1 - valida entrada vazia' }, { kind: 'tool', tool: 'execute', detail: 'npm test', status: 'completed', exitCode: 0, output: 'ok 1 - valida entrada vazia' }, { kind: 'tool', tool: 'write', detail: 'src/validar.js', status: 'streaming' }, { kind: 'text', text: answer }] : undefined;
 			return { participant: participant && structuredClone(participant), activity, idleMs: 1200, result: answer, usage: participant && participant.status === 'done' ? { inputTokens: 1234, outputTokens: 321 } : undefined, durationMs: participant ? (participant.endedAt || Date.now()) - participant.startedAt : 0, files: 'M  src/app.js', diff: '--- a/src/app.js\n+++ b/src/app.js\n@@ -1,3 +1,4 @@\n-const a = 1;\n+const a = 2; // uma linha muito comprida que deve rolar só dentro do diff e nunca empurrar a página inteira para o lado em uma tela estreita\n+const b = 3;\n' };
 		}
 		if (method === 'comparisons.create') {
@@ -79,6 +79,7 @@ class ScriptedHub extends EventEmitter {
 		if (method === 'teams.choose') { this.teams.find(item => item.id === params.id).chosen = true; return { chosen: true }; }
 		if (method === 'teams.instruct') { const t = this.teams.find(item => item.id === params.id), now = Date.now(); t.followUps = [...(t.followUps || []), { text: params.text, at: now }]; t.state = 'running'; t.phase = 'implementer'; t.cycle++; t.finishedAt = undefined; t.steps.push({ role: 'implementer', version: t.cycle + 1, status: 'sent', startedAt: now + 1 }); return t; }
 		if (method === 'teams.delete') { this.teams = this.teams.filter(item => item.id !== params.id); return { deleted: true }; }
+		if (method === 'policy.get') { return { mode: 'development', external: false, updatedAt: 1 }; }
 		if (method === 'teams.resume') { const t = this.teams.find(item => item.id === params.id); t.state = 'running'; return t; }
 		return {};
 	}
@@ -185,6 +186,8 @@ async function main() {
 	await page.getByRole('button', { name: 'Nova equipe' }).click();
 	await page.waitForSelector('fieldset.agent');
 	check('B.1 the new-team form has the three roles, each with its own provider, model and effort', (await page.locator('fieldset.agent legend').allTextContents()).join('|') === 'Implementador|Revisor|Testador');
+	await page.waitForFunction(() => /Desenvolvimento: usa o terminal/.test((document.getElementById('team-policy') || {}).textContent || ''), null, { timeout: 15000 });
+	check('B.2b the form shows what the implementer may do with the terminal in this project, says it is chosen on the computer, and offers no control to change it', /sem publicação externa/.test(await page.locator('#team-policy').innerText()) && /o celular não pode mudá-lo/.test(await page.locator('.form').innerText()) && (await page.locator('.form select').count()) === (await page.locator('.form fieldset.agent select').count()) + 2, await page.locator('#team-policy').innerText());
 	check('B.2 the form offers 0 to 2 correction cycles and explains that independent tests need a Windows profile', (await page.locator('.form select').last().locator('option').count()) === 3 && /perfil de teste cadastrado na IDE Windows/.test(await page.locator('.form').innerText()));
 	await page.locator('.form textarea').fill('Construa o módulo de validação.');
 	await shot('p06-nova-equipe.png');
@@ -195,6 +198,7 @@ async function main() {
 	await page.waitForSelector('.chat');
 	await page.waitForFunction(() => { const feed = document.getElementById('team-live'); return feed && /Escrevendo/.test(feed.textContent) && /src\/validar\.js/.test(feed.textContent); }, null, { timeout: 15000 });
 	check('B.3b the running step shows by itself what the agent is doing: its reasoning, each tool and the file', /Racioc/i.test(await page.locator('#team-live').innerText()) && /Lendo/i.test(await page.locator('#team-live').innerText()) && /Implementador trabalhando/.test(await page.locator('#team-status').innerText()), await page.locator('#team-status').innerText());
+	check('B.3d a command the agent ran shows what it was, how it ended (exit code) and what it printed, failure and success apart', (await page.locator('#team-live .act.tool .exit.bad').first().innerText()) === 'saída 1' && (await page.locator('#team-live .act.tool .exit.ok').first().innerText()) === 'saída 0' && /Executando/.test(await page.locator('#team-live').innerText()) && (await page.locator('#team-live details.output').count()) === 2);
 	check('B.3c the task is shown as the message of the person, like a conversation', /Construa o módulo de validação/.test(await page.locator('.chat .bubble.user').first().innerText()));
 	await shot('p07-equipe-implementando.png');
 	await waitFor(async () => /Revisor/i.test(await page.locator('.chat').innerText()), 'the review step appears by itself', 15000);
