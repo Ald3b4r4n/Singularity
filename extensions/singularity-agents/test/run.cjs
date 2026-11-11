@@ -21,6 +21,15 @@ test('contributes a secondary side bar container with a webview view, both named
 	assert.strictEqual(nls['view.name'], 'Sessões');
 });
 
+test('the Team panel answers a delivered team with its own send button, and deleting a team asks first', () => {
+	const team = read('media/team.js'), ext = read('extension.js');
+	assert.ok(team.includes("reply ? 'Enviar'") && team.includes("type: 'teamInstruct'"), 'a delivered team is answered from the chat box');
+	assert.ok(/answerable = run => .*'completed', 'awaiting-validation', 'exhausted'/.test(team), 'only a team that stopped with a version can be answered');
+	assert.ok(team.includes('data-team="new"') && team.includes('data-team="delete"'), 'a new team and the deletion are their own buttons');
+	assert.ok(ext.includes("teamInstruct: 'teams.instruct'") && ext.includes("teamDelete: 'teams.delete'"));
+	assert.ok(/message.type === 'teamDelete'[sS]{0,260}modal: true/.test(ext), 'deleting a team is confirmed in a modal');
+});
+
 test('the execution policy of the implementer is chosen in the IDE, with an explicit confirmation for the modes that run commands', () => {
 	const P = require('../executionPolicy.js'), code = read('executionPolicy.js');
 	assert.deepStrictEqual(Object.keys(P.MODES), ['restricted', 'development', 'autonomous']);

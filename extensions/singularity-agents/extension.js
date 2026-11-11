@@ -196,9 +196,13 @@ class AgentsViewProvider {
 				if (!this._visibleState().sessions.some(s => s.id === message.sessionId)) { throw new Error('Participante indisponível.'); }
 				this._targetId = message.sessionId; post({ type: 'use', id: message.sessionId }); return;
 			}
-			const methods = { teamStart: 'teams.start', teamCancel: 'teams.cancel', teamResume: 'teams.resume', teamChoose: 'teams.choose', teamPrepare: 'teams.prepare', teamValidate: 'teams.validate' };
+			const methods = { teamStart: 'teams.start', teamCancel: 'teams.cancel', teamResume: 'teams.resume', teamChoose: 'teams.choose', teamPrepare: 'teams.prepare', teamValidate: 'teams.validate', teamInstruct: 'teams.instruct', teamDelete: 'teams.delete' };
 			const method = methods[message.type];
 			if (!method) { await this._refreshComparisons(); return; }
+			if (message.type === 'teamDelete') {
+				const answer = await vscode.window.showWarningMessage('Excluir esta equipe?', { modal: true, detail: 'Os agentes são encerrados e as cópias de trabalho isoladas da equipe são removidas. O seu projeto não é alterado.' }, 'Excluir equipe');
+				if (answer !== 'Excluir equipe') { return; }
+			}
 			let command;
 			if (message.type === 'teamValidate') {
 				const executable = message.executable === 'node' ? require('node:path').join(__dirname, '..', '..', 'singularity-hub', 'runtime', 'node.exe') : message.executable;

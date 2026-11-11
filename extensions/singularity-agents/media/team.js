@@ -2,6 +2,7 @@
 	'use strict';
 	window.SingularityTeam = function (vscode, R, app, solution) {
 		const $ = id => document.getElementById(id), esc = R.esc;
+		const STARTER = 'Descreva o que deseja desenvolver…';
 		const roleNames = ['Implementador', 'Revisor', 'Testador'];
 		const roleIds = ['implementer', 'reviewer', 'tester'];
 		const labels = { preparing: 'Preparando equipe', running: 'Em execução', snapshotting: 'Criando snapshot', paused: 'Equipe pausada', 'awaiting-validation': 'Aguardando testes autorizados', completed: 'Resultado concluído', failed: 'Falha', cancelled: 'Cancelada', exhausted: 'Limite de correções atingido', unrecoverable: 'Equipe não recuperável' };
@@ -13,6 +14,8 @@
 		const results = document.createElement('section'); results.id = 'team-results'; results.hidden = true; app.querySelector('.list').append(results);
 		const current = () => drafting ? undefined : runs.find(t => t.id === selected) || runs.at(-1);
 		const final = run => run && ['completed', 'failed', 'cancelled', 'exhausted', 'unrecoverable'].includes(run.state);
+		/** A team that delivered a version and stopped working can be answered: the instruction opens one more cycle on top of that version. */
+		const answerable = run => !!run && ['completed', 'awaiting-validation', 'exhausted'].includes(run.state) && Array.isArray(run.versions) && run.versions.length > 0;
 		const models = choice => (choice.catalog?.providers || []).flatMap(p => p.models.map(m => ({ ...m, providerID: p.id })));
 		const model = choice => models(choice).find(m => m.id === choice.modelID && m.providerID === choice.providerID) || models(choice)[0];
 		function catalog(index) { vscode.postMessage({ type: 'teamCatalog', index, service: choices[index].service }); }
@@ -36,10 +39,14 @@
 			config.hidden = !!run || open; results.hidden = open; $('composer').hidden = open;
 			$('composer').querySelector('.selectors').hidden = true; $('target').hidden = true; $('new').hidden = true;
 			$('prompt').maxLength = 7000;
-			$('send').textContent = pending ? 'Aguarde…' : !run ? 'Iniciar equipe' : final(run) ? 'Nova equipe' : 'Cancelar equipe';
-			$('send').disabled = state.hub?.status !== 'connected' || pending || (!run && (!$('prompt').value.trim() || !choices.every(c => !!model(c))));
-			$('send').classList.toggle('interrupt', !!run && !final(run));
-			$('note').textContent = error || (run ? 'Os pareceres dos agentes e os testes independentes são registrados separadamente por versão.' : 'Os modelos selecionados executarão em sequência, com até dois ciclos de correção.');
+			const reply = answerable(run), working = !!run && !final(run) && !reply;
+			$('send').textContent = pending ? 'Aguarde…' : !run ? 'Iniciar equipe' : reply ? 'Enviar' : final(run) ? 'Nova equipe' : 'Cancelar equipe';
+			$('send').disabled = state.hub?.status !== 'connected' || pending || ((!run || reply) && (!$('prompt').value.trim() || (!run && !choices.every(c => !!model(c)))));
+			$('send').classList.toggle('interrupt', working);
+			$('send').title = reply ? 'Enviar esta instrução à equipe, sobre a versão atual' : working ? 'Cancelar a equipe' : '';
+			$('prompt').placeholder = reply ? 'Responda à equipe: o que falta ou o que mudar…' : working ? 'A equipe está trabalhando. Você poderá responder quando ela parar.' : STARTER;
+			$('prompt').disabled = working;
+			$('note').textContent = error || (reply ? 'A resposta vai para o Implementador sobre a versão atual; o Revisor e o Testador avaliam de novo.' : run ? 'Os pareceres dos agentes e os testes independentes são registrados separadamente por versão.' : 'Os modelos selecionados executarão em sequência, com até dois ciclos de correção.');
 			const next = [run?.id, run?.updatedAt, error, drafting].join(':');
 			if (next !== signature) {
 				signature = next;
@@ -49,7 +56,7 @@
 					results.innerHTML = '<div class="team-heading"><h2>Equipe</h2><select id="team-history" aria-label="Histórico de equipes">' + runs.map(t => '<option value="' + esc(t.id) + '"' + (t.id === run.id ? ' selected' : '') + '>' + esc(t.task.slice(0, 60)) + '</option>').join('') + '</select></div><p class="team-task">' + esc(run.task) + '</p><p role="status" id="team-status">' + esc(labels[run.state]) + ' · ' + esc(roleNames[roleIds.indexOf(run.phase)] || 'Validação independente') + '</p><p>Correções ' + run.cycle + ' / ' + run.maxCorrections + ' · <span id="team-time"></span></p><p role="alert">' + esc(run.error || error) + '</p><div class="team-roles">' + run.roles.map((choice, index) => {
 						const step = run.steps.filter(s => s.role === roleIds[index]).at(-1);
 						return '<article class="team-role"><h3>' + roleNames[index] + '</h3><p>' + esc(R.serviceName(undefined, choice.service) + ' · ' + choice.model.modelID + ' · ' + (choice.model.variant || 'padrão')) + '</p><p>' + esc(step?.status || 'Aguardando') + '</p>' + (step ? '<button type="button" data-team="inspect" data-session="' + esc(step.sessionId) + '">Inspecionar participante</button>' : '') + (run.phase === roleIds[index] && run.state === 'running' ? '<button type="button" data-team="cancel-role" data-role="' + roleIds[index] + '">Cancelar participante</button>' : '') + '</article>';
-					}).join('') + '</div><pre class="team-live"></pre><div class="team-actions">' + (run.state === 'paused' ? '<button type="button" data-team="resume">Retomar quando seguro</button>' : '') + (!final(run) ? '<button type="button" data-team="cancel">Cancelar workflow</button>' : '') + (run.state === 'completed' ? '<button type="button" data-team="choose">Escolher solução final</button><button type="button" data-team="prepare"' + (!run.chosen ? ' disabled' : '') + '>Preparar aplicação</button>' : '') + '</div>' + run.versions.map(v => '<section class="team-version"><h3>Versão ' + v.number + (v.stale ? ' · pareceres anteriores invalidados para a versão atual' : '') + '</h3><code>' + esc(v.tree) + '</code><details open><summary>Revisão estruturada</summary>' + findings(v.review) + '</details><details><summary>Parecer do testador</summary>' + findings(v.testPlan) + '</details><p>Testes independentes ' + esc(v.validation?.state || 'ainda não executados') + (v.validation?.exitCode !== undefined ? ' · saída ' + v.validation.exitCode : '') + '</p><pre>' + esc(v.validation?.output || '') + '</pre></section>').join('') + (run.state === 'awaiting-validation' ? '<section class="solution-validation"><h3>Autorizar testes independentes</h3><p>O comando será executado na cópia Git desta versão e poderá ser repetido nas correções configuradas, com as permissões da sua conta.</p><label>Executável<input id="team-test-executable" value="' + esc(executable) + '"></label><label>Argumentos JSON<input id="team-test-arguments" value="' + esc(argumentsJson) + '"></label><button type="button" data-team="validate">Autorizar e executar testes</button></section>' : '');
+					}).join('') + '</div><pre class="team-live"></pre><div class="team-actions">' + (run.state === 'paused' ? '<button type="button" data-team="resume">Retomar quando seguro</button>' : '') + (!final(run) ? '<button type="button" data-team="cancel">Cancelar workflow</button>' : '') + (final(run) || answerable(run) ? '<button type="button" data-team="new">Nova equipe</button><button type="button" data-team="delete">Excluir equipe</button>' : '') + (run.state === 'completed' ? '<button type="button" data-team="choose">Escolher solução final</button><button type="button" data-team="prepare"' + (!run.chosen ? ' disabled' : '') + '>Preparar aplicação</button>' : '') + '</div>' + run.versions.map(v => '<section class="team-version"><h3>Versão ' + v.number + (v.stale ? ' · pareceres anteriores invalidados para a versão atual' : '') + '</h3><code>' + esc(v.tree) + '</code><details open><summary>Revisão estruturada</summary>' + findings(v.review) + '</details><details><summary>Parecer do testador</summary>' + findings(v.testPlan) + '</details><p>Testes independentes ' + esc(v.validation?.state || 'ainda não executados') + (v.validation?.exitCode !== undefined ? ' · saída ' + v.validation.exitCode : '') + '</p><pre>' + esc(v.validation?.output || '') + '</pre></section>').join('') + (run.state === 'awaiting-validation' ? '<section class="solution-validation"><h3>Autorizar testes independentes</h3><p>O comando será executado na cópia Git desta versão e poderá ser repetido nas correções configuradas, com as permissões da sua conta.</p><label>Executável<input id="team-test-executable" value="' + esc(executable) + '"></label><label>Argumentos JSON<input id="team-test-arguments" value="' + esc(argumentsJson) + '"></label><button type="button" data-team="validate">Autorizar e executar testes</button></section>' : '');
 				}
 			}
 			const step = run?.steps.at(-1), live = state.sessions.find(s => s.id === step?.sessionId)?.result || step?.result || '';
@@ -69,6 +76,8 @@
 		results.addEventListener('click', e => {
 			const button = e.target.closest('button[data-team]'); if (!button || button.disabled) { return; }
 			const action = button.dataset.team;
+			if (action === 'new') { drafting = true; signature = undefined; configure(); draw(); return; }
+			if (action === 'delete') { vscode.postMessage({ type: 'teamDelete', id: current().id }); return; }
 			if (action === 'inspect') { vscode.postMessage({ type: 'teamInspect', sessionId: button.dataset.session }); return; }
 			if (action === 'validate') {
 				let args; try { args = JSON.parse(argumentsJson); if (!Array.isArray(args)) { throw new Error(); } } catch { error = 'Informe uma lista JSON de argumentos.'; draw(); return; }
@@ -80,16 +89,20 @@
 			if (data?.type === 'providerProfileChanged') { choices.forEach((c,i)=>{ c.catalog=undefined;c.error=undefined;if(active) { catalog(i); } });signature=undefined;draw(); }
 			if (data?.type === 'teams') { runs = data.runs; state = data.state; draw(); }
 			if (data?.type === 'teamCatalog') { const choice = choices[data.index]; if (choice && (!data.catalog || data.catalog.service === choice.service)) { choice.catalog = data.catalog; choice.error = data.error; configure(); draw(); } }
-			if (data?.type === 'teamReply') { pending = false; if (data.result?.id && Array.isArray(data.result.roles)) { selected = data.result.id; drafting = false; } signature = undefined; draw(); }
+			if (data?.type === 'teamReply') { pending = false; if (data.operation === 'teamInstruct' && data.result?.id) { $('prompt').value = ''; $('prompt').dispatchEvent(new Event('input', { bubbles: true })); } if (data.operation === 'teamDelete') { selected = undefined; } if (data.result?.id && Array.isArray(data.result.roles)) { selected = data.result.id; drafting = false; } signature = undefined; draw(); }
 			if (data?.type === 'failed' && active) { pending = false; error = data.message; signature = undefined; draw(); }
 			if (data?.type === 'solutionReview' && active) { draw(); }
 		});
 		setInterval(() => { const span = $('team-time'), run = current(); if (active && run && span) { span.textContent = final(run) && !run.finishedAt ? 'Tempo indisponível' : Math.max(0, Math.floor(((final(run) ? run.finishedAt : Date.now()) - run.createdAt) / 1000)) + ' s'; } }, 1000);
 		return {
 			active: () => active, draw,
-			setActive(value) { active = value; if (value) { choices.forEach((c, i) => { if (!c.catalog) { catalog(i); } }); vscode.postMessage({ type: 'teamList' }); configure(); } else { config.hidden = true; results.hidden = true; $('prompt').maxLength = 16000; } draw(); },
+			setActive(value) { active = value; if (value) { choices.forEach((c, i) => { if (!c.catalog) { catalog(i); } }); vscode.postMessage({ type: 'teamList' }); configure(); } else { config.hidden = true; results.hidden = true; $('prompt').maxLength = 16000; $('prompt').placeholder = STARTER; $('prompt').disabled = false; } draw(); },
 			submit() {
 				if (!active) { return false; } const run = current();
+				if (run && answerable(run)) {
+					const text = $('prompt').value.trim(); if (pending || !text || $('send').disabled) { return true; }
+					pending = true; error = ''; vscode.postMessage({ type: 'teamInstruct', id: run.id, text }); draw(); return true;
+				}
 				if (run) { if (final(run)) { drafting = true; signature = undefined; configure(); draw(); } else { vscode.postMessage({ type: 'teamCancel', id: run.id }); } return true; }
 				if (pending || $('send').disabled) { return true; }
 				pending = true; error = ''; vscode.postMessage({ type: 'teamStart', text: $('prompt').value.trim(), maxCorrections: cycles, participants: choices.map(c => { const m = model(c); return { service: c.service, model: { providerID: m.providerID, modelID: m.id, ...(c.variant ? { variant: c.variant } : {}) } }; }) }); draw(); return true;
