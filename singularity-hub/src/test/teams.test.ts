@@ -72,7 +72,8 @@ test('review feedback corrects the actual defect, versions reports and invalidat
 	assert.equal(f.prompts.length, 5);
 });
 
-test('a new instruction after a delivered version starts one more cycle on top of it, and a stopped team can be deleted', async () => {
+// Three answers and a restart in a row: each cycle runs the implementer, the reviewer and the tester, so this one is slow on purpose.
+test('a new instruction after a delivered version starts one more cycle on top of it, and a stopped team can be deleted', { timeout: 240000 }, async () => {
 	const f = fixture(); const run = await f.team.start({ workspace: f.workspace, text: 'Implement sum.', participants: f.participants, maxCorrections: 0 });
 	await assert.rejects(f.team.instruct(run.id, run.workspace, 'Too early.'), /depois de entregar/);
 	await until(() => f.team.list(run.workspace)[0].state === 'awaiting-validation');
