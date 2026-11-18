@@ -133,7 +133,12 @@ async function main() {
 	// repeated id and concurrent duplicates, while the comparison is running
 	const uiRequest = requestIds.find(item => item.url === '/api/comparisons');
 	const [d1, d2] = await Promise.all([apiCall('POST', '/api/comparisons', JSON.parse(uiRequest.body), uiRequest.id), apiCall('POST', '/api/comparisons', JSON.parse(uiRequest.body), uiRequest.id)]);
-	check('A.5 repeating the id (even two at once) answers "already registered" and starts nothing', d1.json.duplicate === true && d2.json.duplicate === true && (await listComparisons()).length === 1, [d1.json.state, d2.json.state]);
+	// the original request may still be creating its working copies (slower when OpenCode is slow to start): the duplicates then answer
+	// "processing", which is right. What must hold is that the comparison lands once, and that nothing else is started afterwards.
+	await waitFor(async () => (await listComparisons()).length >= 1, 'the original comparison is registered', 120000, 1000);
+	await new Promise(resolve => setTimeout(resolve, 4000));
+	const registered = (await listComparisons()).length;
+	check('A.5 repeating the id (even two at once) answers "already registered" and starts nothing', [d1, d2].every(answer => answer.json.duplicate === true || answer.json.state === 'processing') && registered === 1, { states: [d1.json.state, d2.json.state], duplicates: [d1.json.duplicate, d2.json.duplicate], registered });
 	const conflict = await apiCall('POST', '/api/comparisons', { ...JSON.parse(uiRequest.body), text: 'outra tarefa' }, uiRequest.id);
 	check('A.6 the same id with another payload is refused', conflict.status === 409);
 	const finished = await waitFor(async () => { const c = (await listComparisons())[0]; return c.participants.every(p => !['preparing', 'running', 'waiting'].includes(p.status)) && c; }, 'both agents finish', 600000, 3000);
@@ -203,7 +208,7 @@ async function main() {
 	check('B.4 the paired device and the authorised workspace survived, and the team was not started again', (await admin('GET', '/admin/state')).devices.length === 1 && (await listTeams()).length === 1 && (await apiCall('POST', '/api/teams', JSON.parse(requestIds.find(item => item.url === '/api/teams').body), requestIds.find(item => item.url === '/api/teams').id)).json.duplicate === true);
 	const terminal = ['completed', 'failed', 'cancelled', 'exhausted', 'unrecoverable', 'awaiting-validation', 'paused'];
 	let teamNow = await waitFor(async () => { const t = (await listTeams())[0]; return terminal.includes(t.state) && t; }, 'team reaches a stopping state', 1500000, 5000);
-	log('team state', teamNow.state, 'phase', teamNow.phase, 'cycle', teamNow.cycle, 'steps', JSON.stringify(teamNow.steps.map(s => `${s.role}:${s.status}`)));
+	log('team state', teamNow.state, 'phase', teamNow.phase, 'cycle', teamNow.cycle, 'steps', JSON.stringify(teamNow.steps.map(s => `${s.role}:${s.status}`)), teamNow.error ? 'error: ' + teamNow.error : '');
 	check('B.5 the screen showed the stages by itself, with the review and its problems, and no card or stage was duplicated', (await page.locator('.chat .stephead').filter({ hasText: /versão \d+/i }).count()) === teamNow.steps.length, { steps: teamNow.steps.length });
 	await shot('r08-equipe-etapas.png');
 	check('B.6 the review and the tests were done by different agents, each version tied to its snapshot', teamNow.steps.some(s => s.role === 'reviewer' && s.status === 'done') && teamNow.versions.length >= 1, teamNow.steps.map(s => `${s.role}/${s.status}`));

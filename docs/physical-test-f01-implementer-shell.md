@@ -51,6 +51,12 @@ Em um projeto com um teste que falha (por exemplo `soma.js` devolvendo `a - b` e
 - Conversa da equipe, campo de resposta no fim, botão de descer e menu ⋮ funcionam como na versão aprovada.
 - O celular não tem campo de comando, nem botão de aplicar ou desfazer.
 
+## I. Modo Equipe na IDE (correção desta versão)
+1. Na IDE, **Equipe**: com uma equipe trabalhando, o botão do chat é **Parar**; o campo avisa que a equipe está trabalhando.
+2. Toque em **Parar**: vira **Parando…** e some quando a equipe cancela. Um segundo toque não cancela duas vezes.
+3. Com a equipe entregue (concluída, aguardando validação ou ciclos esgotados), escreva no chat: aparece o botão **Enviar**. Ao enviar, a equipe volta a trabalhar sobre a versão atual.
+4. Entre as ações da equipe há **Nova equipe** e **Excluir equipe** (esta pede confirmação).
+
 ## Limitações conhecidas desta versão
 - A execução real foi verificada com **OpenCode** (modelos do OpenCode Go). No **Claude Code** e no **Codex CLI** a política usa as
   opções oficiais de cada ferramenta, mas não foi exercitada com inferência real neste ciclo.
