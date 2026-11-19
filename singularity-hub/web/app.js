@@ -196,9 +196,23 @@
 	}
 
 	// ---------- screens ----------
+	let itemMenu = '';
+	async function deleteItem(path, workspaceId, done) {
+		itemMenu = ''; armed = '';
+		try { await api(path, { method: 'POST', body: { confirm: true, workspaceId } }); toast('Excluído.'); await done(); } catch (error) { toast(error.message); render(); }
+	}
+	function itemMore(key, label) {
+		return h('button', { class: 'more', type: 'button', 'aria-label': label, 'aria-expanded': itemMenu === key ? 'true' : 'false', onclick: event => { event.stopPropagation(); itemMenu = itemMenu === key ? '' : key; armed = ''; render(); } }, '⋮');
+	}
 	function sessionCard(session) {
-		return h('article', { class: 'card tap', tabindex: '0', role: 'button', 'aria-label': 'Abrir sessão ' + session.id.slice(0, 8), onclick: () => openSessionView(session.id), onkeydown: event => { if (event.key === 'Enter') { openSessionView(session.id); } } },
-			h('div', { class: 'row between' }, h('strong', { text: (SERVICE_NAME[session.harness] || session.harness) + ' · ' + session.workspaceName }), statusChip(session.status)),
+		const key = 'session-' + session.id;
+		const running = session.status === 'running' || session.status === 'waiting';
+		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', 'aria-label': 'Abrir sessão ' + session.id.slice(0, 8), onclick: () => openSessionView(session.id), onkeydown: event => { if (event.key === 'Enter' && event.target === event.currentTarget) { openSessionView(session.id); } } },
+			h('div', { class: 'row between nowrap' }, h('strong', { text: (SERVICE_NAME[session.harness] || session.harness) + ' · ' + session.workspaceName }),
+				h('div', { class: 'row nowrap' }, statusChip(session.status), itemMore(key, 'Ações desta sessão'))),
+			itemMenu === key ? h('div', { class: 'menu', role: 'menu', onclick: event => event.stopPropagation() },
+				h('button', { class: 'secondary', type: 'button', onclick: () => openSessionView(session.id) }, 'Abrir a conversa'),
+				armedButton('delete-' + key, running ? 'Encerrar e excluir a sessão' : 'Excluir a sessão', true, () => deleteItem('/api/sessions/' + session.id + '/delete', session.workspaceId, refresh))) : null,
 			h('div', { class: 'muted small', text: modelText(session.model) }),
 			session.prompt ? h('div', { class: 'muted', text: session.prompt.slice(0, 140) }) : null);
 	}
@@ -351,6 +365,7 @@
 		const ref = result.ref || (result.comparison && result.comparison.id) || (result.team && result.team.id);
 		if (pending.kind === 'comparison') { compareForm.open = false; compareForm.text = ''; if (ref) { compareView = { id: ref, workspaceId: pending.scope }; } comparisons = []; }
 		if (pending.kind === 'team') { teamForm.open = false; teamForm.text = ''; if (ref) { follow = true; teamView = { id: ref, workspaceId: pending.scope }; } teams = []; }
+		if (pending.kind === 'control' && pending.action === 'comparisons.delete') { comparisons = comparisons.filter(item => item.id !== pending.scope); }
 		if (pending.kind === 'control') { if (compareView) { compareView.data = undefined; } if (teamView) { teamView.data = undefined; } }
 		render();
 	}
@@ -547,7 +562,7 @@
 		if (compareView) { return renderCompareDetail(); }
 		stopPolling();
 		const draw = () => show(h('div', { class: 'row between' }, h('h2', { text: 'Comparação' }), compareForm.open ? null : h('button', { class: 'primary', type: 'button', onclick: () => { compareForm.open = true; render(); } }, 'Nova comparação')),
-			pendingBanner(item => item.kind === 'comparison' && !staleRefusal(item, compareForm)),
+			pendingBanner(item => (item.kind === 'comparison' && !staleRefusal(item, compareForm)) || (item.kind === 'control' && item.action === 'comparisons.delete')),
 			compareForm.open ? compareStartForm() : null,
 			...(comparisons.filter(item => !item.team).length ? comparisons.filter(item => !item.team).map(comparisonCard) : [h('div', { class: 'empty', text: 'Nenhuma comparação ainda. Toque em “Nova comparação”.' })]));
 		if (!comparisons.length) { show(h('h2', { text: 'Comparação' }), h('div', { class: 'empty', text: 'Lendo…' })); }
@@ -559,8 +574,15 @@
 	}
 	function comparisonCard(comparison) {
 		const running = (comparison.participants || []).filter(p => ACTIVE_PARTICIPANT.includes(p.status)).length;
-		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: () => { compareView = { id: comparison.id, workspaceId: comparison.workspaceId }; render(); }, onkeydown: event => { if (event.key === 'Enter') { compareView = { id: comparison.id, workspaceId: comparison.workspaceId }; render(); } } },
-			h('div', { class: 'row between' }, h('strong', { text: comparison.workspaceName }), chip(running ? running + ' em execução' : 'concluída', running ? 'warn' : 'ok')),
+		const key = 'comparison-' + comparison.id;
+		const open = () => { itemMenu = ''; compareView = { id: comparison.id, workspaceId: comparison.workspaceId }; render(); };
+		return h('article', { class: 'card tap stack', tabindex: '0', role: 'button', onclick: open, onkeydown: event => { if (event.key === 'Enter' && event.target === event.currentTarget) { open(); } } },
+			h('div', { class: 'row between nowrap' }, h('strong', { text: comparison.workspaceName }),
+				h('div', { class: 'row nowrap' }, chip(running ? running + ' em execução' : 'concluída', running ? 'warn' : 'ok'), itemMore(key, 'Ações desta comparação'))),
+			itemMenu === key ? h('div', { class: 'menu', role: 'menu', onclick: event => event.stopPropagation() },
+				h('button', { class: 'secondary', type: 'button', onclick: open }, 'Abrir a comparação'),
+				running ? h('p', { class: 'muted small', text: 'Cancele a comparação (ao abri-la) para poder excluí-la.' })
+					: armedButton('delete-' + key, 'Excluir a comparação', true, () => { itemMenu = ''; startOp({ kind: 'control', action: 'comparisons.delete', scope: comparison.id, path: '/api/comparisons/' + comparison.id + '/delete', text: 'Excluir a comparação', body: { confirm: true, workspaceId: comparison.workspaceId } }); })) : null,
 			h('div', { class: 'muted clamp2', text: String(comparison.prompt || '') }), h('div', { class: 'muted small', text: when(comparison.createdAt) }),
 			h('div', { class: 'row' }, ...(comparison.participants || []).map(p => chip(MODEL_NAME(p.model)))));
 	}

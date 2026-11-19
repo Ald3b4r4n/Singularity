@@ -81,6 +81,23 @@ test('inspect delivers the diff when the live reading of the agent fails or is s
 	}
 });
 
+test('delete removes a finished comparison and its clean worktrees, refuses a running one, and never destroys a result that was changed', async () => {
+	const f = fixture();
+	const run = await f.coordinator.create(f.input);
+	await assert.rejects(f.coordinator.delete(run.id, f.workspace), /Cancele/, 'still running');
+	assert.equal(f.coordinator.list(f.workspace).length, 1);
+	for (const [index, p] of run.participants.entries()) { f.sessions[index].status = 'done'; f.coordinator.onSession(f.sessions[index]); void p; }
+	writeFileSync(join(run.participants[1].workspace, 'sample.txt'), 'a result worth keeping\n');
+	assert.deepEqual(await f.coordinator.delete(run.id, f.workspace), { kept: 1 }, 'one tree holds a result and stays on disk');
+	assert.equal(f.coordinator.list(f.workspace).length, 0);
+	assert.ok(existsSync(run.participants[1].workspace), 'the changed worktree is preserved');
+	assert.ok(!existsSync(run.participants[0].workspace), 'the clean one is removed');
+	const again = new Comparisons(f.directory, f.adapter, () => {});
+	await again.recover();
+	assert.equal(again.list(f.workspace).length, 0, 'the deletion survives a restart');
+	await assert.rejects(f.coordinator.delete(run.id, f.workspace), /indisponível/);
+});
+
 test('dirty origin, duplicate participants, wrong scope, and concurrent starts are refused', async () => {
 	const f = fixture();
 	writeFileSync(join(f.workspace, 'sample.txt'), 'dirty');

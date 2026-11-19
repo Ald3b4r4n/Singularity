@@ -322,6 +322,21 @@ export class Comparisons {
 		this.save(record);
 	}
 
+	/**
+	 * Removes a finished comparison from the list. A comparison that is still running, or that belongs to a team, is refused.
+	 * The worktrees are removed only when they hold nothing the person might want (same rule as cleanup); the ones that hold a result stay on disk
+	 * and are counted in `kept`, so deleting the entry never destroys work.
+	 */
+	async delete(id: string, workspace: string): Promise<{ kept: number }> {
+		const record = this.get(id, workspace);
+		if (record.workflowId) { throw new Error('Esta comparação pertence a uma equipe. Exclua a equipe.'); }
+		if (this.creating || this.busy.has(id) || record.participants.some(p => ['running', 'preparing'].includes(p.status))) { throw new Error('Cancele a comparação antes de excluí-la.'); }
+		let kept = 0;
+		try { await this.cleanup(id, workspace); } catch { kept = record.participants.filter(p => !p.removed).length; }
+		this.storage.delete(id); this.records.delete(id); this.changed();
+		return { kept };
+	}
+
 	async cleanup(id: string, workspace: string): Promise<void> {
 		const record = this.get(id, workspace);
 		if (this.creating || this.busy.has(id) || record.participants.some(p => ['running', 'preparing', 'unrecoverable'].includes(p.status))) { throw new Error('Confirme o encerramento dos participantes antes de limpar os worktrees.'); }

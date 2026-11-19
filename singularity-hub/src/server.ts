@@ -404,11 +404,15 @@ export class HubServer {
 			case 'comparisons.cancel':
 			case 'comparisons.inspect':
 			case 'comparisons.select':
+			case 'comparisons.delete':
 			case 'comparisons.cleanup': {
 				const p = request.params as { workspace?: unknown; id?: unknown; participantId?: unknown };
 				if (typeof p?.workspace !== 'string' || (method !== 'comparisons.list' && typeof p.id !== 'string') || (p.participantId !== undefined && typeof p.participantId !== 'string')) { throw new RpcError(ErrorCode.InvalidParams, 'Invalid comparison parameters'); }
 				if (method === 'comparisons.list') { return this.comparisons.list(p.workspace); }
 				if (method === 'comparisons.cancel') { await this.comparisons.cancel(p.id as string, p.workspace, p.participantId as string | undefined); return { cancelled: true }; }
+				if (method === 'comparisons.delete') {
+					try { return { deleted: true, ...await this.comparisons.delete(p.id as string, p.workspace) }; } catch (error) { throw new RpcError(-32006, (error as Error).message); }
+				}
 				if (method === 'comparisons.cleanup') { await this.comparisons.cleanup(p.id as string, p.workspace); return { cleaned: true }; }
 				if (typeof p.participantId !== 'string') { throw new RpcError(ErrorCode.InvalidParams, 'Participant required'); }
 				if (method === 'comparisons.inspect') { return this.comparisons.inspect(p.id as string, p.workspace, p.participantId); }

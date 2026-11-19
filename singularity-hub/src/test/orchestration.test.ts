@@ -17,11 +17,11 @@ const CLAUDE = { service: 'claude-code', model: { providerID: 'claude-code', mod
 class FakeHub extends EventEmitter {
 	connected = true; instanceId = 'fake';
 	calls: Array<{ method: string; params: any }> = [];
-	comparisons: any[] = []; teams: any[] = [];
+	comparisons: any[] = []; teams: any[] = []; sessionRows: any[] = [];
 	mode: 'ok' | 'down' | 'lost' | 'lost-and-created' = 'ok';
 	constructor(private readonly workspace: string) { super(); }
 	start(): void { /* connected */ } close(): void { /* nothing */ } eventsAfter(): never[] { return []; }
-	async sessions(): Promise<unknown[]> { return []; }
+	async sessions(): Promise<unknown[]> { return this.sessionRows; }
 	async call(method: string, params?: any): Promise<unknown> {
 		this.calls.push({ method, params });
 		if (method === 'catalog.get') {
@@ -81,8 +81,8 @@ describe('Remote 2.0 orchestration through the gateway', { timeout: 180000 }, ()
 	}
 
 	it('keeps the closed API: the new operations are allowed, applying/undoing/cleanup and generic RPC are not', () => {
-		for (const method of ['comparisons.create', 'comparisons.cancel', 'comparisons.select', 'teams.start', 'teams.cancel', 'teams.resume', 'teams.delete', 'teams.instruct', 'teams.validate', 'teams.choose']) { assert.ok((ALLOWED_HUB_METHODS as readonly string[]).includes(method), method); }
-		for (const method of ['solutions.apply', 'solutions.undo', 'solutions.prepare', 'comparisons.cleanup', 'hub.shutdown', 'processes.terminate', 'session.stop']) { assert.ok(!(ALLOWED_HUB_METHODS as readonly string[]).includes(method), method); }
+		for (const method of ['comparisons.create', 'comparisons.cancel', 'comparisons.select', 'teams.start', 'teams.cancel', 'teams.resume', 'teams.delete', 'teams.instruct', 'teams.validate', 'teams.choose', 'comparisons.delete', 'session.stop', 'session.deleteHistory']) { assert.ok((ALLOWED_HUB_METHODS as readonly string[]).includes(method), method); }
+		for (const method of ['solutions.apply', 'solutions.undo', 'solutions.prepare', 'comparisons.cleanup', 'hub.shutdown', 'processes.terminate']) { assert.ok(!(ALLOWED_HUB_METHODS as readonly string[]).includes(method), method); }
 	});
 
 	it('validates what the phone sends: counts, distinct agents, limits and the correction cycles', () => {
@@ -179,6 +179,28 @@ describe('Remote 2.0 orchestration through the gateway', { timeout: 180000 }, ()
 		assert.equal(detail.json.task, 'construa o módulo');
 	});
 
+	it('deletes a session from the phone only with confirmation, only in an authorised workspace and never from under a running comparison', async () => {
+		const hub = new FakeHub(workspace);
+		const { api, workspaceId } = await make(hub);
+		const live = { id: '44444444-4444-4444-8444-444444444444', harness: 'opencode', status: 'idle', workspace, historical: false };
+		const done = { id: '55555555-5555-4555-8555-555555555555', harness: 'opencode', status: 'done', workspace, historical: true };
+		const foreign = { id: '66666666-6666-4666-8666-666666666666', harness: 'opencode', status: 'done', workspace: outsider, historical: true };
+		const inComparison = { id: '77777777-7777-4777-8777-777777777777', harness: 'opencode', status: 'running', workspace, historical: false };
+		hub.sessionRows = [live, done, foreign, inComparison];
+		hub.comparisons = [{ id: '88888888-8888-4888-8888-888888888888', workspace, participants: [{ id: 'p', sessionId: inComparison.id, status: 'running' }] }];
+		const del = (id: string, body: unknown) => api('POST', `/api/sessions/${id}/delete`, body);
+		assert.equal((await del(live.id, {})).status, 400, 'confirmation');
+		assert.equal((await del(foreign.id, { confirm: true })).status, 404, 'a session outside the authorised workspaces does not exist for the phone');
+		assert.equal((await del(inComparison.id, { confirm: true })).status, 409, 'not from under a running comparison');
+		assert.deepEqual(hub.calls.filter(c => /^session\./.test(c.method)), [], 'nothing reached the Hub so far');
+		assert.equal((await del(live.id, { confirm: true })).status, 200);
+		assert.deepEqual(hub.calls.filter(c => /^session\./.test(c.method)).map(c => c.method), ['session.stop', 'session.deleteHistory'], 'an active session is ended, then removed');
+		hub.calls.length = 0;
+		assert.equal((await del(done.id, { confirm: true })).status, 200);
+		assert.deepEqual(hub.calls.filter(c => /^session\./.test(c.method)).map(c => c.method), ['session.deleteHistory'], 'an archived one is only removed');
+		assert.ok(workspaceId);
+	});
+
 	it('runs team and comparison controls only for an authorised workspace, with a request id, and never reaches apply/undo', async () => {
 		const hub = new FakeHub(workspace);
 		const { api, workspaceId } = await make(hub);
@@ -194,7 +216,10 @@ describe('Remote 2.0 orchestration through the gateway', { timeout: 180000 }, ()
 		assert.deepEqual(hub.calls.filter(c => c.method === 'teams.instruct').map(c => (c.params as { text: string }).text), ['Publique também.']);
 		assert.equal((await api('POST', `/api/comparisons/${id}/instruct`, { workspaceId, confirm: true, text: 'x' }, 'ctl-0000000d')).status, 404);
 		assert.equal((await api('POST', `/api/teams/${id}/delete`, { workspaceId, confirm: true }, 'ctl-00000009')).status, 200, 'a team that is not working can be deleted');
-		assert.equal((await api('POST', `/api/comparisons/${id}/delete`, { workspaceId, confirm: true }, 'ctl-0000000a')).status, 404, 'comparisons are not deleted from the phone');
+		// the owner asked for it (acceptance of preview.13): a finished comparison can now be deleted from the phone, with confirmation and a request id
+		assert.equal((await api('POST', `/api/comparisons/${id}/delete`, { workspaceId }, 'ctl-0000000e')).status, 400, 'confirmation');
+		assert.equal((await api('POST', `/api/comparisons/${id}/delete`, { workspaceId, confirm: true }, 'ctl-0000000a')).status, 200);
+		assert.deepEqual(hub.calls.filter(c => c.method === 'comparisons.delete').map(c => c.params), [{ id, workspace }]);
 		assert.equal((await api('POST', `/api/comparisons/${id}/cancel`, { workspaceId, confirm: true }, 'ctl-00000006')).status, 200);
 		assert.equal((await api('POST', `/api/comparisons/${id}/select`, { workspaceId, confirm: true }, 'ctl-00000007')).status, 400, 'a participant is required');
 		assert.equal((await api('POST', `/api/comparisons/${id}/select`, { workspaceId, confirm: true, participantId: 'part-1' }, 'ctl-00000008')).status, 200);

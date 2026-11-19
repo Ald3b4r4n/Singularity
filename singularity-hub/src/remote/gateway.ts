@@ -311,6 +311,19 @@ export class RemoteGateway {
 			if (!rawRequestId) { throw new HttpError(400, 'X-Request-Id é obrigatório.'); }
 			return this.sendPrompt(res, device.id, action[1], rawRequestId, text);
 		}
+		const removal = /^\/api\/sessions\/([0-9a-f-]{36})\/delete$/.exec(url.pathname);
+		if (req.method === 'POST' && removal) {
+			const body = await this.readBody(req);
+			if (body.confirm !== true) { throw new HttpError(400, 'A ação precisa ser confirmada pelo usuário.'); }
+			const { session, workspace } = await this.ownSession(removal[1]);
+			// a session that still belongs to a comparison or team that is running is not deleted from under it
+			const groups = await this.bridge.call<Array<{ participants?: Array<{ sessionId?: string; status: string }> }>>('comparisons.list', { workspace: workspace.path });
+			if (groups.some(group => group.participants?.some(p => p.sessionId === session.id && ['running', 'preparing'].includes(p.status)))) { throw new HttpError(409, 'Esta sessão faz parte de uma comparação ou equipe em andamento. Cancele-a antes.'); }
+			if (!session.historical) { await this.bridge.call('session.stop', { id: session.id }, 30000); }
+			await this.bridge.call('session.deleteHistory', { id: session.id, workspace: workspace.path });
+			this.sessionWorkspace.delete(session.id);
+			return this.send(res, 200, { ok: true });
+		}
 		const resolve = /^\/api\/sessions\/([0-9a-f-]{36})\/requests\/([A-Za-z0-9_-]{8,64})$/.exec(url.pathname);
 		if (resolve && (req.method === 'GET' || req.method === 'POST')) {
 			await this.ownSession(resolve[1]);
@@ -469,7 +482,7 @@ export class RemoteGateway {
 		const rid = this.requestIdOf(req);
 		const workspace = this.requireWorkspace(body.workspaceId);
 		const [, kind, id, verb] = action;
-		const allowed = kind === 'comparisons' ? ['cancel', 'select'] : ['cancel', 'resume', 'choose', 'validate', 'delete', 'instruct'];
+		const allowed = kind === 'comparisons' ? ['cancel', 'select', 'delete'] : ['cancel', 'resume', 'choose', 'validate', 'delete', 'instruct'];
 		const instruction = typeof body.text === 'string' ? body.text.trim() : '';
 		if (kind === 'teams' && verb === 'instruct' && (!instruction || instruction.length > 3000)) { throw new HttpError(400, 'Escreva a nova instrução (até 3000 caracteres).'); }
 		const since = Date.now();
@@ -486,7 +499,8 @@ export class RemoteGateway {
 		await this.operate(res, device.id, { action: `${kind}.${verb}`, scope: id, rid, content: { workspace: workspace.id, participantId, role, profileId: profile ? body.profileId : undefined, ...(verb === 'instruct' ? { text: instruction } : {}) }, status: 200,
 			perform: async () => {
 				const params = { id, workspace: workspace.path };
-				if (kind === 'comparisons' && verb === 'cancel') { await this.bridge.call('comparisons.cancel', { ...params, ...(participantId ? { participantId } : {}) }); }
+				if (kind === 'comparisons' && verb === 'delete') { await this.bridge.call('comparisons.delete', params); }
+				else if (kind === 'comparisons' && verb === 'cancel') { await this.bridge.call('comparisons.cancel', { ...params, ...(participantId ? { participantId } : {}) }); }
 				else if (kind === 'comparisons') { await this.bridge.call('comparisons.select', { ...params, participantId }); }
 				else if (verb === 'cancel') { await this.bridge.call('teams.cancel', { ...params, ...(role ? { role } : {}) }); }
 				else if (verb === 'resume') { await this.bridge.call('teams.resume', params); }
