@@ -291,6 +291,9 @@ export class Comparisons {
 		const p = record.participants.find(p => p.id === participantId);
 		if (!p) { throw new Error('Participante inválido.'); }
 		await this.verifyTree(record, p);
+		// the agent's live view and history are asked at the same time as git: a slow harness (up to 4 s for live) must not add to the git time
+		const livePending = p.sessionId && this.adapter.live ? this.adapter.live(p.sessionId).catch(() => undefined) : Promise.resolve(undefined);
+		const turnsPending = p.sessionId && this.adapter.history ? this.adapter.history(p.sessionId, p.workspace).catch(() => []) : Promise.resolve([]);
 		const [files, diff, untracked] = await Promise.all([
 			this.git(p.workspace, ['diff', '--name-status', record.base, '--']),
 			this.git(p.workspace, ['diff', '--no-ext-diff', '--no-textconv', record.base, '--']),
@@ -307,8 +310,7 @@ export class Comparisons {
 			additions += '\ndiff --git a/' + file + ' b/' + file + '\n--- /dev/null\n+++ b/' + file + '\n' + data.toString('utf8').split(/\r?\n/).map(line => '+' + line).join('\n') + '\n';
 		}
 		const session = this.adapter.list().find(s => s.id === p.sessionId);
-		const live = p.sessionId && this.adapter.live ? await this.adapter.live(p.sessionId).catch(() => undefined) : undefined;
-		const turns = p.sessionId && this.adapter.history ? await this.adapter.history(p.sessionId, p.workspace).catch(() => []) : [];
+		const [live, turns] = await Promise.all([livePending, turnsPending]);
 		return { participant: structuredClone(p), base: record.base, files, diff: diff + additions, untracked, usage: session?.usage, result: session?.result ?? turns.at(-1)?.result ?? live?.text, activity: live?.activity, idleMs: live?.lastAt ? Math.max(0, Date.now() - live.lastAt) : undefined, error: p.error ?? session?.summary,
 			tests: 'Consulte a saída do agente. O coordenador não executou testes independentes.', durationMs: p.startedAt ? (p.endedAt ?? Date.now()) - p.startedAt : undefined };
 	}
