@@ -80,6 +80,11 @@
         "category": "Singularity"
       },
       {
+        "command": "singularity.remote.rc",
+        "title": "Autorizar esta pasta no celular (/rc)",
+        "category": "Singularity"
+      },
+      {
         "command": "singularity.remote.tailscale",
         "title": "Rede privada do acesso remoto (Tailscale)",
         "category": "Singularity"

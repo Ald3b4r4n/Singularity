@@ -59,6 +59,19 @@ test('every contributed command is registered, and every %key% exists in package
 	for (const k of keys) { assert.ok(k in nls, `missing nls key ${k}`); }
 });
 
+test('"/rc" authorizes the open folder for the phone, is never sent to an agent, and keeps the consent modal', () => {
+	const main = read('media/main.js'), ext = read('extension.js'), remote = read('remote.js');
+	assert.ok(/isRemoteSlash\(\) && !busy\(\)\) \{[\s\S]{0,160}type: 'remoteCommand' \}\);\s*return;/.test(main), 'the slash is handled before anything reaches the agent');
+	assert.ok(main.indexOf("type: 'remoteCommand'") < main.indexOf("type: 'send'"), 'handled before the send');
+	assert.ok(main.includes('/^\\/rc\\s*$/i'), 'only the exact command "/rc" is a command; "/rc fix it" is still a task');
+	assert.ok(/message\?\.type === 'remoteCommand'[\s\S]{0,120}singularity\.remote\.rc/.test(ext), 'the chat box runs the same command as the palette');
+	const rc = remote.slice(remote.indexOf("'singularity.remote.rc'"), remote.indexOf("'singularity.remote.pair'"));
+	assert.ok(rc.includes("modal('Autorizar este workspace no celular?'") && rc.includes('sure !== \'Autorizar\''), 'the phone gains nothing without the owner answering the modal');
+	assert.ok(rc.includes('workspaceFolders') && !rc.includes('showOpenDialog'), 'only a folder open in this window can be authorized');
+	assert.ok(rc.includes('já está autorizado'), 'running it twice changes nothing');
+	assert.ok(pkg.contributes.commands.some(c => c.command === 'singularity.remote.rc'), 'also in the palette');
+});
+
 test('the command palette entry reads "Singularity: Abrir Agentes"', () => {
 	const open = pkg.contributes.commands.find(c => c.command === 'singularity.agents.open');
 	assert.strictEqual(`${open.category}: ${nls['command.open']}`, 'Singularity: Abrir Agentes');

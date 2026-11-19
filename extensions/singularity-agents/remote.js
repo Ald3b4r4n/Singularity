@@ -84,6 +84,32 @@ function register(context) {
 			}
 		})),
 
+		// "/rc" in the chat box (and the same command from the palette): authorize the open folder for the phone in one step. It keeps the
+		// consent of the long way (a modal that says what the phone gains) and never touches a folder that is not open in this window.
+		vscode.commands.registerCommand('singularity.remote.rc', wrap(async () => {
+			if (!control().gatewayRunning()) {
+				await vscode.commands.executeCommand('singularity.remote.enable');
+				if (!control().gatewayRunning()) { return; }
+			}
+			const folders = (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file');
+			if (!folders.length) { vscode.window.showInformationMessage('Abra uma pasta para autorizá-la ao acesso remoto.'); return; }
+			const folder = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(item => ({ label: item.name, description: item.uri.fsPath, item })), { title: 'Qual pasta autorizar no celular?' }))?.item;
+			if (!folder) { return; }
+			const info = await state();
+			const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+			const url = info.tailnetNames && info.tailnetNames[0] ? `https://${info.tailnetNames[0]}/` : undefined;
+			const paired = info.devices.some(device => !device.revokedAt);
+			const next = paired ? (url ? ` Abra ${url} no celular.` : '') : ' Falta parear o celular: use "Singularity: Parear dispositivo".';
+			if (info.workspaces.some(workspace => same(workspace.path, folder.uri.fsPath))) {
+				vscode.window.showInformationMessage(`"${folder.name}" já está autorizado no celular.${next}`);
+				return;
+			}
+			const sure = await modal('Autorizar este workspace no celular?', folder.uri.fsPath + '\n\nO celular poderá iniciar tarefas de agentes nele. Os agentes continuam com as permissões que você escolher (somente leitura por padrão).', 'Autorizar');
+			if (sure !== 'Autorizar') { return; }
+			await control().adminRequest('POST', '/admin/workspaces/add', { path: folder.uri.fsPath });
+			vscode.window.showInformationMessage(`"${folder.name}" autorizado no celular.${next}`);
+		})),
+
 		vscode.commands.registerCommand('singularity.remote.pair', wrap(async () => {
 			if (!(await requireRunning())) { return; }
 			const started = await control().adminRequest('POST', '/admin/pairing/start', {});

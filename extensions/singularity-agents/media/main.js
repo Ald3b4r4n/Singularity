@@ -110,7 +110,7 @@
 		const running = busy();
 		// A session belongs to one provider for its whole life: another provider needs a new session, never a silent switch.
 		const crossed = !!current && !!sel.service && current.harness !== sel.service && !running;
-		el.send.disabled = current?.historical || current?.recovery === 'unrecoverable' || crossed || !online || (running ? interrupting : sending || !sel.canSend || !el.prompt.value.trim());
+		el.send.disabled = (isRemoteSlash() && !running) ? false : current?.historical || current?.recovery === 'unrecoverable' || crossed || !online || (running ? interrupting : sending || !sel.canSend || !el.prompt.value.trim());
 		el.send.classList.toggle('interrupt', running);
 		el.send.title = running ? 'Parar execução' : 'Enviar (Ctrl+Enter)';
 		const label = running ? (interrupting ? 'Parando…' : 'Parar') : 'Enviar';
@@ -264,12 +264,19 @@
 	el.permission.addEventListener('change', () => { prefs = { ...prefs, permissionMode: el.permission.value }; message = ''; remember(); drawComposer(); });
 	el.effort.addEventListener('change', () => { prefs = { ...prefs, variant: el.effort.value }; message = ''; remember(); drawComposer(); });
 	el.prompt.addEventListener('input', () => { message = ''; saveDraft(); drawComposer(); });
+	/** "/rc" is a command of the IDE, never a task: it authorizes this workspace for the phone and is not sent to any agent. */
+	function isRemoteSlash() { return /^\/rc\s*$/i.test(el.prompt.value.trim()); }
 	el.prompt.addEventListener('keydown', event => {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !el.send.disabled) { event.preventDefault(); el.composer.requestSubmit(); }
 	});
 
 	el.composer.addEventListener('submit', event => {
 		event.preventDefault();
+		if (isRemoteSlash() && !busy()) {
+			el.prompt.value = ''; message = ''; saveDraft(); drawComposer();
+			vscode.postMessage({ type: 'remoteCommand' });
+			return;
+		}
 		if (comparison.submit()) { return; }
 		if (el.send.disabled) { return; }
 		if (busy()) {

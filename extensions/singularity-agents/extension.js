@@ -107,6 +107,8 @@ class AgentsViewProvider {
 			} else if (message?.type === 'target') {
 				this._targetId = message.id;
 				this._postSessions();
+			} else if (message?.type === 'remoteCommand') {
+				await vscode.commands.executeCommand('singularity.remote.rc');
 			} else if (message?.type === 'manageProviders') {
 				await vscode.commands.executeCommand('singularity.agents.manageProviders');
 			} else if (message?.type === 'openSettings') {
