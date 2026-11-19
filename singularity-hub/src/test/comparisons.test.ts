@@ -61,6 +61,26 @@ test('comparison creates detached isolated trees at one base, sends once, cancel
 	assert.equal(next.list(f.workspace)[0].participants[0].removed, true);
 });
 
+test('inspect delivers the diff when the live reading of the agent fails or is slow, and does not add its time to git', async () => {
+	for (const mode of ['fails', 'slow'] as const) {
+		const f = fixture();
+		const live = async () => {
+			if (mode === 'fails') { throw new Error('OpenCode did not answer'); }
+			await new Promise(resolve => setTimeout(resolve, 1500));
+			return { text: 'late text', activity: [], lastAt: Date.now() };
+		};
+		const coordinator = new Comparisons(f.directory, { ...f.adapter, live }, () => {});
+		const run = await coordinator.create(f.input);
+		writeFileSync(join(run.participants[0].workspace, 'sample.txt'), 'changed by the agent\n');
+		const started = Date.now();
+		const inspection = await coordinator.inspect(run.id, f.workspace, run.participants[0].id) as { diff: string; activity?: unknown; result?: string };
+		assert.match(inspection.diff, /changed by the agent/);
+		assert.equal(inspection.activity === undefined, mode === 'fails');
+		assert.equal(inspection.result, mode === 'slow' ? 'late text' : undefined);
+		assert.ok(Date.now() - started < 4000, 'bounded by the slowest reading, not by their sum');
+	}
+});
+
 test('dirty origin, duplicate participants, wrong scope, and concurrent starts are refused', async () => {
 	const f = fixture();
 	writeFileSync(join(f.workspace, 'sample.txt'), 'dirty');
